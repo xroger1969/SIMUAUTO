@@ -214,14 +214,32 @@
 
         <div class="panel">
           <div class="panel-head">
-            <div><span class="eyebrow">Comissão base + financiamento</span><h3>Escalões de volume</h3></div>
+            <div>
+              <span class="eyebrow">Comissão base + financiamento</span>
+              <h3>Comissão por volume e percentagem financiada</h3>
+            </div>
+          </div>
+          <div class="commission-guide">
+            <strong>Leitura simples:</strong>
+            <span>escolhe o escalão de vendas do mês e cruza com a percentagem do PVP financiada.</span>
+            <span>Os valores 0%, 25%, 50%, 75% e 100% são editáveis; percentagens intermédias são calculadas automaticamente.</span>
           </div>
           <div class="table-wrap">
-            <table class="settings-table">
-              <thead><tr><th>Escalão</th><th>De</th><th>Até</th><th>Sem financiamento</th><th>100% financiado</th></tr></thead>
+            <table class="settings-table finance-grid-table">
+              <thead>
+                <tr>
+                  <th>Vendas/mês</th>
+                  <th>0% financiado</th>
+                  <th>25% financiado</th>
+                  <th>50% financiado</th>
+                  <th>75% financiado</th>
+                  <th>100% financiado</th>
+                </tr>
+              </thead>
               <tbody id="volumeTiersBody"></tbody>
             </table>
           </div>
+          <p class="table-note">Exemplo: se num escalão a comissão for 375 € a 50% e 413 € a 75%, uma operação com 60% financiado é calculada proporcionalmente entre esses dois valores.</p>
         </div>
 
         <div class="panel">

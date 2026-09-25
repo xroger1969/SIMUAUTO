@@ -38,3 +38,15 @@ button{cursor:pointer}
 @media(max-width:1250px){.kpi-grid.six{grid-template-columns:repeat(3,1fr)}.kpi-grid.five{grid-template-columns:repeat(3,1fr)}.seller-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:980px){.app-shell{grid-template-columns:1fr}.sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:12px}.brand{padding:0 4px 10px}.nav{grid-template-columns:repeat(5,1fr);overflow:auto}.nav-item{justify-content:center;font-size:10px;padding:9px 7px;white-space:nowrap}.nav-item span{display:none}.sidebar-foot{display:none}.main{padding:20px 14px 40px}.topbar{align-items:flex-start;flex-direction:column}.topbar-actions{width:100%}.hero-card,.sim-grid,.backoffice-grid{grid-template-columns:1fr}.hero-metric{padding:14px 0 0;border-left:0;border-top:1px solid rgba(255,255,255,.08)}.form-grid.three{grid-template-columns:repeat(2,1fr)}.span-3{grid-column:span 2}.deal-preview{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:680px){.nav{grid-template-columns:repeat(5,minmax(95px,1fr))}.topbar-actions{display:grid;grid-template-columns:1fr 1fr}.month-field{grid-column:span 2}.topbar-actions .btn{font-size:11px}.kpi-grid.six,.kpi-grid.five,.seller-grid{grid-template-columns:1fr 1fr}.hero-card h2{font-size:23px}.form-grid.two,.form-grid.three{grid-template-columns:1fr}.span-3{grid-column:auto}.deal-preview{grid-template-columns:1fr 1fr}.search{min-width:0;width:100%}.split-toolbar{align-items:flex-start;flex-direction:column}.inline-actions{width:100%}.inline-actions>*{flex:1}.modal-backdrop{padding:8px}.modal{border-radius:15px;padding:14px}.footer-actions{flex-direction:column}.footer-actions .btn{width:100%}}
+
+.commission-guide{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-2px 0 14px;padding:11px 12px;border:1px solid #24415f;background:#0d1d31;border-radius:12px;color:#9db0c7;font-size:10px;line-height:1.5}
+.commission-guide strong{color:#d8e8ff}
+.finance-grid-table{min-width:860px}
+.finance-grid-table th{text-align:center}
+.finance-grid-table th:first-child,.finance-grid-table td:first-child{text-align:left}
+.finance-grid-table td{text-align:center}
+.commission-cell{display:inline-flex;align-items:center;border:1px solid #2a3e5b;background:#0a1525;border-radius:8px;overflow:hidden}
+.commission-cell input{width:84px!important;border:0!important;border-radius:0!important;text-align:right;padding-right:7px!important}
+.commission-cell span{padding:7px 8px;border-left:1px solid #2a3e5b;color:#70839e;font-size:10px}
+.tier-hint{display:block;color:#70839a;font-size:8px;font-weight:600;margin-top:3px}
+.table-note{margin:11px 2px 0;color:#71849d;font-size:10px;line-height:1.55}

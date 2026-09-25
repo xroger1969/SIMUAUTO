@@ -45,7 +45,7 @@
       return {
         companyName: parsed.companyName || seed.companyName,
         month: parsed.month || currentMonth(),
-        config: parsed.config || E.clone(E.DEFAULT_CONFIG),
+        config: E.normalizeConfig(parsed.config || E.DEFAULT_CONFIG),
         ruleHistory: Array.isArray(parsed.ruleHistory) ? parsed.ruleHistory : seed.ruleHistory,
         sellers: Array.isArray(parsed.sellers) && parsed.sellers.length ? parsed.sellers : seed.sellers,
         deals: Array.isArray(parsed.deals) ? parsed.deals : []
@@ -216,15 +216,15 @@
   }
 
   function renderRules(){
+    state.config=E.normalizeConfig(state.config);
     q("globalMaxCommission").value=state.config.globalMaxCommission;
     q("financeCapPct").value=state.config.financeCapPct;
-    q("volumeTiersBody").innerHTML=state.config.volumeTiers.map((t,i)=>
-      '<tr><td><strong>'+escapeHtml(t.label)+'</strong></td>'+
-      '<td><input class="small" type="number" data-tier="'+i+'" data-key="from" value="'+t.from+'"></td>'+
-      '<td><input class="small" type="number" data-tier="'+i+'" data-key="to" value="'+(t.to??"")+'" placeholder="∞"></td>'+
-      '<td><input type="number" data-tier="'+i+'" data-key="noFinance" value="'+t.noFinance+'"> €</td>'+
-      '<td><input type="number" data-tier="'+i+'" data-key="fullFinance" value="'+t.fullFinance+'"> €</td></tr>'
-    ).join("");
+    q("volumeTiersBody").innerHTML=state.config.volumeTiers.map((t,i)=>{
+      const cells=E.FINANCE_POINTS.map(point=>
+        '<td><div class="commission-cell"><input type="number" min="0" step="1" data-tier="'+i+'" data-point="'+point+'" value="'+num(t.financeGrid[String(point)])+'"><span>€</span></div></td>'
+      ).join("");
+      return '<tr><td><strong>'+escapeHtml(t.label)+'</strong><small class="tier-hint">'+(t.id==="t0"?"sem comissão inicial":"vendas no mês")+'</small></td>'+cells+'</tr>';
+    }).join("");
     q("marginBandsBody").innerHTML=state.config.marginBands.map((b,i)=>
       '<tr><td><strong>'+escapeHtml(b.label)+'</strong></td>'+
       '<td><input type="number" data-margin="'+i+'" data-key="min" value="'+(b.min??"")+'" placeholder="−∞"></td>'+
@@ -375,7 +375,11 @@
     q("simFinanceRevenue").textContent=fmtMoney(c.financeRevenue);
     q("simNet").textContent=fmtMoney(c.resultAfterCommission);
     q("simRule").textContent="Escalão "+c.volumeTier.label+" · margem "+c.marginBand.label+" · fator "+c.marginBand.factor+"×";
-    q("simExplain").innerHTML="Base sem financiamento: <strong>"+fmtMoney(c.volumeTier.noFinance)+"</strong>. A 100% financiado: <strong>"+fmtMoney(c.volumeTier.fullFinance)+"</strong>. Após o fator de margem, a comissão estimada é <strong>"+fmtMoney(c.calculatedCommission)+"</strong>.";
+    const b=c.financeBracket;
+    const bracketText=b.lowerPoint===b.upperPoint
+      ? b.lowerPoint+"% = "+fmtMoney(b.lowerValue)
+      : "entre "+b.lowerPoint+"% ("+fmtMoney(b.lowerValue)+") e "+b.upperPoint+"% ("+fmtMoney(b.upperValue)+")";
+    q("simExplain").innerHTML="Com <strong>"+fmtPct(c.financePctApplied)+"</strong> do PVP financiado, a comissão-base é calculada "+bracketText+" e resulta em <strong>"+fmtMoney(c.volumeFinanceCommission)+"</strong>. Aplicando o fator de margem de <strong>"+c.marginBand.factor+"×</strong>, a comissão estimada fica em <strong>"+fmtMoney(c.calculatedCommission)+"</strong>.";
   }
 
   function addSeller(){
@@ -398,20 +402,15 @@
   }
 
   function readRulesFromDom(){
-    const config=E.clone(state.config);
+    const config=E.normalizeConfig(state.config);
     config.globalMaxCommission=Math.max(0,num(q("globalMaxCommission").value));
-    config.financeCapPct=Math.max(1,num(q("financeCapPct").value));
+    config.financeCapPct=Math.min(100,Math.max(1,num(q("financeCapPct").value)));
 
-    qa("#volumeTiersBody input").forEach(input=>{
-      const i=Number(input.dataset.tier),key=input.dataset.key;
-      if(Number.isNaN(i)||!key) return;
-      const value=input.value==="" ? null : num(input.value);
-      config.volumeTiers[i][key]=value;
-    });
-    config.volumeTiers.forEach(t=>{
-      t.label=t.to===null ? t.from+"+" : t.from+"–"+t.to;
-      t.noFinance=Math.max(0,num(t.noFinance));
-      t.fullFinance=Math.max(t.noFinance,num(t.fullFinance));
+    qa("#volumeTiersBody input[data-point]").forEach(input=>{
+      const i=Number(input.dataset.tier);
+      const point=String(input.dataset.point);
+      if(Number.isNaN(i)||!config.volumeTiers[i]||!E.FINANCE_POINTS.includes(Number(point))) return;
+      config.volumeTiers[i].financeGrid[point]=Math.max(0,num(input.value));
     });
 
     qa("#marginBandsBody input").forEach(input=>{
@@ -425,7 +424,7 @@
       else if(b.max===null) b.label="≥ "+fmtMoney(b.min);
       else b.label=fmtMoney(b.min)+"–"+fmtMoney(b.max);
     });
-    return config;
+    return E.normalizeConfig(config);
   }
 
   function saveRules(){
