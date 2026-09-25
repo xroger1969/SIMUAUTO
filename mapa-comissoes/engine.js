@@ -4,7 +4,7 @@
   const FINANCE_POINTS = [0,25,50,75,100];
 
   const DEFAULT_CONFIG = {
-    version: 2,
+    version: 3,
     globalMinCommission: 120,
     globalMaxCommission: 750,
     financeCapPct: 100,
