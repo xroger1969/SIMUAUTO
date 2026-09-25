@@ -5,6 +5,7 @@
 
   const DEFAULT_CONFIG = {
     version: 2,
+    globalMinCommission: 120,
     globalMaxCommission: 750,
     financeCapPct: 100,
     volumeTiers: [
@@ -18,10 +19,10 @@
     ],
     marginBands: [
       { id:"m0", label:"< 1.000 €", min:null, max:999.99, factor:0.50 },
-      { id:"m1", label:"1.000–1.499 €", min:1000, max:1499.99, factor:0.75 },
-      { id:"m2", label:"1.500–2.499 €", min:1500, max:2499.99, factor:1.00 },
-      { id:"m3", label:"2.500–3.499 €", min:2500, max:3499.99, factor:1.05 },
-      { id:"m4", label:"≥ 3.500 €", min:3500, max:null, factor:1.10 }
+      { id:"m1", label:"1.000–1.499 €", min:1000, max:1499.99, factor:0.70 },
+      { id:"m2", label:"1.500–1.999 €", min:1500, max:1999.99, factor:0.85 },
+      { id:"m3", label:"2.000–2.499 €", min:2000, max:2499.99, factor:0.95 },
+      { id:"m4", label:"≥ 2.500 €", min:2500, max:null, factor:1.00 }
     ]
   };
 
@@ -53,7 +54,8 @@
     const out=clone(DEFAULT_CONFIG);
 
     if(Number.isFinite(Number(source.version))) out.version=num(source.version);
-    if(Number.isFinite(Number(source.globalMaxCommission))) out.globalMaxCommission=Math.max(0,num(source.globalMaxCommission));
+    if(Number.isFinite(Number(source.globalMinCommission))) out.globalMinCommission=Math.max(0,num(source.globalMinCommission));
+    if(Number.isFinite(Number(source.globalMaxCommission))) out.globalMaxCommission=Math.max(out.globalMinCommission,num(source.globalMaxCommission));
     if(Number.isFinite(Number(source.financeCapPct))) out.financeCapPct=clamp(num(source.financeCapPct),1,100);
 
     const srcTiers=Array.isArray(source.volumeTiers) ? source.volumeTiers : [];
@@ -163,11 +165,12 @@
     const financeBracket=getFinanceCommission(volumeTier,financePct);
     const volumeFinanceCommission=round2(financeBracket.value);
 
+    const eligible=salePosition>=2 && volumeFinanceCommission>0;
+    const rawCommission=Math.max(0,volumeFinanceCommission*num(marginBand.factor));
     const calculatedCommission=round2(
-      Math.min(
-        Math.max(0,num(config.globalMaxCommission)),
-        Math.max(0,volumeFinanceCommission*num(marginBand.factor))
-      )
+      eligible
+        ? clamp(rawCommission,Math.max(0,num(config.globalMinCommission)),Math.max(num(config.globalMinCommission),num(config.globalMaxCommission)))
+        : 0
     );
 
     const commission=deal.status==="cancelled"
