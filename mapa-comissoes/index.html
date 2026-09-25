@@ -154,15 +154,16 @@
           <div class="panel">
             <div class="panel-head">
               <div><span class="eyebrow">Cenário sem gravar</span><h3>Simulador de operação</h3></div>
+              <button class="btn secondary small" id="btnRecommendedScenario" type="button">Carregar cenário recomendado</button>
             </div>
             <div class="form-grid two" id="simForm">
               <label><span>Posição da venda no mês</span><input type="number" id="simPosition" value="8" min="1"></label>
               <label><span>PVP</span><input type="number" id="simSalePrice" value="25000" step="100"></label>
-              <label><span>Custo de aquisição</span><input type="number" id="simAcquisition" value="20500" step="100"></label>
-              <label><span>Preparação</span><input type="number" id="simPrep" value="700" step="50"></label>
-              <label><span>Garantia</span><input type="number" id="simWarranty" value="600" step="50"></label>
-              <label><span>Outros custos</span><input type="number" id="simOther" value="400" step="50"></label>
-              <label><span>Capital financiado</span><input type="number" id="simFinanced" value="20000" step="100"></label>
+              <label><span>Custo de aquisição</span><input type="number" id="simAcquisition" value="21000" step="100"></label>
+              <label><span>Preparação</span><input type="number" id="simPrep" value="500" step="50"></label>
+              <label><span>Garantia</span><input type="number" id="simWarranty" value="500" step="50"></label>
+              <label><span>Outros custos</span><input type="number" id="simOther" value="500" step="50"></label>
+              <label><span>Capital financiado</span><input type="number" id="simFinanced" value="18750" step="100"></label>
               <label><span>Remuneração da financeira</span><div class="input-suffix"><input type="number" id="simLenderRate" value="3.5" step=".1"><em>%</em></div></label>
             </div>
           </div>
@@ -193,9 +194,11 @@
             </div>
             <div class="form-grid two">
               <label><span>Nome da empresa / projeto</span><input id="companyName" value="Mapa Comercial"></label>
+              <label><span>Comissão mínima por viatura elegível</span><div class="input-suffix"><input id="globalMinCommission" type="number" value="120"><em>€</em></div></label>
               <label><span>Comissão máxima por viatura</span><div class="input-suffix"><input id="globalMaxCommission" type="number" value="750"><em>€</em></div></label>
               <label><span>Financiamento considerado até</span><div class="input-suffix"><input id="financeCapPct" type="number" value="100"><em>% PVP</em></div></label>
               <label><span>Máximo de vendedores</span><input value="5" disabled></label>
+              <label><span>Remuneração financeira de referência</span><div class="input-suffix"><input value="3.5" disabled><em>%</em></div></label>
             </div>
             <div class="notice">
               <strong>Regra importante</strong>

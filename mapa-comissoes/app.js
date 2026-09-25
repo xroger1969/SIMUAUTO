@@ -42,10 +42,13 @@
       const raw=localStorage.getItem(STORAGE_KEY);
       if(!raw) return E.clone(seed);
       const parsed=JSON.parse(raw);
+      const noDeals=!Array.isArray(parsed.deals) || parsed.deals.length===0;
+      const savedVersion=num(parsed.config && parsed.config.version);
+      const selectedConfig=(noDeals && savedVersion<3) ? E.clone(E.DEFAULT_CONFIG) : (parsed.config || E.DEFAULT_CONFIG);
       return {
         companyName: parsed.companyName || seed.companyName,
         month: parsed.month || currentMonth(),
-        config: E.normalizeConfig(parsed.config || E.DEFAULT_CONFIG),
+        config: E.normalizeConfig(selectedConfig),
         ruleHistory: Array.isArray(parsed.ruleHistory) ? parsed.ruleHistory : seed.ruleHistory,
         sellers: Array.isArray(parsed.sellers) && parsed.sellers.length ? parsed.sellers : seed.sellers,
         deals: Array.isArray(parsed.deals) ? parsed.deals : []
@@ -217,6 +220,7 @@
 
   function renderRules(){
     state.config=E.normalizeConfig(state.config);
+    q("globalMinCommission").value=state.config.globalMinCommission;
     q("globalMaxCommission").value=state.config.globalMaxCommission;
     q("financeCapPct").value=state.config.financeCapPct;
     q("volumeTiersBody").innerHTML=state.config.volumeTiers.map((t,i)=>{
@@ -356,6 +360,19 @@
     save(); closeDealModal(); renderAll(); toast("Operação guardada.");
   }
 
+  function loadRecommendedScenario(){
+    q("simPosition").value=8;
+    q("simSalePrice").value=25000;
+    q("simAcquisition").value=21000;
+    q("simPrep").value=500;
+    q("simWarranty").value=500;
+    q("simOther").value=500;
+    q("simFinanced").value=18750;
+    q("simLenderRate").value=3.5;
+    renderSimulator();
+    toast("Cenário recomendado carregado.");
+  }
+
   function renderSimulator(){
     const deal={
       salePrice:num(q("simSalePrice").value),
@@ -374,12 +391,12 @@
     q("simFinancePct").textContent=fmtPct(c.financePctRaw);
     q("simFinanceRevenue").textContent=fmtMoney(c.financeRevenue);
     q("simNet").textContent=fmtMoney(c.resultAfterCommission);
-    q("simRule").textContent="Escalão "+c.volumeTier.label+" · margem "+c.marginBand.label+" · fator "+c.marginBand.factor+"×";
+    q("simRule").textContent="Escalão "+c.volumeTier.label+" · margem "+c.marginBand.label+" · fator "+c.marginBand.factor+"× · mínimo "+fmtMoney(state.config.globalMinCommission);
     const b=c.financeBracket;
     const bracketText=b.lowerPoint===b.upperPoint
       ? b.lowerPoint+"% = "+fmtMoney(b.lowerValue)
       : "entre "+b.lowerPoint+"% ("+fmtMoney(b.lowerValue)+") e "+b.upperPoint+"% ("+fmtMoney(b.upperValue)+")";
-    q("simExplain").innerHTML="Com <strong>"+fmtPct(c.financePctApplied)+"</strong> do PVP financiado, a comissão-base é calculada "+bracketText+" e resulta em <strong>"+fmtMoney(c.volumeFinanceCommission)+"</strong>. Aplicando o fator de margem de <strong>"+c.marginBand.factor+"×</strong>, a comissão estimada fica em <strong>"+fmtMoney(c.calculatedCommission)+"</strong>.";
+    q("simExplain").innerHTML="Com <strong>"+fmtPct(c.financePctApplied)+"</strong> do PVP financiado, a comissão-base é calculada "+bracketText+" e resulta em <strong>"+fmtMoney(c.volumeFinanceCommission)+"</strong>. A margem comercial é <strong>"+fmtMoney(c.vehicleMargin)+"</strong>, por isso aplica-se o fator <strong>"+c.marginBand.factor+"×</strong>. O resultado final é <strong>"+fmtMoney(c.calculatedCommission)+"</strong>, respeitando o mínimo de <strong>"+fmtMoney(state.config.globalMinCommission)+"</strong> e o máximo de <strong>"+fmtMoney(state.config.globalMaxCommission)+"</strong>.";
   }
 
   function addSeller(){
@@ -403,7 +420,8 @@
 
   function readRulesFromDom(){
     const config=E.normalizeConfig(state.config);
-    config.globalMaxCommission=Math.max(0,num(q("globalMaxCommission").value));
+    config.globalMinCommission=Math.max(0,num(q("globalMinCommission").value));
+    config.globalMaxCommission=Math.max(config.globalMinCommission,num(q("globalMaxCommission").value));
     config.financeCapPct=Math.min(100,Math.max(1,num(q("financeCapPct").value)));
 
     qa("#volumeTiersBody input[data-point]").forEach(input=>{
@@ -479,6 +497,7 @@
     qa("#simForm input").forEach(el=>el.addEventListener("input",renderSimulator));
     q("btnSaveRules").addEventListener("click",saveRules);
     q("btnResetRules").addEventListener("click",resetRules);
+    q("btnRecommendedScenario").addEventListener("click",loadRecommendedScenario);
 
     document.addEventListener("click",(ev)=>{
       const sellerCard=ev.target.closest("[data-open-seller]");
