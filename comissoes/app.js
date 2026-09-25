@@ -18,15 +18,15 @@ const state = {
 function load(key, fallback){
   try{
     const v = JSON.parse(localStorage.getItem(key));
-    return v ?? structuredClone(fallback);
-  }catch(e){ return structuredClone(fallback); }
+    return v ?? JSON.parse(JSON.stringify(fallback));
+  }catch(e){ return JSON.parse(JSON.stringify(fallback)); }
 }
 function save(){
   localStorage.setItem("commissionPro.tiers", JSON.stringify(state.tiers));
   localStorage.setItem("commissionPro.settings", JSON.stringify(state.settings));
   localStorage.setItem("commissionPro.sales", JSON.stringify(state.sales));
 }
-const € = new Intl.NumberFormat("pt-PT",{style:"currency",currency:"EUR",maximumFractionDigits:0});
+const eur = new Intl.NumberFormat("pt-PT",{style:"currency",currency:"EUR",maximumFractionDigits:0});
 const pct = new Intl.NumberFormat("pt-PT",{style:"percent",maximumFractionDigits:1});
 const n = v => Number.isFinite(+v) ? +v : 0;
 const clamp=(v,a,b)=>Math.min(Math.max(v,a),b);
@@ -79,25 +79,25 @@ function renderSingle(){
   const displayPct=clamp(r.financePct,0,1.5);
   els.financePctBig.textContent=pct.format(r.financePct);
   els.financeMeter.style.width=(clamp(displayPct,0,1)*100)+"%";
-  els.commissionValue.textContent=€.format(roundEuro(r.commission));
-  els.tierLabel.textContent=r.tier ? r.tier.label+" · "+€.format(r.base)+" → "+€.format(r.max) : "Abaixo do primeiro escalão";
-  els.financeRevenue.textContent=€.format(roundEuro(r.financeRevenue));
-  els.grossResult.textContent=€.format(roundEuro(r.gross));
-  els.netResult.textContent=€.format(roundEuro(r.net));
+  els.commissionValue.textContent=eur.format(roundEuro(r.commission));
+  els.tierLabel.textContent=r.tier ? r.tier.label+" · "+eur.format(r.base)+" → "+eur.format(r.max) : "Abaixo do primeiro escalão";
+  els.financeRevenue.textContent=eur.format(roundEuro(r.financeRevenue));
+  els.grossResult.textContent=eur.format(roundEuro(r.gross));
+  els.netResult.textContent=eur.format(roundEuro(r.net));
   els.commissionRatio.textContent=r.gross>0?pct.format(r.ratio):"—";
   const h=health(r.ratio,r.gross);
   els.healthBadge.textContent=h.text;
   els.healthBadge.className="health-badge "+h.cls;
-  els.formulaTier.textContent=r.tier ? r.tier.label+": "+€.format(r.base)+" base" : "Sem comissão";
+  els.formulaTier.textContent=r.tier ? r.tier.label+": "+eur.format(r.base)+" base" : "Sem comissão";
   els.formulaFinance.textContent=pct.format(r.financePct)+" do PVP financiado";
-  els.formulaCommission.textContent=€.format(roundEuro(r.commission));
+  els.formulaCommission.textContent=eur.format(roundEuro(r.commission));
 
   const extra=Math.max(0,r.commission-r.base);
   if(r.financed<=0){
     els.financeInsight.textContent="Sem financiamento: a operação fica no valor mínimo de comissão do escalão. O financiamento aumenta a comissão apenas quando existe capital efetivamente financiado.";
   }else{
     const retained=r.financeRevenue-extra;
-    els.financeInsight.innerHTML="O financiamento gera <strong>"+€.format(roundEuro(r.financeRevenue))+"</strong> para o stand. O incentivo adicional ao vendedor face a uma venda sem financiamento é <strong>"+€.format(roundEuro(extra))+"</strong>. Diferença antes dos restantes custos: <strong>"+€.format(roundEuro(retained))+"</strong>.";
+    els.financeInsight.innerHTML="O financiamento gera <strong>"+eur.format(roundEuro(r.financeRevenue))+"</strong> para o stand. O incentivo adicional ao vendedor face a uma venda sem financiamento é <strong>"+eur.format(roundEuro(extra))+"</strong>. Diferença antes dos restantes custos: <strong>"+eur.format(roundEuro(retained))+"</strong>.";
   }
 }
 
@@ -129,8 +129,8 @@ function saleRow(sale,i){
     <td class="percent-output">${pct.format(r.financePct)}</td>
     <td><input class="table-input small" type="number" step=".1" data-sale="${i}" data-key="financeRate" value="${sale.financeRate}"> %</td>
     <td><input class="table-input" type="number" step="25" data-sale="${i}" data-key="costs" value="${sale.costs}"></td>
-    <td class="table-output">${€.format(roundEuro(r.commission))}</td>
-    <td class="table-output">${€.format(roundEuro(r.net))}</td>
+    <td class="table-output">${eur.format(roundEuro(r.commission))}</td>
+    <td class="table-output">${eur.format(roundEuro(r.net))}</td>
     <td><button class="icon-btn" data-remove="${i}" title="Remover venda">×</button></td>`;
   return tr;
 }
@@ -144,10 +144,10 @@ function renderMonthSummary(){
   const sum=key=>rows.reduce((a,r)=>a+n(r[key]),0);
   const pvp=sum("pvp"), financed=sum("financed"), commissions=sum("commission"), net=sum("net");
   els.monthSales.textContent=rows.length;
-  els.monthFinanced.textContent=€.format(roundEuro(financed));
+  els.monthFinanced.textContent=eur.format(roundEuro(financed));
   els.monthFinancePct.textContent=(pvp>0?pct.format(financed/pvp):"0%")+" do PVP total";
-  els.monthCommissions.textContent=€.format(roundEuro(commissions));
-  els.monthNet.textContent=€.format(roundEuro(net));
+  els.monthCommissions.textContent=eur.format(roundEuro(commissions));
+  els.monthNet.textContent=eur.format(roundEuro(net));
   els.monthMarginPct.textContent=(pvp>0?pct.format(net/pvp):"0%")+" sobre PVP";
 }
 
@@ -207,7 +207,7 @@ document.getElementById("btnSave").addEventListener("click",()=>{save();toast("C
 document.getElementById("btnExport").addEventListener("click",exportCSV);
 document.getElementById("btnResetTiers").addEventListener("click",()=>{
   if(confirm("Repor a grelha de comissões original?")){
-    state.tiers=structuredClone(DEFAULT_TIERS);save();renderTiers();renderSingle();renderSales();toast("Escalões repostos");
+    state.tiers=JSON.parse(JSON.stringify(DEFAULT_TIERS));save();renderTiers();renderSingle();renderSales();toast("Escalões repostos");
   }
 });
 
