@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="description" content="Simulador profissional de comissões, financiamento e rentabilidade para stands de automóveis usados.">
+  <title>ComissãoPro — Simulador de Rentabilidade</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <div class="brand">
+        <div class="brand-mark">CP</div>
+        <div>
+          <div class="brand-name">ComissãoPro</div>
+          <div class="brand-subtitle">Rentabilidade comercial automóvel</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn btn-secondary" id="btnSave">Guardar cenário</button>
+        <button class="btn btn-secondary" id="btnExport">Exportar CSV</button>
+        <button class="btn btn-primary" id="btnAddSale">Adicionar venda</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell page">
+    <section class="hero">
+      <div>
+        <span class="eyebrow">Simulador de comissões</span>
+        <h1>Mais vendas, mais financiamento, mais margem.</h1>
+        <p>Simula a comissão do vendedor e o resultado do stand com escalões progressivos, percentagem de capital financiado e parâmetros totalmente editáveis.</p>
+      </div>
+      <div class="hero-badge">
+        <span class="status-dot"></span>
+        <div>
+          <strong>Modelo editável</strong>
+          <small>Dados guardados apenas neste dispositivo</small>
+        </div>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="Áreas do simulador">
+      <button class="tab active" data-tab="single">Venda individual</button>
+      <button class="tab" data-tab="month">Mês completo</button>
+      <button class="tab" data-tab="settings">Parâmetros</button>
+    </nav>
+
+    <section id="tab-single" class="tab-panel active">
+      <div class="layout-two">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="kicker">Entrada de dados</span>
+              <h2>Dados da operação</h2>
+            </div>
+            <span class="chip">Todos os campos editáveis</span>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>PVP da viatura</span>
+              <div class="input-wrap"><input id="pvp" type="number" min="0" step="100" value="25000"><em>€</em></div>
+            </label>
+            <label class="field">
+              <span>Margem comercial da viatura</span>
+              <div class="input-wrap"><input id="vehicleMargin" type="number" step="50" value="2800"><em>€</em></div>
+            </label>
+            <label class="field">
+              <span>Capital financiado</span>
+              <div class="input-wrap"><input id="financed" type="number" min="0" step="100" value="20000"><em>€</em></div>
+            </label>
+            <label class="field">
+              <span>Comissão da financeira para o stand</span>
+              <div class="input-wrap"><input id="financeRate" type="number" min="0" step="0.1" value="3.5"><em>%</em></div>
+            </label>
+            <label class="field">
+              <span>N.º da venda no mês</span>
+              <div class="input-wrap"><input id="saleNumber" type="number" min="1" step="1" value="8"><em>#</em></div>
+            </label>
+            <label class="field">
+              <span>Outros custos diretos</span>
+              <div class="input-wrap"><input id="directCosts" type="number" min="0" step="25" value="0"><em>€</em></div>
+            </label>
+          </div>
+
+          <div class="finance-meter">
+            <div class="meter-head">
+              <span>Percentagem do PVP financiada</span>
+              <strong id="financePctBig">0%</strong>
+            </div>
+            <div class="meter-track"><div class="meter-fill" id="financeMeter"></div></div>
+            <div class="meter-scale"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+          </div>
+        </div>
+
+        <div class="panel results-panel">
+          <div class="panel-head">
+            <div>
+              <span class="kicker">Resultado instantâneo</span>
+              <h2>Comissão e rentabilidade</h2>
+            </div>
+            <span class="health-badge" id="healthBadge">—</span>
+          </div>
+
+          <div class="result-primary">
+            <span>Comissão do vendedor</span>
+            <strong id="commissionValue">0 €</strong>
+            <small id="tierLabel">Escalão —</small>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi">
+              <span>Receita financeira</span>
+              <strong id="financeRevenue">0 €</strong>
+            </div>
+            <div class="kpi">
+              <span>Resultado antes da comissão</span>
+              <strong id="grossResult">0 €</strong>
+            </div>
+            <div class="kpi">
+              <span>Resultado após comissão</span>
+              <strong id="netResult">0 €</strong>
+            </div>
+            <div class="kpi">
+              <span>Comissão / resultado</span>
+              <strong id="commissionRatio">0%</strong>
+            </div>
+          </div>
+
+          <div class="insight" id="financeInsight"></div>
+        </div>
+      </div>
+
+      <div class="panel formula-panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">Transparência</span>
+            <h2>Como é calculada a comissão</h2>
+          </div>
+        </div>
+        <div class="formula-flow">
+          <div class="formula-step"><span>1</span><div><strong id="formulaTier">Escalão</strong><small>Definido pela posição da venda no mês</small></div></div>
+          <div class="formula-arrow">+</div>
+          <div class="formula-step"><span>2</span><div><strong id="formulaFinance">Financiamento</strong><small>A comissão cresce com a % do PVP financiada</small></div></div>
+          <div class="formula-arrow">=</div>
+          <div class="formula-step accent"><span>3</span><div><strong id="formulaCommission">Comissão final</strong><small>Entre o mínimo e o máximo do escalão</small></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-month" class="tab-panel">
+      <div class="summary-grid">
+        <div class="summary-card"><span>Vendas</span><strong id="monthSales">0</strong><small>operações no mês</small></div>
+        <div class="summary-card"><span>Capital financiado</span><strong id="monthFinanced">0 €</strong><small id="monthFinancePct">0% do PVP total</small></div>
+        <div class="summary-card"><span>Comissões</span><strong id="monthCommissions">0 €</strong><small>custo comercial variável</small></div>
+        <div class="summary-card highlight"><span>Resultado após comissões</span><strong id="monthNet">0 €</strong><small id="monthMarginPct">0% sobre PVP</small></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <span class="kicker">Simulação mensal</span>
+            <h2>Operações do vendedor</h2>
+          </div>
+          <div class="inline-actions">
+            <button class="btn btn-secondary btn-small" id="btnClearMonth">Limpar mês</button>
+            <button class="btn btn-primary btn-small" id="btnAddSale2">Adicionar venda</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="sales-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>PVP</th>
+                <th>Margem viatura</th>
+                <th>Capital financiado</th>
+                <th>% PVP financ.</th>
+                <th>% financeira</th>
+                <th>Custos</th>
+                <th>Comissão</th>
+                <th>Resultado stand</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="salesBody"></tbody>
+          </table>
+        </div>
+        <p class="table-note">No modo progressivo, cada venda utiliza o escalão correspondente à sua posição no mês. Assim evitam-se saltos artificiais de custo ao atingir um novo patamar.</p>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel">
+      <div class="layout-settings">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="kicker">Grelha de comissões</span>
+              <h2>Escalões editáveis</h2>
+            </div>
+            <button class="btn btn-secondary btn-small" id="btnResetTiers">Repor valores</button>
+          </div>
+          <div class="table-wrap">
+            <table class="settings-table">
+              <thead>
+                <tr>
+                  <th>Escalão</th>
+                  <th>De</th>
+                  <th>Até</th>
+                  <th>0% financiado</th>
+                  <th>100% financiado</th>
+                </tr>
+              </thead>
+              <tbody id="tiersBody"></tbody>
+            </table>
+          </div>
+          <p class="table-note">A comissão é interpolada linearmente entre o valor sem financiamento e o valor com 100% do PVP financiado.</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="kicker">Regras de gestão</span>
+              <h2>Limites de rentabilidade</h2>
+            </div>
+          </div>
+          <div class="form-grid one-col">
+            <label class="field">
+              <span>Comissão / resultado — zona saudável até</span>
+              <div class="input-wrap"><input id="healthyLimit" type="number" min="1" step="1" value="15"><em>%</em></div>
+            </label>
+            <label class="field">
+              <span>Zona de atenção até</span>
+              <div class="input-wrap"><input id="warningLimit" type="number" min="1" step="1" value="20"><em>%</em></div>
+            </label>
+            <label class="field">
+              <span>Limitar financiamento considerado a</span>
+              <div class="input-wrap"><input id="financeCap" type="number" min="100" step="5" value="100"><em>% PVP</em></div>
+            </label>
+          </div>
+          <div class="settings-note">
+            <strong>Objetivo do modelo</strong>
+            <p>Uma venda sem financiamento continua a gerar comissão, mas fica no mínimo do escalão. Quanto maior a percentagem de capital financiado, maior a comissão até ao teto definido.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell footer">
+    <span>ComissãoPro</span>
+    <span>Simulador de apoio à gestão — valores indicativos e editáveis</span>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
