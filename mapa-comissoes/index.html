@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="description" content="Mapa Comercial — gestão de vendedores, margens, financiamentos e comissões para stands de usados.">
+  <title>Mapa Comercial — Gestão de Comissões</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">MC</div>
+        <div>
+          <strong id="brandName">Mapa Comercial</strong>
+          <small>Gestão de usados</small>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard"><span>◫</span>Visão geral</button>
+        <button class="nav-item" data-view="sellers"><span>◎</span>Vendedores</button>
+        <button class="nav-item" data-view="operations"><span>▤</span>Operações</button>
+        <button class="nav-item" data-view="simulator"><span>∑</span>Simulador</button>
+        <button class="nav-item" data-view="backoffice"><span>⚙</span>Backoffice</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="role-pill">Administrador</div>
+        <small>Dados guardados neste dispositivo nesta versão.</small>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">Mapa de performance comercial</div>
+          <h1 id="pageTitle">Visão geral</h1>
+        </div>
+        <div class="topbar-actions">
+          <label class="month-field">
+            <span>Mês</span>
+            <input type="month" id="monthPicker">
+          </label>
+          <button class="btn secondary" id="btnExport">Exportar CSV</button>
+          <button class="btn primary" id="btnNewDeal">+ Nova operação</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="hero-card">
+          <div>
+            <span class="eyebrow">Resultado consolidado</span>
+            <h2>Margem, financiamento e comissão na mesma leitura.</h2>
+            <p>O mapa mostra o que cada vendedor está a produzir, quanto capital está a financiar e quanto resultado sobra à empresa depois das comissões.</p>
+          </div>
+          <div class="hero-metric">
+            <span>Resultado após comissões</span>
+            <strong id="dashNet">0 €</strong>
+            <small id="dashNetHint">no mês selecionado</small>
+          </div>
+        </div>
+
+        <div class="kpi-grid six">
+          <div class="kpi"><span>Vendas</span><strong id="dashSales">0</strong><small>operações válidas</small></div>
+          <div class="kpi"><span>PVP vendido</span><strong id="dashPvp">0 €</strong><small>volume comercial</small></div>
+          <div class="kpi"><span>Capital financiado</span><strong id="dashFinanced">0 €</strong><small id="dashFinancePct">0% do PVP</small></div>
+          <div class="kpi"><span>Margem viaturas</span><strong id="dashMargin">0 €</strong><small>antes da receita financeira</small></div>
+          <div class="kpi"><span>Receita financeira</span><strong id="dashFinanceRevenue">0 €</strong><small>remuneração das financeiras</small></div>
+          <div class="kpi"><span>Comissões</span><strong id="dashCommissions">0 €</strong><small>custo comercial variável</small></div>
+        </div>
+
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Equipa</span>
+            <h2>Mapa mensal por vendedor</h2>
+          </div>
+          <button class="btn secondary" id="btnGoSellers">Gerir vendedores</button>
+        </div>
+        <div class="seller-grid" id="sellerCards"></div>
+      </section>
+
+      <section class="view" id="view-sellers">
+        <div class="split-toolbar">
+          <div>
+            <span class="eyebrow">Até 5 vendedores</span>
+            <h2>Mapa individual</h2>
+          </div>
+          <div class="inline-actions">
+            <select id="sellerSelector" class="select"></select>
+            <button class="btn secondary" id="btnAddSeller">+ Vendedor</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid five">
+          <div class="kpi"><span>Vendas</span><strong id="sellerSales">0</strong><small id="sellerTier">Escalão —</small></div>
+          <div class="kpi"><span>Capital financiado</span><strong id="sellerFinanced">0 €</strong><small id="sellerFinancePct">0% do PVP</small></div>
+          <div class="kpi"><span>Margem média</span><strong id="sellerAvgMargin">0 €</strong><small>por viatura</small></div>
+          <div class="kpi"><span>Comissões</span><strong id="sellerCommission">0 €</strong><small>acumulado do mês</small></div>
+          <div class="kpi highlight"><span>Resultado</span><strong id="sellerNet">0 €</strong><small>após comissões</small></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">Folha de gestão</span>
+              <h3 id="sellerMapTitle">Operações do vendedor</h3>
+            </div>
+            <button class="btn primary small" id="btnNewDealForSeller">+ Operação</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Data</th><th>Viatura</th><th>PVP</th><th>Margem</th><th>Financiado</th><th>%</th><th>Receita fin.</th><th>Comissão</th><th>Resultado</th><th>Estado</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="sellerMapBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-operations">
+        <div class="split-toolbar">
+          <div>
+            <span class="eyebrow">Todas as vendas</span>
+            <h2>Operações</h2>
+          </div>
+          <div class="inline-actions">
+            <input class="search" id="operationSearch" placeholder="Procurar matrícula, stock, modelo...">
+            <button class="btn primary" id="btnNewDeal2">+ Nova operação</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Data</th><th>Vendedor</th><th>Stock</th><th>Matrícula</th><th>Viatura</th><th>PVP</th><th>Margem</th><th>Financiado</th><th>Comissão</th><th>Resultado</th><th>Estado</th><th></th></tr>
+              </thead>
+              <tbody id="allDealsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-simulator">
+        <div class="sim-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="eyebrow">Cenário sem gravar</span><h3>Simulador de operação</h3></div>
+            </div>
+            <div class="form-grid two" id="simForm">
+              <label><span>Posição da venda no mês</span><input type="number" id="simPosition" value="8" min="1"></label>
+              <label><span>PVP</span><input type="number" id="simSalePrice" value="25000" step="100"></label>
+              <label><span>Custo de aquisição</span><input type="number" id="simAcquisition" value="20500" step="100"></label>
+              <label><span>Preparação</span><input type="number" id="simPrep" value="700" step="50"></label>
+              <label><span>Garantia</span><input type="number" id="simWarranty" value="600" step="50"></label>
+              <label><span>Outros custos</span><input type="number" id="simOther" value="400" step="50"></label>
+              <label><span>Capital financiado</span><input type="number" id="simFinanced" value="20000" step="100"></label>
+              <label><span>Remuneração da financeira</span><div class="input-suffix"><input type="number" id="simLenderRate" value="3.5" step=".1"><em>%</em></div></label>
+            </div>
+          </div>
+          <div class="panel result-panel">
+            <span class="eyebrow">Resultado instantâneo</span>
+            <div class="big-result">
+              <span>Comissão estimada</span>
+              <strong id="simCommission">0 €</strong>
+              <small id="simRule">—</small>
+            </div>
+            <div class="mini-grid">
+              <div><span>Margem viatura</span><strong id="simMargin">0 €</strong></div>
+              <div><span>% financiada</span><strong id="simFinancePct">0%</strong></div>
+              <div><span>Receita financeira</span><strong id="simFinanceRevenue">0 €</strong></div>
+              <div><span>Resultado após comissão</span><strong id="simNet">0 €</strong></div>
+            </div>
+            <div class="explain" id="simExplain"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-backoffice">
+        <div class="backoffice-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="eyebrow">Configuração geral</span><h3>Empresa e regras</h3></div>
+              <span class="version-chip" id="ruleVersion">Versão 1</span>
+            </div>
+            <div class="form-grid two">
+              <label><span>Nome da empresa / projeto</span><input id="companyName" value="Mapa Comercial"></label>
+              <label><span>Comissão máxima por viatura</span><div class="input-suffix"><input id="globalMaxCommission" type="number" value="750"><em>€</em></div></label>
+              <label><span>Financiamento considerado até</span><div class="input-suffix"><input id="financeCapPct" type="number" value="100"><em>% PVP</em></div></label>
+              <label><span>Máximo de vendedores</span><input value="5" disabled></label>
+            </div>
+            <div class="notice">
+              <strong>Regra importante</strong>
+              <p>Quando uma operação é fechada, a comissão fica congelada com a versão das regras desse momento. Alterações futuras no backoffice aplicam-se às novas operações e aos rascunhos, sem alterar o histórico.</p>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><span class="eyebrow">Vendedores</span><h3>Equipa ativa</h3></div>
+              <button class="btn secondary small" id="btnAddSeller2">+ Adicionar</button>
+            </div>
+            <div id="sellerAdminList" class="seller-admin-list"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div><span class="eyebrow">Comissão base + financiamento</span><h3>Escalões de volume</h3></div>
+          </div>
+          <div class="table-wrap">
+            <table class="settings-table">
+              <thead><tr><th>Escalão</th><th>De</th><th>Até</th><th>Sem financiamento</th><th>100% financiado</th></tr></thead>
+              <tbody id="volumeTiersBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div><span class="eyebrow">Proteção de margem</span><h3>Fatores por margem da viatura</h3></div>
+          </div>
+          <div class="table-wrap">
+            <table class="settings-table">
+              <thead><tr><th>Faixa</th><th>Mínimo</th><th>Máximo</th><th>Fator sobre comissão</th></tr></thead>
+              <tbody id="marginBandsBody"></tbody>
+            </table>
+          </div>
+          <div class="footer-actions">
+            <button class="btn secondary" id="btnResetRules">Repor regras iniciais</button>
+            <button class="btn primary" id="btnSaveRules">Guardar nova versão das regras</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="dealModal">
+    <div class="modal">
+      <div class="modal-head">
+        <div><span class="eyebrow">Ficha da viatura</span><h3 id="dealModalTitle">Nova operação</h3></div>
+        <button class="icon-btn" data-close-modal>×</button>
+      </div>
+      <form id="dealForm">
+        <input type="hidden" id="dealId">
+        <div class="form-grid three">
+          <label><span>Vendedor</span><select id="dealSeller" required></select></label>
+          <label><span>Data da venda</span><input id="dealDate" type="date" required></label>
+          <label><span>Estado</span><select id="dealStatus"><option value="draft">Rascunho</option><option value="closed">Fechada</option><option value="cancelled">Cancelada</option></select></label>
+          <label><span>N.º stock</span><input id="dealStock" placeholder="STK-001"></label>
+          <label><span>Matrícula</span><input id="dealPlate" placeholder="AA-00-AA"></label>
+          <label><span>Viatura</span><input id="dealVehicle" placeholder="Marca, modelo e versão" required></label>
+          <label><span>PVP</span><input id="dealSalePrice" type="number" step="100" required></label>
+          <label><span>Custo aquisição</span><input id="dealAcquisition" type="number" step="100" required></label>
+          <label><span>Preparação / recondicionamento</span><input id="dealPrep" type="number" step="50" value="0"></label>
+          <label><span>Garantia</span><input id="dealWarranty" type="number" step="50" value="0"></label>
+          <label><span>Outros custos diretos</span><input id="dealOther" type="number" step="50" value="0"></label>
+          <label><span>Capital financiado</span><input id="dealFinanced" type="number" step="100" value="0"></label>
+          <label><span>Financeira</span><input id="dealLender" placeholder="Ex.: Cetelem"></label>
+          <label><span>Remuneração financeira</span><div class="input-suffix"><input id="dealLenderRate" type="number" step=".1" value="3.5"><em>%</em></div></label>
+          <label class="span-3"><span>Notas</span><textarea id="dealNotes" rows="3" placeholder="Observações internas..."></textarea></label>
+        </div>
+
+        <div class="deal-preview">
+          <div><span>Margem</span><strong id="dealPreviewMargin">0 €</strong></div>
+          <div><span>% financiada</span><strong id="dealPreviewFinancePct">0%</strong></div>
+          <div><span>Comissão estimada</span><strong id="dealPreviewCommission">0 €</strong></div>
+          <div><span>Resultado</span><strong id="dealPreviewNet">0 €</strong></div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn secondary" data-close-modal>Cancelar</button>
+          <button type="submit" class="btn primary">Guardar operação</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="sellerModal">
+    <div class="modal small-modal">
+      <div class="modal-head">
+        <div><span class="eyebrow">Equipa</span><h3>Novo vendedor</h3></div>
+        <button class="icon-btn" data-close-seller>×</button>
+      </div>
+      <form id="sellerForm">
+        <label class="block-label"><span>Nome</span><input id="newSellerName" required placeholder="Nome do vendedor"></label>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary" data-close-seller>Cancelar</button>
+          <button type="submit" class="btn primary">Adicionar vendedor</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
