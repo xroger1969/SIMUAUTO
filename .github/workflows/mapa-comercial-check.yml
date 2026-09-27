@@ -1,0 +1,27 @@
+name: Mapa Comercial Check
+
+on:
+  pull_request:
+    paths:
+      - "mapa-comissoes/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "mapa-comissoes/**"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check calculation engine
+        run: node --check mapa-comissoes/engine.js
+      - name: Check application
+        run: node --check mapa-comissoes/app.js
+      - name: Verify critical production hooks
+        run: |
+          grep -q 'id="authGate"' mapa-comissoes/index.html
+          grep -q 'id="dealSaveButton"' mapa-comissoes/index.html
+          grep -q 'SUPABASE_URL' mapa-comissoes/app.js
+          grep -q 'save_rule_set' mapa-comissoes/app.js

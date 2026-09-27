@@ -12,7 +12,35 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div class="access-gate open" id="authGate">
+    <div class="auth-card">
+      <div class="auth-logo">MC</div>
+      <span class="eyebrow">Acesso seguro</span>
+      <h1>Mapa Comercial</h1>
+      <p>Os vendedores, operações e regras ficam agora guardados centralmente e protegidos por autenticação.</p>
+      <form id="authForm" class="auth-form">
+        <label><span>Email</span><input id="authEmail" type="email" autocomplete="email" required placeholder="nome@empresa.pt"></label>
+        <label><span>Palavra-passe</span><input id="authPassword" type="password" autocomplete="current-password" minlength="6" required placeholder="••••••••"></label>
+        <div class="auth-actions">
+          <button class="btn primary" type="submit">Entrar</button>
+          <button class="btn secondary" type="button" id="btnSignup">Criar conta</button>
+        </div>
+      </form>
+      <div class="auth-message" id="authMessage"></div>
+    </div>
+  </div>
+
+  <div class="access-gate" id="pendingGate">
+    <div class="auth-card">
+      <div class="auth-logo">MC</div>
+      <span class="eyebrow">Conta autenticada</span>
+      <h1>Aguardar autorização</h1>
+      <p>A conta <strong id="pendingEmail"></strong> já está criada, mas ainda não foi associada a Administrador ou Vendedor.</p>
+      <button class="btn secondary" type="button" id="btnPendingLogout">Terminar sessão</button>
+    </div>
+  </div>
+
+  <div class="app-shell hidden-app" id="appShell">
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">MC</div>
@@ -31,8 +59,8 @@
       </nav>
 
       <div class="sidebar-foot">
-        <div class="role-pill">Administrador</div>
-        <small>Dados guardados neste dispositivo nesta versão.</small>
+        <div class="role-pill" id="rolePill">Utilizador</div>
+        <small>Dados centralizados no Supabase e sincronizados entre dispositivos.</small>
       </div>
     </aside>
 
@@ -49,6 +77,7 @@
           </label>
           <button class="btn secondary" id="btnExport">Exportar CSV</button>
           <button class="btn primary" id="btnNewDeal">+ Nova operação</button>
+          <div class="session-box"><span id="syncStatus">A ligar…</span><strong id="userIdentity"></strong><button class="btn secondary small" id="btnLogout" type="button">Sair</button></div>
         </div>
       </header>
 
@@ -299,7 +328,7 @@
 
         <div class="modal-actions">
           <button type="button" class="btn secondary" data-close-modal>Cancelar</button>
-          <button type="submit" class="btn primary">Guardar operação</button>
+          <button type="submit" class="btn primary" id="dealSaveButton">Guardar operação</button>
         </div>
       </form>
     </div>
@@ -323,6 +352,7 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.1/dist/umd/supabase.js"></script>
   <script src="engine.js"></script>
   <script src="app.js"></script>
 </body>
