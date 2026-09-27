@@ -272,10 +272,10 @@
     setSync(message || "Dados sincronizados", false);
   }
 
-  async function startSession() {
-    const { data } = await db.auth.getSession();
-    session = data.session;
+  async function enterSession(nextSession) {
+    session = nextSession;
     if (!session) {
+      member = null;
       showOnlyGate("auth");
       return;
     }
@@ -300,6 +300,11 @@
     q("rolePill").textContent = isAdmin() ? "Administrador" : "Vendedor";
     await refreshData();
     applyRoleUi();
+  }
+
+  async function startSession() {
+    const { data } = await db.auth.getSession();
+    await enterSession(data.session);
   }
 
   function applyRoleUi() {
@@ -923,14 +928,14 @@
       }
     });
 
-    db.auth.onAuthStateChange(async (_event, nextSession) => {
-      session = nextSession;
-      if (!nextSession) {
-        member = null;
-        showOnlyGate("auth");
-        return;
-      }
-      await startSession();
+    db.auth.onAuthStateChange((_event, nextSession) => {
+      setTimeout(() => {
+        enterSession(nextSession).catch(err => {
+          console.error(err);
+          showOnlyGate("auth");
+          setAuthMessage("Erro ao validar a sessão.", "error");
+        });
+      }, 0);
     });
   }
 
