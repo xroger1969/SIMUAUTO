@@ -403,15 +403,36 @@
 
   function applyRoleUi() {
     const admin = isAdmin();
-    const backofficeNav = document.querySelector('[data-view="backoffice"]');
-    if (backofficeNav) backofficeNav.hidden = !admin;
-    ["btnAddSeller", "btnAddSeller2"].forEach(id => { if (q(id)) q(id).hidden = !admin; });
+    const sellerNav = document.querySelector('[data-view="sellers"]');
+
+    qa(".nav-item").forEach(btn => {
+      btn.hidden = !admin && btn.dataset.view !== "sellers";
+    });
+
+    ["btnAddSeller", "btnAddSeller2", "btnNewDeal", "btnNewDeal2", "btnNewDealForSeller", "btnExport", "btnGoSellers"].forEach(id => {
+      if (q(id)) q(id).hidden = !admin;
+    });
+
+    if (q("sellerSelector")) q("sellerSelector").hidden = !admin;
     if (q("dealSeller")) q("dealSeller").disabled = !admin;
-    if (!admin && currentView === "backoffice") switchView("dashboard");
+
+    if (sellerNav) {
+      sellerNav.innerHTML = admin ? "<span>◎</span>Vendedores" : "<span>◎</span>Meu mapa";
+    }
+
+    const toolbar = q("sellerSelector")?.closest(".inline-actions");
+    if (toolbar) toolbar.hidden = !admin;
+
+    const sellerTitle = q("sellerMapTitle")?.closest(".panel")?.previousElementSibling;
+    if (!admin) {
+      if (currentView !== "sellers") switchView("sellers");
+      q("pageTitle").textContent = "Meu mapa";
+    }
   }
 
   function renderBrand() {
     q("brandName").textContent = state.companyName;
+    if (!isAdmin()) return;
     q("companyName").value = state.companyName;
     q("ruleVersion").textContent = "Versão " + state.config.version;
     q("maxSellers").value = state.settings.maxSellers;
@@ -533,10 +554,76 @@
     return '<details class="row-actions"><summary aria-label="Ações" title="Ações">•••</summary><div class="row-actions-menu">' + actions.join("") + '</div></details>';
   }
 
+  function renderRestrictedSellerMap(seller) {
+    const rows = state.deals
+      .filter(d => d.sellerId === seller.id)
+      .sort((a,b) => String(a.saleDate || "").localeCompare(String(b.saleDate || "")));
+    const official = rows.filter(d => d.status === "closed");
+    const drafts = rows.filter(d => d.status === "draft").length;
+    const pvpTotal = official.reduce((sum,d) => sum + num(d.salePrice), 0);
+    const financedCount = official.filter(d => d.isFinanced).length;
+    const commissionTotal = official.reduce((sum,d) => sum + num(d.commissionSnapshot?.amount), 0);
+    const avgCommission = official.length ? commissionTotal / official.length : 0;
+
+    q("sellerSales").textContent = official.length;
+    q("sellerTier").textContent = official.length + " venda" + (official.length === 1 ? "" : "s") + " oficial" + (official.length === 1 ? "" : "is") +
+      (drafts ? " · " + drafts + " em preparação" : "");
+    q("sellerFinanced").textContent = fmtMoney(pvpTotal);
+    q("sellerFinancePct").textContent = "volume vendido";
+    q("sellerAvgMargin").textContent = financedCount;
+    q("sellerCommission").textContent = fmtMoney(commissionTotal);
+    q("sellerNet").textContent = fmtMoney(avgCommission);
+    q("sellerMapTitle").textContent = "As minhas vendas — " + seller.name;
+
+    const cards = [
+      [q("sellerFinanced"), "PVP vendido", "volume oficial"],
+      [q("sellerAvgMargin"), "Vendas financiadas", "operações com financiamento"],
+      [q("sellerCommission"), "Comissões", "total acumulado do mês"],
+      [q("sellerNet"), "Comissão média", "por venda oficial"]
+    ];
+    cards.forEach(([valueEl,label,small]) => {
+      const card = valueEl?.closest(".kpi");
+      if (!card) return;
+      const span = card.querySelector(":scope > span");
+      const smallEl = card.querySelector(":scope > small");
+      if (span) span.textContent = label;
+      if (smallEl) smallEl.textContent = small;
+    });
+
+    const header = q("sellerMapBody")?.closest("table")?.querySelector("thead tr");
+    if (header) {
+      header.innerHTML = "<th>#</th><th>Data</th><th>Viatura</th><th>PVP</th><th>Financiamento</th><th>Comissão</th><th>Estado</th>";
+    }
+
+    const body = q("sellerMapBody");
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7" class="empty">Ainda não existem vendas neste mês.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(deal => {
+      const pos = deal.status === "closed" ? (deal.commissionSnapshot?.salePosition || "—") : "—";
+      const commission = deal.status === "closed" ? fmtMoney(deal.commissionSnapshot?.amount || 0) : "—";
+      return '<tr class="deal-row status-' + deal.status + '">' +
+        '<td><strong>' + pos + '</strong></td>' +
+        '<td>' + escapeHtml(deal.saleDate || "—") + '</td>' +
+        '<td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong><br><span class="muted">' + escapeHtml(deal.plate || deal.stock || "") + '</span></td>' +
+        '<td>' + fmtMoney(deal.salePrice) + '</td>' +
+        '<td>' + (deal.isFinanced ? '<span class="badge closed">Sim</span>' : '<span class="muted">Não</span>') + '</td>' +
+        '<td><strong>' + commission + '</strong></td>' +
+        '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
+        '</tr>';
+    }).join("");
+  }
+
   function renderSellerMap() {
     const seller = state.sellers.find(s => s.id === currentSellerId);
     if (!seller) {
-      q("sellerMapBody").innerHTML = '<tr><td colspan="12" class="empty">Sem vendedor selecionado.</td></tr>';
+      q("sellerMapBody").innerHTML = '<tr><td colspan="' + (isAdmin() ? "12" : "7") + '" class="empty">Sem vendedor selecionado.</td></tr>';
+      return;
+    }
+    if (!isAdmin()) {
+      renderRestrictedSellerMap(seller);
       return;
     }
     const m = getSellerMonth(seller.id);
@@ -672,27 +759,28 @@
     q("monthPicker").value = state.month;
     renderBrand();
     renderSellerOptions();
-    renderDashboard();
     renderSellerMap();
-    renderOperations();
     if (isAdmin()) {
+      renderDashboard();
+      renderOperations();
       renderSellerAdmin();
       renderRules();
+      renderSimulator();
+      installInfoButtons();
     }
-    renderSimulator();
     applyRoleUi();
-    installInfoButtons();
   }
 
   function switchView(name) {
-    if (name === "backoffice" && !isAdmin()) name = "dashboard";
+    if (!isAdmin()) name = "sellers";
+    else if (name === "backoffice" && !isAdmin()) name = "dashboard";
     currentView = name;
     qa(".view").forEach(v => v.classList.remove("active"));
     qa(".nav-item").forEach(b => b.classList.remove("active"));
     q("view-" + name).classList.add("active");
     const btn = document.querySelector('.nav-item[data-view="' + name + '"]');
     if (btn) btn.classList.add("active");
-    const titles = { dashboard: "Visão geral", sellers: "Vendedores", operations: "Operações", simulator: "Simulador", presentation: "Apresentação", backoffice: "Backoffice" };
+    const titles = { dashboard: "Visão geral", sellers: isAdmin() ? "Vendedores" : "Meu mapa", operations: "Operações", simulator: "Simulador", presentation: "Apresentação", backoffice: "Backoffice" };
     q("pageTitle").textContent = titles[name] || "Mapa Comercial";
     if (name === "sellers") renderSellerMap();
     if (name === "operations") renderOperations();
