@@ -228,56 +228,26 @@
     member = data || null;
   }
 
-  async function loadSettings() {
-    const { data, error } = await db.from("app_settings")
-      .select("company_name,max_sellers,reference_lender_rate_pct")
-      .eq("id", 1)
-      .single();
+  async function loadConfiguration() {
+    const { data, error } = await db.rpc("get_map_configuration");
     if (error) throw error;
-    state.companyName = data.company_name || "Mapa Comercial";
-    state.settings.maxSellers = Math.max(1, Math.min(25, num(data.max_sellers) || 5));
-    state.settings.referenceLenderRatePct = Math.max(0, Math.min(20, num(data.reference_lender_rate_pct)));
-  }
+    const payload = data || {};
 
-  async function loadSellers() {
-    const { data, error } = await db.from("sellers")
-      .select("id,name,email,active,sort_order,created_at")
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
-    if (error) throw error;
-    state.sellers = (data || []).map(r => ({
-      id: r.id,
-      name: r.name,
-      email: r.email || "",
-      active: r.active,
-      sortOrder: r.sort_order,
-      createdAt: r.created_at
-    }));
-    if (!state.sellers.some(s => s.id === currentSellerId)) {
-      currentSellerId = (activeSellers()[0] || state.sellers[0] || {}).id || "";
-    }
-  }
+    state.companyName = payload.company_name || "Mapa Comercial";
 
-  async function loadRules() {
-    const { data: ruleSets, error: rulesError } = await db.from("rule_sets")
-      .select("id,version,name,is_active,global_min_commission,global_max_commission,finance_cap_pct,financed_capital_bonus_pct,created_at")
-      .order("version", { ascending: false });
-    if (rulesError) throw rulesError;
-    ruleVersionById = Object.fromEntries((ruleSets || []).map(r => [r.id, r.version]));
-    const active = (ruleSets || []).find(r => r.is_active) || (ruleSets || [])[0];
-    if (!active) {
+    if (!isAdmin()) {
+      state.settings.maxSellers = 1;
+      state.settings.referenceLenderRatePct = 0;
       state.config = E.clone(E.DEFAULT_CONFIG);
+      ruleVersionById = {};
       return;
     }
 
-    const results = await Promise.all([
-      db.from("volume_tiers").select("*").eq("rule_set_id", active.id).order("sort_order", { ascending: true }),
-      db.from("margin_bands").select("*").eq("rule_set_id", active.id).order("sort_order", { ascending: true })
-    ]);
-    const tiersResult = results[0];
-    const bandsResult = results[1];
-    if (tiersResult.error) throw tiersResult.error;
-    if (bandsResult.error) throw bandsResult.error;
+    state.settings.maxSellers = Math.max(1, Math.min(25, num(payload.max_sellers) || 5));
+    state.settings.referenceLenderRatePct = Math.max(0, Math.min(20, num(payload.reference_lender_rate_pct)));
+
+    const active = payload.rule || {};
+    ruleVersionById = active.id ? { [active.id]: active.version } : {};
 
     state.config = E.normalizeConfig({
       version: active.version,
@@ -285,7 +255,8 @@
       globalMaxCommission: num(active.global_max_commission),
       financeCapPct: num(active.finance_cap_pct),
       financedCapitalBonusPct: num(active.financed_capital_bonus_pct),
-      volumeTiers: (tiersResult.data || []).map(t => ({
+      financedCapitalBonusStartSale: num(active.financed_capital_bonus_start_sale) || 1,
+      volumeTiers: (payload.volume_tiers || []).map(t => ({
         id: t.tier_code,
         label: t.label,
         from: t.from_sales,
@@ -298,7 +269,7 @@
           "100": num(t.commission_100)
         }
       })),
-      marginBands: (bandsResult.data || []).map(b => ({
+      marginBands: (payload.margin_bands || []).map(b => ({
         id: b.band_code,
         label: b.label,
         min: b.min_margin === null ? null : num(b.min_margin),
@@ -309,6 +280,30 @@
   }
 
   function rowToDeal(r) {
+    const sellerSafe = !isAdmin();
+    if (sellerSafe) {
+      return {
+        id: r.id,
+        sellerId: r.seller_id,
+        saleDate: r.sale_date,
+        status: r.status,
+        stock: r.stock || "",
+        plate: r.plate || "",
+        vehicle: r.vehicle || "",
+        salePrice: num(r.pvp),
+        isFinanced: !!r.is_financed,
+        createdAt: r.sale_date,
+        closedAt: r.closed_at,
+        cancelledAt: r.cancelled_at,
+        sellerSafe: true,
+        commissionSnapshot: r.commission_amount === null ? null : {
+          amount: num(r.commission_amount),
+          salePosition: r.sale_position,
+          lockedAt: r.closed_at
+        }
+      };
+    }
+
     return {
       id: r.id,
       sellerId: r.seller_id,
@@ -325,6 +320,7 @@
       financedAmount: num(r.financed_amount),
       lender: r.lender || "",
       lenderRatePct: num(r.lender_rate_pct),
+      financeBonusEnabled: r.finance_bonus_enabled !== false,
       notes: r.notes || "",
       createdAt: r.created_at,
       updatedAt: r.updated_at,
@@ -347,6 +343,7 @@
         marginFactor: r.margin_factor === null ? null : num(r.margin_factor),
         financedCapitalBonusPct: r.financed_capital_bonus_pct === null ? 0 : num(r.financed_capital_bonus_pct),
         financedCapitalBonusAmount: r.financed_capital_bonus_amount === null ? 0 : num(r.financed_capital_bonus_amount),
+        financeBonusApplied: !!r.finance_bonus_applied,
         resultBeforeCommission: r.result_before_commission === null ? null : num(r.result_before_commission),
         resultAfterCommission: r.result_after_commission === null ? null : num(r.result_after_commission)
       }
@@ -356,19 +353,14 @@
   async function loadDeals() {
     const start = state.month + "-01";
     const end = nextMonthStart(state.month);
-    const { data, error } = await db.from("deals")
-      .select("*")
-      .gte("sale_date", start)
-      .lt("sale_date", end)
-      .order("sale_date", { ascending: true })
-      .order("created_at", { ascending: true });
+    const { data, error } = await db.rpc("get_deals_month", { p_start: start, p_end: end });
     if (error) throw error;
     state.deals = (data || []).map(rowToDeal);
   }
 
   async function refreshData(message) {
     setSync("A sincronizar…", true);
-    await Promise.all([loadSettings(), loadSellers(), loadRules()]);
+    await Promise.all([loadConfiguration(), loadSellers()]);
     await loadDeals();
     renderAll();
     setSync(message || "Dados sincronizados", false);
