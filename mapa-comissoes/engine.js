@@ -256,6 +256,7 @@
       });
 
     let officialPosition=0;
+    let previewDraftsSeen=0;
     const rows=monthDeals.map(deal=>{
       let salePosition;
       if(deal.status==="closed"){
@@ -264,26 +265,43 @@
       }else if(deal.status==="cancelled"){
         salePosition=deal.commissionSnapshot?.salePosition || Math.max(1,officialPosition+1);
       }else{
-        salePosition=Math.max(1,officialPosition+1);
+        salePosition=Math.max(1,officialPosition+previewDraftsSeen+1);
+        previewDraftsSeen+=1;
       }
       return {deal,calc:calcDeal(deal,salePosition,config)};
     });
 
     const officialRows=rows.filter(r=>r.deal.status==="closed");
-    const total=(selector)=>round2(officialRows.reduce((sum,row)=>sum+num(selector(row)),0));
-    const totalPvp=total(r=>r.calc.salePrice);
-    const totalFinanced=total(r=>r.calc.financedAmount);
-    const totalMargin=total(r=>r.calc.vehicleMargin);
-    const totalFinanceRevenue=total(r=>r.calc.financeRevenue);
-    const totalCommission=total(r=>r.calc.commission);
-    const totalResult=total(r=>r.calc.resultAfterCommission);
+    const projectedRows=rows.filter(r=>r.deal.status!=="cancelled");
+    const totalFor=(source,selector)=>round2(source.reduce((sum,row)=>sum+num(selector(row)),0));
+
+    const totalPvp=totalFor(officialRows,r=>r.calc.salePrice);
+    const totalFinanced=totalFor(officialRows,r=>r.calc.financedAmount);
+    const totalMargin=totalFor(officialRows,r=>r.calc.vehicleMargin);
+    const totalFinanceRevenue=totalFor(officialRows,r=>r.calc.financeRevenue);
+    const totalCommission=totalFor(officialRows,r=>r.calc.commission);
+    const totalResult=totalFor(officialRows,r=>r.calc.resultAfterCommission);
+
+    const projectedTotalPvp=totalFor(projectedRows,r=>r.calc.salePrice);
+    const projectedTotalFinanced=totalFor(projectedRows,r=>r.calc.financedAmount);
+    const projectedTotalMargin=totalFor(projectedRows,r=>r.calc.vehicleMargin);
+    const projectedTotalFinanceRevenue=totalFor(projectedRows,r=>r.calc.financeRevenue);
+    const projectedTotalCommission=totalFor(projectedRows,r=>r.deal.status==="draft" ? r.calc.calculatedCommission : r.calc.commission);
+    const projectedTotalResult=totalFor(projectedRows,r=>r.deal.status==="draft"
+      ? (r.calc.vehicleMargin+r.calc.financeRevenue-r.calc.calculatedCommission)
+      : r.calc.resultAfterCommission);
+
+    const draftCount=rows.filter(r=>r.deal.status==="draft").length;
+    const cancelledCount=rows.filter(r=>r.deal.status==="cancelled").length;
 
     return {
       rows,
       officialRows,
+      projectedRows,
       salesCount:officialRows.length,
-      draftCount:rows.filter(r=>r.deal.status==="draft").length,
-      cancelledCount:rows.filter(r=>r.deal.status==="cancelled").length,
+      projectedSalesCount:projectedRows.length,
+      draftCount,
+      cancelledCount,
       totalPvp,
       totalFinanced,
       financePenetrationPct:totalPvp>0 ? round2(totalFinanced/totalPvp*100) : 0,
@@ -292,7 +310,16 @@
       totalCommission,
       totalResult,
       avgMarginPerCar:officialRows.length ? round2(totalMargin/officialRows.length) : 0,
-      avgFinancedPerCar:officialRows.length ? round2(totalFinanced/officialRows.length) : 0
+      avgFinancedPerCar:officialRows.length ? round2(totalFinanced/officialRows.length) : 0,
+      projectedTotalPvp,
+      projectedTotalFinanced,
+      projectedFinancePenetrationPct:projectedTotalPvp>0 ? round2(projectedTotalFinanced/projectedTotalPvp*100) : 0,
+      projectedTotalMargin,
+      projectedTotalFinanceRevenue,
+      projectedTotalCommission,
+      projectedTotalResult,
+      projectedAvgMarginPerCar:projectedRows.length ? round2(projectedTotalMargin/projectedRows.length) : 0,
+      projectedAvgFinancedPerCar:projectedRows.length ? round2(projectedTotalFinanced/projectedRows.length) : 0
     };
   }
 
