@@ -31,12 +31,15 @@ for (const marker of [
   "closeRowActionMenus",
   "friendlyDealError",
   "deals_active_stock_unique",
-  "deals_active_plate_unique"
+  "deals_active_plate_unique",
+  "financedCapitalBonusPct",
+  "dealPreviewFinanceBonus",
+  "simFinancedCapitalBonus"
 ]) {
   assert.ok(app.includes(marker) || html.includes(marker), `missing UI contract: ${marker}`);
 }
 
-assert.ok(/\\.row-actions-menu\\{[^}]*position:fixed/.test(css),
+assert.ok(css.includes(".row-actions-menu{position:fixed"),
   "row action menu must be fixed so table overflow cannot clip Edit/Tornar oficial");
 assert.ok(/z-index:1000/.test(css), "row action menu must appear above the table");
 
