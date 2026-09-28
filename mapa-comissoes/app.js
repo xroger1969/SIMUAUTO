@@ -615,7 +615,7 @@
     q("dealModal").classList.add("open");
   }
 
-  function closeDealModal()  function closeDealModal() { q("dealModal").classList.remove("open"); }
+  function closeDealModal() { q("dealModal").classList.remove("open"); }
 
   function formDeal() {
     return {
@@ -644,7 +644,7 @@
     const month = E.monthKey(candidate.saleDate);
     const map = E.calcSellerMonth(all, candidate.sellerId, month, state.config);
     const idx = map.rows.findIndex(r => r.deal.id === synthetic.id);
-    return idx >= 0 ? idx + 1 : Math.max(1, map.rows.length);
+    return idx >= 0 ? map.rows[idx].calc.salePosition : Math.max(1, map.salesCount + 1);
   }
 
   function updateDealPreview() {
@@ -1015,7 +1015,7 @@
   }
 
   function bindEvents() {
-    q("authForm").addEventListener("submit", signIn);    q("authForm").addEventListener("submit", signIn);
+    q("authForm").addEventListener("submit", signIn);
     q("btnSignup").addEventListener("click", signUp);
     q("btnLogout").addEventListener("click", signOut);
     q("btnPendingLogout").addEventListener("click", signOut);
