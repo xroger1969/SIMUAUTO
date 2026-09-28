@@ -910,7 +910,7 @@
     const bracketText = b.lowerPoint === b.upperPoint
       ? b.lowerPoint + "% = " + fmtMoney(b.lowerValue)
       : "entre " + b.lowerPoint + "% (" + fmtMoney(b.lowerValue) + ") e " + b.upperPoint + "% (" + fmtMoney(b.upperValue) + ")";
-    q("simExplain").innerHTML = "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a comissão-base é calculada " + bracketText + " e resulta em <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong>. A margem comercial é <strong>" + fmtMoney(c.vehicleMargin) + "</strong>, por isso aplica-se o fator <strong>" + c.marginBand.factor + "×</strong>. O resultado final é <strong>" + fmtMoney(c.calculatedCommission) + "</strong>, respeitando o mínimo de <strong>" + fmtMoney(state.config.globalMinCommission) + "</strong> e o máximo de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong>.";
+    q("simExplain").innerHTML = "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a grelha dá uma comissão-base de <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong> (" + bracketText + "). A componente da venda parte de <strong>" + fmtMoney(c.noFinanceBase) + "</strong> e recebe o fator de margem <strong>" + c.marginBand.factor + "×</strong>. O financiamento acrescenta ainda um bónus próprio de <strong>" + fmtMoney(c.financeBonus) + "</strong>, que não desaparece por causa do fator de margem. Comissão final: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>, entre o mínimo de <strong>" + fmtMoney(state.config.globalMinCommission) + "</strong> e o máximo de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong>.";
   }
 
   function addSeller() {
