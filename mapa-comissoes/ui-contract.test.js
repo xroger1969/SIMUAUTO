@@ -36,6 +36,11 @@ for (const marker of [
   "deals_active_stock_unique",
   "deals_active_plate_unique",
   "financedCapitalBonusPct",
+  "financedCapitalBonusStartSale",
+  "dealFinanceBonusEnabled",
+  "renderRestrictedSellerMap",
+  "get_map_configuration",
+  "get_deals_month",
   "dealPreviewFinanceBonus",
   "simFinancedCapitalBonus"
 ]) {
@@ -56,5 +61,18 @@ assert.ok(/id="dealLenderRate"[^>]*min="0"[^>]*max="20"/.test(html),
   "deal lender remuneration must be capped at 20% in the browser");
 assert.ok(/id="simLenderRate"[^>]*min="0"[^>]*max="20"/.test(html),
   "simulator lender remuneration must be capped at 20% in the browser");
+assert.ok(/id="financedCapitalBonusStartSale"[^>]*min="1"[^>]*max="99"/.test(html),
+  "finance bonus start sale must be configurable");
+assert.ok(/id="dealFinanceBonusEnabled"[^>]*type="checkbox"/.test(html),
+  "each deal must allow management to enable or disable the finance bonus");
+
+const sellerStart = app.indexOf("function renderRestrictedSellerMap");
+const sellerEnd = app.indexOf("function renderSellerMap", sellerStart + 10);
+assert.ok(sellerStart >= 0 && sellerEnd > sellerStart, "restricted seller renderer must exist");
+const sellerRenderer = app.slice(sellerStart, sellerEnd);
+for (const forbidden of ["acquisitionCost", "preparationCost", "vehicleMargin", "financePct", "financeRevenue", "lenderRatePct", "financedCapitalBonusAmount"]) {
+  assert.ok(!sellerRenderer.includes(forbidden), "seller renderer exposes sensitive field: " + forbidden);
+}
+assert.ok(!sellerRenderer.includes("dealActionsHtml"), "seller map must be read-only");
 
 console.log("ui-contract.test.js: OK");
