@@ -25,16 +25,22 @@ const base = {
 for (const pct of [0, 25, 50, 75, 100, 125]) {
   const calc = E.calcDeal({ ...base, financedAmount: 25000 * pct / 100 }, 8, cfg);
   assert.equal(calc.financePctApplied, Math.min(pct, 100));
-  assert.ok(calc.calculatedCommission >= cfg.globalMinCommission);
-  assert.ok(calc.calculatedCommission <= cfg.globalMaxCommission);
+  assert.ok(calc.normalCommission >= cfg.globalMinCommission);
+  assert.ok(calc.normalCommission <= cfg.globalMaxCommission);
+  almost(calc.financeCapitalBonus, calc.financedAmount * cfg.financeCapitalBonusPct / 100);
+  almost(calc.calculatedCommission, calc.normalCommission + calc.financeCapitalBonus);
 }
 
 const firstSaleNoFinance = E.calcDeal({ ...base, financedAmount: 0 }, 1, cfg);
 const firstSaleHalfFinance = E.calcDeal({ ...base, financedAmount: 12500 }, 1, cfg);
 const firstSaleFullFinance = E.calcDeal({ ...base, financedAmount: 25000 }, 1, cfg);
 almost(firstSaleNoFinance.calculatedCommission, 120);
-almost(firstSaleHalfFinance.calculatedCommission, 140);
-almost(firstSaleFullFinance.calculatedCommission, 160);
+almost(firstSaleHalfFinance.normalCommission, 140);
+almost(firstSaleHalfFinance.financeCapitalBonus, 125);
+almost(firstSaleHalfFinance.calculatedCommission, 265);
+almost(firstSaleFullFinance.normalCommission, 160);
+almost(firstSaleFullFinance.financeCapitalBonus, 250);
+almost(firstSaleFullFinance.calculatedCommission, 410);
 assert.ok(firstSaleHalfFinance.calculatedCommission > firstSaleNoFinance.calculatedCommission);
 assert.ok(firstSaleFullFinance.calculatedCommission > firstSaleHalfFinance.calculatedCommission);
 
@@ -221,7 +227,7 @@ const tesla = E.calcSellerMonth([{
 
 almost(tesla.projectedTotalFinanced, 11000);
 almost(tesla.projectedTotalMargin, 3880);
-almost(tesla.projectedTotalCommission, 140.01);
-almost(tesla.projectedTotalResult, 4124.99);
+almost(tesla.projectedTotalCommission, 250.01);
+almost(tesla.projectedTotalResult, 4014.99);
 
 console.log("engine.test.js: OK");
