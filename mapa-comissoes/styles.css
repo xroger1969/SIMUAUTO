@@ -261,3 +261,22 @@ td{color:#222;border-bottom-color:#ebebeb}
   font-size:11px;
   line-height:1.45;
 }
+
+
+.checkbox-field{
+  display:flex!important;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border:1px solid #d9dde4;
+  border-radius:10px;
+  background:#fafafa;
+}
+.checkbox-field input[type="checkbox"]{
+  width:18px;
+  height:18px;
+  flex:0 0 auto;
+}
+.checkbox-field span{
+  font-weight:600;
+}
