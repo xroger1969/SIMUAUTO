@@ -1160,13 +1160,13 @@
   }
 
   function exportCSV() {
-    const rows = [["Data", "Vendedor", "Stock", "Matricula", "Viatura", "PVP", "Margem", "Capital financiado", "Percentagem financiada", "Receita financeira", "Comissao", "Resultado", "Estado", "Versao regra", "Oficializada em", "Oficializada por", "Anulada em", "Anulada por", "Motivo anulacao"]];
+    const rows = [["Data", "Vendedor", "Stock", "Matricula", "Viatura", "PVP", "Margem", "Capital financiado", "Percentagem financiada", "Receita financeira", "Bonus capital financiado", "Comissao", "Resultado", "Estado", "Versao regra", "Oficializada em", "Oficializada por", "Anulada em", "Anulada por", "Motivo anulacao"]];
     reportSellers().forEach(s => {
       const m = E.calcSellerMonth(state.deals, s.id, state.month, state.config);
       m.rows.forEach(({ deal, calc }) => rows.push([
         deal.saleDate, s.name, deal.stock || "", deal.plate || "", deal.vehicle || "",
         calc.salePrice, calc.vehicleMargin, calc.financedAmount, calc.financePctRaw,
-        calc.financeRevenue, deal.status === "cancelled" ? "" : calc.commission,
+        calc.financeRevenue, deal.status === "cancelled" ? "" : calc.financeCapitalBonus, deal.status === "cancelled" ? "" : calc.commission,
         deal.status === "cancelled" ? "" : calc.resultAfterCommission,
         statusLabel(deal.status), deal.commissionSnapshot?.ruleVersion || state.config.version,
         deal.closedAt || "", deal.closedByEmail || "", deal.cancelledAt || "", deal.cancelledByEmail || "", deal.cancellationReason || ""
