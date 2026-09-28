@@ -4,12 +4,12 @@
   const FINANCE_POINTS = [0,25,50,75,100];
 
   const DEFAULT_CONFIG = {
-    version: 3,
+    version: 4,
     globalMinCommission: 120,
     globalMaxCommission: 750,
     financeCapPct: 100,
     volumeTiers: [
-      { id:"t0", label:"0–1", from:0, to:1, financeGrid:{"0":0,"25":0,"50":0,"75":0,"100":0} },
+      { id:"t0", label:"0–1", from:0, to:1, financeGrid:{"0":120,"25":120,"50":120,"75":120,"100":120} },
       { id:"t1", label:"2–3", from:2, to:3, financeGrid:{"0":120,"25":135,"50":150,"75":165,"100":180} },
       { id:"t2", label:"4–5", from:4, to:5, financeGrid:{"0":160,"25":180,"50":200,"75":220,"100":240} },
       { id:"t3", label:"6–7", from:6, to:7, financeGrid:{"0":220,"25":248,"50":275,"75":303,"100":330} },
@@ -165,7 +165,7 @@
     const financeBracket=getFinanceCommission(volumeTier,financePct);
     const volumeFinanceCommission=round2(financeBracket.value);
 
-    const eligible=salePosition>=2 && volumeFinanceCommission>0;
+    const eligible=salePosition>=1 && volumeFinanceCommission>0;
     const rawCommission=Math.max(0,volumeFinanceCommission*num(marginBand.factor));
     const calculatedCommission=round2(
       eligible
