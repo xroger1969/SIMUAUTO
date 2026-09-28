@@ -1361,24 +1361,28 @@
 
       const edit = ev.target.closest("[data-edit-deal]");
       if (edit) {
+        closeRowActionMenus();
         openDealModal(edit.dataset.editDeal);
         return;
       }
 
       const confirmDeal = ev.target.closest("[data-confirm-deal]");
       if (confirmDeal) {
+        closeRowActionMenus();
         await confirmOfficialDeal(confirmDeal.dataset.confirmDeal);
         return;
       }
 
       const deleteDeal = ev.target.closest("[data-delete-deal]");
       if (deleteDeal) {
+        closeRowActionMenus();
         await deleteDealPermanently(deleteDeal.dataset.deleteDeal);
         return;
       }
 
       const cancelDeal = ev.target.closest("[data-cancel-deal]");
       if (cancelDeal) {
+        closeRowActionMenus();
         await cancelOfficialDeal(cancelDeal.dataset.cancelDeal);
         return;
       }
