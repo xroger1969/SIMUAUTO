@@ -581,7 +581,7 @@
         '<td>' + fmtMoney(calc.financedAmount) + '</td>' +
         '<td>' + fmtPct(calc.financePctRaw) + '</td>' +
         '<td>' + fmtMoney(calc.financeRevenue) + '</td>' +
-        '<td><strong>' + commission + '</strong>' + (official && calc.isLocked ? ' <span class="badge locked">fixa</span>' : (deal.status === "draft" ? ' <span class="badge draft">prévia</span>' : '')) + '</td>' +
+        '<td><strong>' + commission + '</strong>' + (official && calc.isLocked ? ' <span class="badge locked">fixa</span>' : (deal.status === "draft" ? ' <span class="badge draft">prévia</span>' : '')) + (!cancelled && calc.financedCapitalBonus > 0 ? '<br><span class="muted">+' + fmtMoney(calc.financedCapitalBonus) + ' bónus capital</span>' : '') + '</td>' +
         '<td class="' + (!cancelled && calc.resultAfterCommission < 0 ? "negative" : (!cancelled ? "positive" : "")) + '"><strong>' + result + '</strong></td>' +
         '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
         '<td>' + dealActionsHtml(deal) + '</td>' +
@@ -614,7 +614,7 @@
         '<td>' + escapeHtml(deal.saleDate || "—") + '</td><td>' + escapeHtml(seller.name) + (seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</td>' +
         '<td>' + escapeHtml(deal.stock || "—") + '</td><td>' + escapeHtml(deal.plate || "—") + '</td><td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong></td>' +
         '<td>' + fmtMoney(calc.salePrice) + '</td><td>' + fmtMoney(calc.vehicleMargin) + '</td><td>' + fmtMoney(calc.financedAmount) + ' <span class="muted">(' + fmtPct(calc.financePctRaw) + ')</span></td>' +
-        '<td><strong>' + commission + '</strong>' + (deal.status === "draft" ? ' <span class="badge draft">prévia</span>' : '') + '</td><td class="' + (!cancelled && calc.resultAfterCommission < 0 ? "negative" : (!cancelled ? "positive" : "")) + '"><strong>' + result + '</strong></td>' +
+        '<td><strong>' + commission + '</strong>' + (deal.status === "draft" ? ' <span class="badge draft">prévia</span>' : '') + (!cancelled && calc.financedCapitalBonus > 0 ? '<br><span class="muted">+' + fmtMoney(calc.financedCapitalBonus) + ' bónus capital</span>' : '') + '</td><td class="' + (!cancelled && calc.resultAfterCommission < 0 ? "negative" : (!cancelled ? "positive" : "")) + '"><strong>' + result + '</strong></td>' +
         '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
         '<td>' + dealActionsHtml(deal) + '</td>' +
         '</tr>';
