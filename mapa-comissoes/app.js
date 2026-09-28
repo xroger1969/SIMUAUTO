@@ -1077,8 +1077,30 @@
     q("btnSaveRules").addEventListener("click", saveRules);
     q("btnResetRules").addEventListener("click", resetRules);
     q("btnRecommendedScenario").addEventListener("click", loadRecommendedScenario);
+    q("btnAddTier").addEventListener("click", addVolumeTier);
+    q("btnAddMarginBand").addEventListener("click", addMarginBand);
 
     document.addEventListener("click", async (ev) => {
+      const info = ev.target.closest("[data-info]");
+      if (info) {
+        ev.stopPropagation();
+        showInfo(info);
+        return;
+      }
+      hideInfo();
+
+      const removeTier = ev.target.closest("[data-remove-tier]");
+      if (removeTier) {
+        removeVolumeTier(Number(removeTier.dataset.removeTier));
+        return;
+      }
+
+      const removeMargin = ev.target.closest("[data-remove-margin]");
+      if (removeMargin) {
+        removeMarginBand(Number(removeMargin.dataset.removeMargin));
+        return;
+      }
+
       const sellerCard = ev.target.closest("[data-open-seller]");
       if (sellerCard) {
         currentSellerId = sellerCard.dataset.openSeller;
@@ -1111,8 +1133,11 @@
       if (ev.key === "Escape") {
         closeDealModal();
         closeSellerModal();
+        hideInfo();
       }
     });
+    window.addEventListener("resize", hideInfo);
+    window.addEventListener("scroll", hideInfo, true);
 
     db.auth.onAuthStateChange((_event, nextSession) => {
       setTimeout(() => {
