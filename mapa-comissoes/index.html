@@ -209,6 +209,7 @@
               <div><span>Margem viatura</span><strong id="simMargin">0 €</strong></div>
               <div><span>% financiada</span><strong id="simFinancePct">0%</strong></div>
               <div><span>Receita financeira</span><strong id="simFinanceRevenue">0 €</strong></div>
+              <div><span>Bónus capital financiado</span><strong id="simFinancedCapitalBonus">0 €</strong></div>
               <div><span>Resultado após comissão</span><strong id="simNet">0 €</strong></div>
             </div>
             <div class="explain" id="simExplain"></div>
@@ -229,7 +230,7 @@
 
         <div class="benefit-grid">
           <article class="benefit-card"><span>01</span><h3>Regras claras</h3><p>Cada vendedor sabe quanto pode ganhar e porquê. Menos contas manuais e menos discussões.</p></article>
-          <article class="benefit-card"><span>02</span><h3>Mais financiamento</h3><p>O sistema recompensa operações financiadas porque o crédito também gera receita para o stand.</p></article>
+          <article class="benefit-card"><span>02</span><h3>Mais financiamento</h3><p>Além da grelha normal, cada operação financiada soma ao vendedor um bónus percentual sobre o capital financiado — atualmente 1% e totalmente editável.</p></article>
           <article class="benefit-card"><span>03</span><h3>Margem protegida</h3><p>A comissão é cruzada com a rentabilidade da viatura para evitar premiar da mesma forma negócios muito diferentes.</p></article>
           <article class="benefit-card"><span>04</span><h3>Resultado real</h3><p>Em cada venda vemos margem + receita financeira − comissão, para saber imediatamente quanto ficou para a empresa.</p></article>
           <article class="benefit-card"><span>05</span><h3>Histórico seguro</h3><p>Quando um rascunho passa a oficial, a comissão fica congelada. Uma venda oficial pode ser anulada para manter o histórico ou eliminada definitivamente pelo administrador quando for mesmo necessário.</p></article>
@@ -256,10 +257,11 @@
             <div class="form-grid two">
               <label><span>Nome da empresa / projeto</span><input id="companyName" value="Mapa Comercial"></label>
               <label><span>Comissão mínima por viatura elegível</span><div class="input-suffix"><input id="globalMinCommission" type="number" value="120"><em>€</em></div></label>
-              <label><span>Comissão máxima por viatura</span><div class="input-suffix"><input id="globalMaxCommission" type="number" value="750"><em>€</em></div></label>
+              <label><span>Comissão normal máxima por viatura</span><div class="input-suffix"><input id="globalMaxCommission" type="number" value="750"><em>€</em></div></label>
+              <label><span>Bónus vendedor sobre capital financiado</span><div class="input-suffix"><input id="financedCapitalBonusPct" type="number" min="0" max="20" step=".1" value="1"><em>%</em></div></label>
               <label><span>Financiamento considerado até</span><div class="input-suffix"><input id="financeCapPct" type="number" value="100"><em>% PVP</em></div></label>
               <label><span>Máximo de vendedores ativos</span><input id="maxSellers" type="number" min="1" max="25" step="1" value="5"></label>
-              <label><span>Comissão financeira de referência</span><div class="input-suffix"><input id="referenceLenderRatePct" type="number" min="0" max="20" step=".1" value="3.5"><em>%</em></div></label>
+              <label><span>Comissão da financeira ao stand (referência)</span><div class="input-suffix"><input id="referenceLenderRatePct" type="number" min="0" max="20" step=".1" value="3.5"><em>%</em></div></label>
             </div>
             <div class="notice">
               <strong>Regra importante</strong>
@@ -288,6 +290,7 @@
             <strong>Leitura simples:</strong>
             <span>escolhe o escalão de vendas do mês e cruza com a percentagem do PVP financiada.</span>
             <span>Os valores 0%, 25%, 50%, 75% e 100% são editáveis; percentagens intermédias são calculadas automaticamente.</span>
+            <span>Ao valor normal soma-se ainda o bónus sobre o capital financiado (por defeito 1%), configurável acima.</span>
           </div>
           <div class="table-wrap">
             <table class="settings-table finance-grid-table">
@@ -359,6 +362,7 @@
         <div class="deal-preview">
           <div><span>Margem</span><strong id="dealPreviewMargin">0 €</strong></div>
           <div><span>% financiada</span><strong id="dealPreviewFinancePct">0%</strong></div>
+          <div><span>Bónus capital financiado</span><strong id="dealPreviewFinanceBonus">0 €</strong></div>
           <div><span>Comissão estimada</span><strong id="dealPreviewCommission">0 €</strong></div>
           <div><span>Resultado</span><strong id="dealPreviewNet">0 €</strong></div>
         </div>

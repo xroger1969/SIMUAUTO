@@ -25,16 +25,22 @@ const base = {
 for (const pct of [0, 25, 50, 75, 100, 125]) {
   const calc = E.calcDeal({ ...base, financedAmount: 25000 * pct / 100 }, 8, cfg);
   assert.equal(calc.financePctApplied, Math.min(pct, 100));
-  assert.ok(calc.calculatedCommission >= cfg.globalMinCommission);
-  assert.ok(calc.calculatedCommission <= cfg.globalMaxCommission);
+  assert.ok(calc.regularCommission >= cfg.globalMinCommission);
+  assert.ok(calc.regularCommission <= cfg.globalMaxCommission);
+  almost(calc.financedCapitalBonus, calc.financedAmount * cfg.financedCapitalBonusPct / 100);
+  almost(calc.calculatedCommission, calc.regularCommission + calc.financedCapitalBonus);
 }
 
 const firstSaleNoFinance = E.calcDeal({ ...base, financedAmount: 0 }, 1, cfg);
 const firstSaleHalfFinance = E.calcDeal({ ...base, financedAmount: 12500 }, 1, cfg);
 const firstSaleFullFinance = E.calcDeal({ ...base, financedAmount: 25000 }, 1, cfg);
 almost(firstSaleNoFinance.calculatedCommission, 120);
-almost(firstSaleHalfFinance.calculatedCommission, 140);
-almost(firstSaleFullFinance.calculatedCommission, 160);
+almost(firstSaleHalfFinance.regularCommission, 140);
+almost(firstSaleHalfFinance.financedCapitalBonus, 125);
+almost(firstSaleHalfFinance.calculatedCommission, 265);
+almost(firstSaleFullFinance.regularCommission, 160);
+almost(firstSaleFullFinance.financedCapitalBonus, 250);
+almost(firstSaleFullFinance.calculatedCommission, 410);
 assert.ok(firstSaleHalfFinance.calculatedCommission > firstSaleNoFinance.calculatedCommission);
 assert.ok(firstSaleFullFinance.calculatedCommission > firstSaleHalfFinance.calculatedCommission);
 
@@ -57,7 +63,8 @@ const lowMarginHalfFinance = E.calcDeal({
   financedAmount: 11000
 }, 1, cfg);
 assert.ok(lowMarginHalfFinance.calculatedCommission > lowMarginNoFinance.calculatedCommission,
-  "financing bonus must remain visible even with a low margin factor");
+  "financing incentives must remain visible even with a low margin factor");
+almost(lowMarginHalfFinance.financedCapitalBonus, 110);
 
 const negative = E.calcDeal({
   ...base,
@@ -221,7 +228,11 @@ const tesla = E.calcSellerMonth([{
 
 almost(tesla.projectedTotalFinanced, 11000);
 almost(tesla.projectedTotalMargin, 3880);
-almost(tesla.projectedTotalCommission, 140.01);
-almost(tesla.projectedTotalResult, 4124.99);
+almost(tesla.projectedTotalCommission, 250.01);
+almost(tesla.projectedTotalResult, 4014.99);
+
+const capitalBonusExample = E.calcDeal({ ...base, financedAmount: 18000 }, 1, cfg);
+almost(capitalBonusExample.financedCapitalBonus, 180);
+almost(capitalBonusExample.calculatedCommission, capitalBonusExample.regularCommission + 180);
 
 console.log("engine.test.js: OK");
