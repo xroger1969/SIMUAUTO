@@ -35,12 +35,14 @@ const firstSaleNoFinance = E.calcDeal({ ...base, financedAmount: 0 }, 1, cfg);
 const firstSaleHalfFinance = E.calcDeal({ ...base, financedAmount: 12500 }, 1, cfg);
 const firstSaleFullFinance = E.calcDeal({ ...base, financedAmount: 25000 }, 1, cfg);
 almost(firstSaleNoFinance.calculatedCommission, 120);
-almost(firstSaleHalfFinance.regularCommission, 140);
+almost(firstSaleHalfFinance.regularCommission, 120);
 almost(firstSaleHalfFinance.financedCapitalBonus, 125);
-almost(firstSaleHalfFinance.calculatedCommission, 265);
-almost(firstSaleFullFinance.regularCommission, 160);
+almost(firstSaleHalfFinance.calculatedCommission, 245);
+almost(firstSaleFullFinance.regularCommission, 120);
 almost(firstSaleFullFinance.financedCapitalBonus, 250);
-almost(firstSaleFullFinance.calculatedCommission, 410);
+almost(firstSaleFullFinance.calculatedCommission, 370);
+almost(firstSaleHalfFinance.regularCommission, firstSaleNoFinance.regularCommission);
+almost(firstSaleFullFinance.regularCommission, firstSaleNoFinance.regularCommission);
 assert.ok(firstSaleHalfFinance.calculatedCommission > firstSaleNoFinance.calculatedCommission);
 assert.ok(firstSaleFullFinance.calculatedCommission > firstSaleHalfFinance.calculatedCommission);
 
@@ -228,11 +230,28 @@ const tesla = E.calcSellerMonth([{
 
 almost(tesla.projectedTotalFinanced, 11000);
 almost(tesla.projectedTotalMargin, 3880);
-almost(tesla.projectedTotalCommission, 250.01);
-almost(tesla.projectedTotalResult, 4014.99);
+almost(tesla.projectedTotalCommission, 230);
+almost(tesla.projectedTotalResult, 4035);
 
 const capitalBonusExample = E.calcDeal({ ...base, financedAmount: 18000 }, 1, cfg);
 almost(capitalBonusExample.financedCapitalBonus, 180);
 almost(capitalBonusExample.calculatedCommission, capitalBonusExample.regularCommission + 180);
+
+const thresholdCfg = { ...cfg, financedCapitalBonusStartSale: 4 };
+const belowThreshold = E.calcDeal({ ...base, financedAmount: 12500 }, 3, thresholdCfg);
+const atThreshold = E.calcDeal({ ...base, financedAmount: 12500 }, 4, thresholdCfg);
+almost(belowThreshold.financedCapitalBonus, 0);
+assert.equal(belowThreshold.financeBonusEligible, false);
+almost(atThreshold.financedCapitalBonus, 125);
+assert.equal(atThreshold.financeBonusEligible, true);
+
+const financeBonusDisabled = E.calcDeal({
+  ...base,
+  financedAmount: 12500,
+  financeBonusEnabled: false
+}, 8, cfg);
+almost(financeBonusDisabled.financedCapitalBonus, 0);
+assert.equal(financeBonusDisabled.financeBonusEligible, false);
+almost(financeBonusDisabled.calculatedCommission, financeBonusDisabled.regularCommission);
 
 console.log("engine.test.js: OK");
