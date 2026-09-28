@@ -59,6 +59,76 @@
     el.classList.toggle("busy", !!busy);
   }
 
+  function localId(prefix) {
+    if (globalThis.crypto && crypto.randomUUID) return prefix + "_" + crypto.randomUUID().slice(0, 8);
+    return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  const INFO_TEXT = {
+    companyName: "Nome apresentado no Mapa Comercial. Pode ser o nome do stand ou o nome interno do projeto.",
+    globalMinCommission: "Valor mínimo pago numa venda elegível. Evita que os fatores de margem reduzam a comissão abaixo deste valor.",
+    globalMaxCommission: "Teto máximo de comissão por viatura, independentemente do escalão ou financiamento.",
+    financeCapPct: "Percentagem máxima do PVP considerada para calcular a comissão ligada ao financiamento.",
+    maxSellers: "Número máximo de vendedores que podem estar ativos ao mesmo tempo. Pode ser ajustado entre 1 e 25.",
+    referenceLenderRatePct: "Percentagem de referência paga pela financeira ao stand. É usada como valor inicial em novas operações.",
+    dealSeller: "Vendedor responsável pela operação.",
+    dealDate: "Data que coloca a venda no mês correto e determina a posição no escalão mensal.",
+    dealStatus: "Rascunho permite editar. Oficial congela a comissão. Uma venda oficial só pode ser anulada, não apagada.",
+    dealStock: "Número interno de stock da viatura.",
+    dealPlate: "Matrícula da viatura, útil para pesquisa e controlo.",
+    dealVehicle: "Marca, modelo e versão da viatura.",
+    dealSalePrice: "Preço de venda ao cliente (PVP).",
+    dealAcquisition: "Valor pago pelo stand para adquirir a viatura.",
+    dealPrep: "Custos de preparação ou recondicionamento antes da venda.",
+    dealWarranty: "Custo imputado à garantia da viatura.",
+    dealOther: "Outros custos diretos ligados especificamente a esta operação.",
+    dealFinanced: "Capital efetivamente financiado ao cliente.",
+    dealLender: "Entidade financeira usada na operação.",
+    dealLenderRate: "Percentagem que a financeira paga ao stand sobre o capital financiado. Não é a taxa de juro do cliente.",
+    dealNotes: "Observações internas sobre a operação.",
+    simPosition: "Posição desta venda no mês do vendedor.",
+    simSalePrice: "PVP usado apenas nesta simulação.",
+    simAcquisition: "Custo de aquisição usado apenas nesta simulação.",
+    simPrep: "Preparação/recondicionamento usado apenas nesta simulação.",
+    simWarranty: "Custo de garantia usado apenas nesta simulação.",
+    simOther: "Outros custos diretos usados apenas nesta simulação.",
+    simFinanced: "Capital financiado usado apenas nesta simulação.",
+    simLenderRate: "Percentagem paga pela financeira ao stand, usada apenas nesta simulação."
+  };
+
+  function infoMarkup(text) {
+    return '<button type="button" class="info-btn" data-info="' + escapeHtml(text) + '" aria-label="Informação">i</button>';
+  }
+
+  function installInfoButtons() {
+    Object.entries(INFO_TEXT).forEach(([id, text]) => {
+      const field = q(id);
+      const label = field?.closest("label");
+      const title = label?.querySelector(":scope > span");
+      if (!title || title.querySelector(".info-btn")) return;
+      title.insertAdjacentHTML("beforeend", " " + infoMarkup(text));
+    });
+  }
+
+  function showInfo(button) {
+    const pop = q("infoPopover");
+    if (!pop) return;
+    pop.textContent = button.dataset.info || "";
+    const rect = button.getBoundingClientRect();
+    pop.classList.add("show");
+    const width = Math.min(310, window.innerWidth - 24);
+    pop.style.width = width + "px";
+    const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left - width / 2 + rect.width / 2));
+    let top = rect.bottom + 9;
+    if (top + pop.offsetHeight > window.innerHeight - 12) top = Math.max(12, rect.top - pop.offsetHeight - 9);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
+
+  function hideInfo() {
+    q("infoPopover")?.classList.remove("show");
+  }
+
   let session = null;
   let member = null;
   let ruleVersionById = {};
@@ -67,6 +137,10 @@
   let state = {
     companyName: "Mapa Comercial",
     month: currentMonth(),
+    settings: {
+      maxSellers: 5,
+      referenceLenderRatePct: 3.5
+    },
     config: E.clone(E.DEFAULT_CONFIG),
     sellers: [],
     deals: []
@@ -160,6 +234,8 @@
       .single();
     if (error) throw error;
     state.companyName = data.company_name || "Mapa Comercial";
+    state.settings.maxSellers = Math.max(1, Math.min(25, num(data.max_sellers) || 5));
+    state.settings.referenceLenderRatePct = Math.max(0, Math.min(20, num(data.reference_lender_rate_pct)));
   }
 
   async function loadSellers() {
@@ -337,6 +413,8 @@
     q("brandName").textContent = state.companyName;
     q("companyName").value = state.companyName;
     q("ruleVersion").textContent = "Versão " + state.config.version;
+    q("maxSellers").value = state.settings.maxSellers;
+    q("referenceLenderRatePct").value = state.settings.referenceLenderRatePct;
   }
 
   function renderSellerOptions(includeDealSellerId) {
@@ -513,18 +591,33 @@
     q("globalMinCommission").value = state.config.globalMinCommission;
     q("globalMaxCommission").value = state.config.globalMaxCommission;
     q("financeCapPct").value = state.config.financeCapPct;
+    q("maxSellers").value = state.settings.maxSellers;
+    q("referenceLenderRatePct").value = state.settings.referenceLenderRatePct;
+
     q("volumeTiersBody").innerHTML = state.config.volumeTiers.map((t, i) => {
       const cells = E.FINANCE_POINTS.map(point =>
         '<td><div class="commission-cell"><input type="number" min="0" step="1" data-tier="' + i + '" data-point="' + point + '" value="' + num(t.financeGrid[String(point)]) + '"><span>€</span></div></td>'
       ).join("");
-      return '<tr><td><strong>' + escapeHtml(t.label) + '</strong><small class="tier-hint">' + (t.id === "t0" ? "comissão desde a 1.ª venda" : "vendas no mês") + '</small></td>' + cells + '</tr>';
+      const canRemove = state.config.volumeTiers.length > 1;
+      return '<tr>' +
+        '<td><strong class="tier-label">' + escapeHtml(t.label) + '</strong><small class="tier-hint">vendas no mês ' + infoMarkup("Define o intervalo de posições de venda que usa esta linha de comissões.") + '</small></td>' +
+        '<td><input class="small" type="number" min="0" step="1" data-tier="' + i + '" data-key="from" value="' + num(t.from) + '"></td>' +
+        '<td><input class="small" type="number" min="0" step="1" data-tier="' + i + '" data-key="to" value="' + (t.to ?? "") + '" placeholder="∞"></td>' +
+        cells +
+        '<td><button type="button" class="table-action danger" data-remove-tier="' + i + '" ' + (canRemove ? "" : "disabled") + '>×</button></td>' +
+        '</tr>';
     }).join("");
-    q("marginBandsBody").innerHTML = state.config.marginBands.map((b, i) =>
-      '<tr><td><strong>' + escapeHtml(b.label) + '</strong></td>' +
-      '<td><input type="number" data-margin="' + i + '" data-key="min" value="' + (b.min ?? "") + '" placeholder="−∞"></td>' +
-      '<td><input type="number" data-margin="' + i + '" data-key="max" value="' + (b.max ?? "") + '" placeholder="+∞"></td>' +
-      '<td><input type="number" step=".05" data-margin="' + i + '" data-key="factor" value="' + b.factor + '"> ×</td></tr>'
-    ).join("");
+
+    q("marginBandsBody").innerHTML = state.config.marginBands.map((b, i) => {
+      const canRemove = state.config.marginBands.length > 1;
+      return '<tr>' +
+        '<td><strong class="margin-label">' + escapeHtml(b.label) + '</strong> ' + infoMarkup("A faixa de margem determina o fator aplicado à comissão-base para proteger a rentabilidade.") + '</td>' +
+        '<td><input type="number" step=".01" data-margin="' + i + '" data-key="min" value="' + (b.min ?? "") + '" placeholder="−∞"></td>' +
+        '<td><input type="number" step=".01" data-margin="' + i + '" data-key="max" value="' + (b.max ?? "") + '" placeholder="+∞"></td>' +
+        '<td><input type="number" min="0" step=".05" data-margin="' + i + '" data-key="factor" value="' + b.factor + '"> ×</td>' +
+        '<td><button type="button" class="table-action danger" data-remove-margin="' + i + '" ' + (canRemove ? "" : "disabled") + '>×</button></td>' +
+        '</tr>';
+    }).join("");
   }
 
   function renderAll() {
@@ -540,6 +633,7 @@
     }
     renderSimulator();
     applyRoleUi();
+    installInfoButtons();
   }
 
   function switchView(name) {
@@ -550,7 +644,7 @@
     q("view-" + name).classList.add("active");
     const btn = document.querySelector('.nav-item[data-view="' + name + '"]');
     if (btn) btn.classList.add("active");
-    const titles = { dashboard: "Visão geral", sellers: "Vendedores", operations: "Operações", simulator: "Simulador", backoffice: "Backoffice" };
+    const titles = { dashboard: "Visão geral", sellers: "Vendedores", operations: "Operações", simulator: "Simulador", presentation: "Apresentação", backoffice: "Backoffice" };
     q("pageTitle").textContent = titles[name] || "Mapa Comercial";
     if (name === "sellers") renderSellerMap();
     if (name === "operations") renderOperations();
@@ -574,7 +668,7 @@
     q("dealOther").value = deal?.otherDirectCosts ?? 0;
     q("dealFinanced").value = deal?.financedAmount ?? 0;
     q("dealLender").value = deal?.lender || "";
-    q("dealLenderRate").value = deal?.lenderRatePct ?? 3.5;
+    q("dealLenderRate").value = deal?.lenderRatePct ?? state.settings.referenceLenderRatePct;
     q("dealNotes").value = deal?.notes || "";
 
     const locked = !!deal && deal.status !== "draft";
@@ -722,7 +816,7 @@
     q("simWarranty").value = 500;
     q("simOther").value = 500;
     q("simFinanced").value = 18750;
-    q("simLenderRate").value = 3.5;
+    q("simLenderRate").value = state.settings.referenceLenderRatePct;
     renderSimulator();
     toast("Cenário recomendado carregado.");
   }
@@ -755,8 +849,8 @@
 
   function addSeller() {
     if (!isAdmin()) return;
-    if (activeSellers().length >= 5) {
-      toast("O limite é 5 vendedores ativos.");
+    if (activeSellers().length >= state.settings.maxSellers) {
+      toast("O limite configurado é " + state.settings.maxSellers + " vendedores ativos.");
       return;
     }
     q("newSellerName").value = "";
@@ -787,33 +881,107 @@
   }
 
   function readRulesFromDom() {
-    const config = E.normalizeConfig(state.config);
+    const config = E.clone(state.config);
     config.globalMinCommission = Math.max(0, num(q("globalMinCommission").value));
     config.globalMaxCommission = Math.max(config.globalMinCommission, num(q("globalMaxCommission").value));
     config.financeCapPct = Math.min(100, Math.max(1, num(q("financeCapPct").value)));
 
-    qa("#volumeTiersBody input[data-point]").forEach(input => {
+    qa("#volumeTiersBody input").forEach(input => {
       const i = Number(input.dataset.tier);
-      const point = String(input.dataset.point);
-      if (Number.isNaN(i) || !config.volumeTiers[i] || !E.FINANCE_POINTS.includes(Number(point))) return;
-      config.volumeTiers[i].financeGrid[point] = Math.max(0, num(input.value));
+      if (Number.isNaN(i) || !config.volumeTiers[i]) return;
+      if (input.dataset.point) {
+        const point = String(input.dataset.point);
+        if (E.FINANCE_POINTS.includes(Number(point))) config.volumeTiers[i].financeGrid[point] = Math.max(0, num(input.value));
+        return;
+      }
+      if (input.dataset.key === "from") config.volumeTiers[i].from = Math.max(0, Math.floor(num(input.value)));
+      if (input.dataset.key === "to") config.volumeTiers[i].to = input.value === "" ? null : Math.max(0, Math.floor(num(input.value)));
     });
 
     qa("#marginBandsBody input").forEach(input => {
       const i = Number(input.dataset.margin);
       const key = input.dataset.key;
-      if (Number.isNaN(i) || !key) return;
+      if (Number.isNaN(i) || !key || !config.marginBands[i]) return;
       config.marginBands[i][key] = input.value === "" ? null : num(input.value);
     });
 
+    config.volumeTiers.sort((a,b)=>num(a.from)-num(b.from));
+    config.volumeTiers.forEach(t => {
+      t.id = t.id || localId("tier");
+      t.label = t.to === null ? t.from + "+" : t.from + "–" + t.to;
+    });
+
     config.marginBands.forEach(b => {
+      b.id = b.id || localId("margin");
       b.factor = Math.max(0, num(b.factor));
-      if (b.min === null) b.label = "< " + fmtMoney((b.max || 0) + .01);
+      if (b.min === null && b.max === null) b.label = "Todas as margens";
+      else if (b.min === null) b.label = "< " + fmtMoney((b.max || 0) + .01);
       else if (b.max === null) b.label = "≥ " + fmtMoney(b.min);
       else b.label = fmtMoney(b.min) + "–" + fmtMoney(b.max);
     });
 
     return E.normalizeConfig(config);
+  }
+
+  function addVolumeTier() {
+    const config = readRulesFromDom();
+    const last = config.volumeTiers[config.volumeTiers.length - 1];
+    const from = last?.to === null ? num(last.from) + 2 : num(last?.to) + 1;
+    if (last && last.to === null) last.to = Math.max(last.from, from - 1);
+    config.volumeTiers.push({
+      id: localId("tier"),
+      label: from + "+",
+      from,
+      to: null,
+      financeGrid: E.clone(last?.financeGrid || {"0":120,"25":135,"50":150,"75":165,"100":180})
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
+    installInfoButtons();
+  }
+
+  function addMarginBand() {
+    const config = readRulesFromDom();
+    const last = config.marginBands[config.marginBands.length - 1];
+    const min = last?.max === null ? num(last?.min) + 500 : num(last?.max) + .01;
+    if (last && last.max === null) last.max = Math.max(num(last.min), min - .01);
+    config.marginBands.push({
+      id: localId("margin"),
+      label: "≥ " + fmtMoney(min),
+      min,
+      max: null,
+      factor: num(last?.factor) || 1
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
+    installInfoButtons();
+  }
+
+  function removeVolumeTier(index) {
+    const config = readRulesFromDom();
+    if (config.volumeTiers.length <= 1) return;
+    config.volumeTiers.splice(index,1);
+    config.volumeTiers.sort((a,b)=>num(a.from)-num(b.from));
+    config.volumeTiers.forEach((t,i)=>{
+      if (i === 0) t.from = Math.min(t.from,1);
+      if (i < config.volumeTiers.length - 1) t.to = Math.max(t.from, config.volumeTiers[i+1].from - 1);
+      else t.to = null;
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
+  }
+
+  function removeMarginBand(index) {
+    const config = readRulesFromDom();
+    if (config.marginBands.length <= 1) return;
+    config.marginBands.splice(index,1);
+    config.marginBands.forEach((b,i)=>{
+      if (i === 0) b.min = null;
+      if (i === config.marginBands.length - 1) b.max = null;
+      if (i > 0 && config.marginBands[i-1].max !== null) b.min = num(config.marginBands[i-1].max) + .01;
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
   }
 
   function configToRpc(config) {
@@ -841,13 +1009,16 @@
     };
   }
 
-  async function persistRules(config, companyName) {
+  async function persistRules(config, companyName, settingsOverride) {
     const payload = configToRpc(config);
-    const { data, error } = await db.rpc("save_rule_set", {
+    const settings = settingsOverride || state.settings;
+    const { data, error } = await db.rpc("save_configuration", {
       p_company_name: companyName,
       p_global_min_commission: config.globalMinCommission,
       p_global_max_commission: config.globalMaxCommission,
       p_finance_cap_pct: config.financeCapPct,
+      p_max_sellers: Math.max(1, Math.min(25, Math.floor(num(settings.maxSellers) || 5))),
+      p_reference_lender_rate_pct: Math.max(0, Math.min(20, num(settings.referenceLenderRatePct))),
       p_volume_tiers: payload.tiers,
       p_margin_bands: payload.bands
     });
@@ -859,9 +1030,13 @@
     if (!isAdmin()) return;
     const companyName = q("companyName").value.trim() || "Mapa Comercial";
     const next = readRulesFromDom();
+    const settings = {
+      maxSellers: Math.max(1, Math.min(25, Math.floor(num(q("maxSellers").value) || 5))),
+      referenceLenderRatePct: Math.max(0, Math.min(20, num(q("referenceLenderRatePct").value)))
+    };
     try {
       setSync("A guardar nova versão…", true);
-      const version = await persistRules(next, companyName);
+      const version = await persistRules(next, companyName, settings);
       await refreshData("Regras v" + version + " guardadas");
       toast("Nova versão das regras guardada.");
     } catch (err) {
@@ -876,7 +1051,11 @@
     if (!confirm("Repor os valores iniciais do modelo? As operações já fechadas mantêm a comissão congelada.")) return;
     try {
       setSync("A repor regras…", true);
-      const version = await persistRules(E.clone(E.DEFAULT_CONFIG), q("companyName").value.trim() || "Mapa Comercial");
+      const version = await persistRules(
+        E.clone(E.DEFAULT_CONFIG),
+        q("companyName").value.trim() || "Mapa Comercial",
+        { maxSellers: 5, referenceLenderRatePct: 3.5 }
+      );
       await refreshData("Regras v" + version + " guardadas");
       toast("Regras iniciais repostas.");
     } catch (err) {
@@ -912,8 +1091,8 @@
     if (!isAdmin()) return;
     const s = state.sellers.find(x => x.id === id);
     if (!s) return;
-    if (s.active === false && activeSellers().length >= 5) {
-      toast("Limite de 5 vendedores ativos.");
+    if (s.active === false && activeSellers().length >= state.settings.maxSellers) {
+      toast("Limite configurado: " + state.settings.maxSellers + " vendedores ativos.");
       return;
     }
     const { error } = await db.from("sellers").update({ active: s.active === false }).eq("id", id);
@@ -1050,8 +1229,30 @@
     q("btnSaveRules").addEventListener("click", saveRules);
     q("btnResetRules").addEventListener("click", resetRules);
     q("btnRecommendedScenario").addEventListener("click", loadRecommendedScenario);
+    q("btnAddTier").addEventListener("click", addVolumeTier);
+    q("btnAddMarginBand").addEventListener("click", addMarginBand);
 
     document.addEventListener("click", async (ev) => {
+      const info = ev.target.closest("[data-info]");
+      if (info) {
+        ev.stopPropagation();
+        showInfo(info);
+        return;
+      }
+      hideInfo();
+
+      const removeTier = ev.target.closest("[data-remove-tier]");
+      if (removeTier) {
+        removeVolumeTier(Number(removeTier.dataset.removeTier));
+        return;
+      }
+
+      const removeMargin = ev.target.closest("[data-remove-margin]");
+      if (removeMargin) {
+        removeMarginBand(Number(removeMargin.dataset.removeMargin));
+        return;
+      }
+
       const sellerCard = ev.target.closest("[data-open-seller]");
       if (sellerCard) {
         currentSellerId = sellerCard.dataset.openSeller;
@@ -1108,8 +1309,11 @@
       if (ev.key === "Escape") {
         closeDealModal();
         closeSellerModal();
+        hideInfo();
       }
     });
+    window.addEventListener("resize", hideInfo);
+    window.addEventListener("scroll", hideInfo, true);
 
     db.auth.onAuthStateChange((_event, nextSession) => {
       setTimeout(() => {

@@ -43,10 +43,10 @@
   <div class="app-shell hidden-app" id="appShell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">MC</div>
+        <div class="brand-mark samucar-mark">S</div>
         <div>
-          <strong id="brandName">Mapa Comercial</strong>
-          <small>Gestão de usados</small>
+          <strong class="samucar-word">SAMUCAR</strong>
+          <small id="brandName">Mapa Comercial</small>
         </div>
       </div>
 
@@ -55,6 +55,7 @@
         <button class="nav-item" data-view="sellers"><span>◎</span>Vendedores</button>
         <button class="nav-item" data-view="operations"><span>▤</span>Operações</button>
         <button class="nav-item" data-view="simulator"><span>∑</span>Simulador</button>
+        <button class="nav-item" data-view="presentation"><span>★</span>Apresentação</button>
         <button class="nav-item" data-view="backoffice"><span>⚙</span>Backoffice</button>
       </nav>
 
@@ -193,7 +194,7 @@
               <label><span>Garantia</span><input type="number" id="simWarranty" value="500" step="0.01"></label>
               <label><span>Outros custos</span><input type="number" id="simOther" value="500" step="0.01"></label>
               <label><span>Capital financiado</span><input type="number" id="simFinanced" value="18750" step="0.01"></label>
-              <label><span>Remuneração da financeira</span><div class="input-suffix"><input type="number" id="simLenderRate" value="3.5" step=".1"><em>%</em></div></label>
+              <label><span>Comissão da financeira ao stand</span><div class="input-suffix"><input type="number" id="simLenderRate" value="3.5" step=".1"><em>%</em></div></label>
             </div>
           </div>
           <div class="panel result-panel">
@@ -214,6 +215,36 @@
         </div>
       </section>
 
+
+      <section class="view" id="view-presentation">
+        <div class="presentation-hero">
+          <div>
+            <span class="eyebrow">Proposta de gestão comercial</span>
+            <h2>O vendedor ganha mais quando ajuda o stand a ganhar mais.</h2>
+            <p>O Mapa Comercial transforma vendas, financiamento, margem e comissão num único sistema simples, transparente e ajustável.</p>
+          </div>
+          <div class="presentation-badge">SAMUCAR<br><small>gestão comercial</small></div>
+        </div>
+
+        <div class="benefit-grid">
+          <article class="benefit-card"><span>01</span><h3>Regras claras</h3><p>Cada vendedor sabe quanto pode ganhar e porquê. Menos contas manuais e menos discussões.</p></article>
+          <article class="benefit-card"><span>02</span><h3>Mais financiamento</h3><p>O sistema recompensa operações financiadas porque o crédito também gera receita para o stand.</p></article>
+          <article class="benefit-card"><span>03</span><h3>Margem protegida</h3><p>A comissão é cruzada com a rentabilidade da viatura para evitar premiar da mesma forma negócios muito diferentes.</p></article>
+          <article class="benefit-card"><span>04</span><h3>Resultado real</h3><p>Em cada venda vemos margem + receita financeira − comissão, para saber imediatamente quanto ficou para a empresa.</p></article>
+          <article class="benefit-card"><span>05</span><h3>Histórico seguro</h3><p>Quando um rascunho passa a oficial, a comissão fica congelada. Uma venda oficial pode ser anulada sem apagar o histórico.</p></article>
+          <article class="benefit-card"><span>06</span><h3>100% ajustável</h3><p>Escalões, comissões, financiamento, margens, fatores e limites podem ser adaptados à política comercial do stand.</p></article>
+        </div>
+
+        <div class="panel pitch-panel">
+          <span class="eyebrow">Explicação em 30 segundos</span>
+          <h3>Não é apenas um calculador de comissões.</h3>
+          <p>É um mapa de gestão que mostra, num único ecrã, quanto vendemos, quanto financiamos, que margem tivemos, quanto pagamos ao vendedor e quanto fica realmente para a empresa.</p>
+          <div class="pitch-formula">
+            <span>Margem da viatura</span><b>+</b><span>Receita financeira</span><b>−</b><span>Comissão</span><b>=</b><strong>Resultado do stand</strong>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-backoffice">
         <div class="backoffice-grid">
           <div class="panel">
@@ -226,8 +257,8 @@
               <label><span>Comissão mínima por viatura elegível</span><div class="input-suffix"><input id="globalMinCommission" type="number" value="120"><em>€</em></div></label>
               <label><span>Comissão máxima por viatura</span><div class="input-suffix"><input id="globalMaxCommission" type="number" value="750"><em>€</em></div></label>
               <label><span>Financiamento considerado até</span><div class="input-suffix"><input id="financeCapPct" type="number" value="100"><em>% PVP</em></div></label>
-              <label><span>Máximo de vendedores</span><input value="5" disabled></label>
-              <label><span>Remuneração financeira de referência</span><div class="input-suffix"><input value="3.5" disabled><em>%</em></div></label>
+              <label><span>Máximo de vendedores ativos</span><input id="maxSellers" type="number" min="1" max="25" step="1" value="5"></label>
+              <label><span>Comissão financeira de referência</span><div class="input-suffix"><input id="referenceLenderRatePct" type="number" min="0" max="20" step=".1" value="3.5"><em>%</em></div></label>
             </div>
             <div class="notice">
               <strong>Regra importante</strong>
@@ -250,6 +281,7 @@
               <span class="eyebrow">Comissão base + financiamento</span>
               <h3>Comissão por volume e percentagem financiada</h3>
             </div>
+            <button class="btn secondary small" id="btnAddTier" type="button">+ Escalão</button>
           </div>
           <div class="commission-guide">
             <strong>Leitura simples:</strong>
@@ -260,12 +292,15 @@
             <table class="settings-table finance-grid-table">
               <thead>
                 <tr>
-                  <th>Vendas/mês</th>
-                  <th>0% financiado</th>
-                  <th>25% financiado</th>
-                  <th>50% financiado</th>
-                  <th>75% financiado</th>
-                  <th>100% financiado</th>
+                  <th>Escalão</th>
+                  <th>De</th>
+                  <th>Até</th>
+                  <th>0% financiado <button type="button" class="info-btn" data-info="Comissão-base quando não existe financiamento.">i</button></th>
+                  <th>25% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 25% do PVP é financiado. Percentagens intermédias são interpoladas.">i</button></th>
+                  <th>50% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 50% do PVP é financiado.">i</button></th>
+                  <th>75% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 75% do PVP é financiado.">i</button></th>
+                  <th>100% financiado <button type="button" class="info-btn" data-info="Comissão-base quando o financiamento atinge 100% do PVP considerado.">i</button></th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="volumeTiersBody"></tbody>
@@ -277,10 +312,11 @@
         <div class="panel">
           <div class="panel-head">
             <div><span class="eyebrow">Proteção de margem</span><h3>Fatores por margem da viatura</h3></div>
+            <button class="btn secondary small" id="btnAddMarginBand" type="button">+ Faixa</button>
           </div>
           <div class="table-wrap">
             <table class="settings-table">
-              <thead><tr><th>Faixa</th><th>Mínimo</th><th>Máximo</th><th>Fator sobre comissão</th></tr></thead>
+              <thead><tr><th>Faixa</th><th>Mínimo</th><th>Máximo</th><th>Fator sobre comissão <button type="button" class="info-btn" data-info="Multiplicador aplicado à comissão-base. Ex.: 0,70 reduz para 70%; 1,00 mantém 100%.">i</button></th><th></th></tr></thead>
               <tbody id="marginBandsBody"></tbody>
             </table>
           </div>
@@ -315,7 +351,7 @@
           <label><span>Outros custos diretos</span><input id="dealOther" type="number" step="0.01" value="0"></label>
           <label><span>Capital financiado</span><input id="dealFinanced" type="number" step="0.01" value="0"></label>
           <label><span>Financeira</span><input id="dealLender" placeholder="Ex.: Cetelem"></label>
-          <label><span>Remuneração financeira</span><div class="input-suffix"><input id="dealLenderRate" type="number" step=".1" value="3.5"><em>%</em></div></label>
+          <label><span>Comissão da financeira ao stand</span><div class="input-suffix"><input id="dealLenderRate" type="number" step=".1" value="3.5"><em>%</em></div></label>
           <label class="span-3"><span>Notas</span><textarea id="dealNotes" rows="3" placeholder="Observações internas..."></textarea></label>
         </div>
 
@@ -351,6 +387,8 @@
       </form>
     </div>
   </div>
+
+  <div class="info-popover" id="infoPopover" role="dialog" aria-live="polite"></div>
 
   <div class="toast" id="toast"></div>
 

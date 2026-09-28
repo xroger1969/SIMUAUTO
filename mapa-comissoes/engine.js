@@ -4,7 +4,7 @@
   const FINANCE_POINTS = [0,25,50,75,100];
 
   const DEFAULT_CONFIG = {
-    version: 4,
+    version: 5,
     globalMinCommission: 120,
     globalMaxCommission: 750,
     financeCapPct: 100,
@@ -41,12 +41,23 @@
       if(Number.isFinite(Number(direct))){
         grid[String(point)]=Math.max(0,num(direct));
       }else if(legacyMin!==null && legacyMax!==null){
-        grid[String(point)]=Math.max(0,Math.round(legacyMin+(legacyMax-legacyMin)*(point/100)));
+        grid[String(point)]=Math.max(0,round2(legacyMin+(legacyMax-legacyMin)*(point/100)));
       }else{
         grid[String(point)]=num(defaultTier.financeGrid[String(point)]);
       }
     });
     return grid;
+  }
+
+  function tierLabel(from,to){
+    return to===null ? from+"+" : from+"–"+to;
+  }
+
+  function bandLabel(min,max){
+    if(min===null && max===null) return "Todas as margens";
+    if(min===null) return "< "+Math.ceil(num(max)+0.01).toLocaleString("pt-PT")+" €";
+    if(max===null) return "≥ "+Math.round(num(min)).toLocaleString("pt-PT")+" €";
+    return Math.round(num(min)).toLocaleString("pt-PT")+"–"+Math.round(num(max)).toLocaleString("pt-PT")+" €";
   }
 
   function normalizeConfig(input){
@@ -58,38 +69,38 @@
     if(Number.isFinite(Number(source.globalMaxCommission))) out.globalMaxCommission=Math.max(out.globalMinCommission,num(source.globalMaxCommission));
     if(Number.isFinite(Number(source.financeCapPct))) out.financeCapPct=clamp(num(source.financeCapPct),1,100);
 
-    const srcTiers=Array.isArray(source.volumeTiers) ? source.volumeTiers : [];
-    out.volumeTiers=DEFAULT_CONFIG.volumeTiers.map((def,index)=>{
-      const src=srcTiers.find(t=>t && t.id===def.id) || srcTiers[index] || {};
-      const fromCandidate=Number(src.from);
-      const toCandidate=src.to===null || src.to==="" ? null : Number(src.to);
-
-      const from=Number.isFinite(fromCandidate) && fromCandidate>=0 && fromCandidate<100 ? fromCandidate : def.from;
-      const to=(toCandidate===null)
-        ? null
-        : (Number.isFinite(toCandidate) && toCandidate>=from && toCandidate<100 ? toCandidate : def.to);
-
-      const finalFrom=(def.id==="t0" && (from>10 || (to!==null && to>10))) ? def.from : from;
-      const finalTo=(def.id==="t0" && (from>10 || (to!==null && to>10))) ? def.to : to;
-
+    const tierSource=Array.isArray(source.volumeTiers) && source.volumeTiers.length ? source.volumeTiers : DEFAULT_CONFIG.volumeTiers;
+    out.volumeTiers=tierSource.map((src,index)=>{
+      const fallback=DEFAULT_CONFIG.volumeTiers[Math.min(index,DEFAULT_CONFIG.volumeTiers.length-1)];
+      const fromCandidate=Number(src && src.from);
+      const toRaw=src && src.to;
+      const toCandidate=toRaw===null || toRaw==="" || typeof toRaw==="undefined" ? null : Number(toRaw);
+      const from=Number.isFinite(fromCandidate) && fromCandidate>=0 ? Math.floor(fromCandidate) : fallback.from;
+      const to=toCandidate===null ? null : (Number.isFinite(toCandidate) && toCandidate>=from ? Math.floor(toCandidate) : fallback.to);
       return {
-        id:def.id,
-        label: finalTo===null ? finalFrom+"+" : finalFrom+"–"+finalTo,
-        from:finalFrom,
-        to:finalTo,
-        financeGrid:normalizeFinanceGrid(src,def)
+        id:typeof src?.id==="string" && src.id ? src.id : "t"+index,
+        label:tierLabel(from,to),
+        from,
+        to,
+        financeGrid:normalizeFinanceGrid(src,fallback)
       };
     });
 
-    const srcBands=Array.isArray(source.marginBands) ? source.marginBands : [];
-    out.marginBands=DEFAULT_CONFIG.marginBands.map((def,index)=>{
-      const src=srcBands.find(b=>b && b.id===def.id) || srcBands[index] || {};
+    const bandSource=Array.isArray(source.marginBands) && source.marginBands.length ? source.marginBands : DEFAULT_CONFIG.marginBands;
+    out.marginBands=bandSource.map((src,index)=>{
+      const fallback=DEFAULT_CONFIG.marginBands[Math.min(index,DEFAULT_CONFIG.marginBands.length-1)];
+      const min=src?.min===null ? null : (src?.min==="" || typeof src?.min==="undefined"
+        ? fallback.min
+        : (Number.isFinite(Number(src.min)) ? num(src.min) : fallback.min));
+      const max=src?.max===null ? null : (src?.max==="" || typeof src?.max==="undefined"
+        ? fallback.max
+        : (Number.isFinite(Number(src.max)) ? num(src.max) : fallback.max));
       return {
-        id:def.id,
-        label:typeof src.label==="string" && src.label ? src.label : def.label,
-        min:src.min===null || src.min==="" ? null : (Number.isFinite(Number(src.min)) ? num(src.min) : def.min),
-        max:src.max===null || src.max==="" ? null : (Number.isFinite(Number(src.max)) ? num(src.max) : def.max),
-        factor:Number.isFinite(Number(src.factor)) ? Math.max(0,num(src.factor)) : def.factor
+        id:typeof src?.id==="string" && src.id ? src.id : "m"+index,
+        label:bandLabel(min,max),
+        min,
+        max,
+        factor:Number.isFinite(Number(src?.factor)) ? Math.max(0,num(src.factor)) : fallback.factor
       };
     });
 
