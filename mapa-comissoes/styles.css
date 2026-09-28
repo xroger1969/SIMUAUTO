@@ -234,3 +234,13 @@ td{color:#222;border-bottom-color:#ebebeb}
 
 @media(max-width:980px){.nav{grid-template-columns:repeat(6,1fr)}.presentation-hero{grid-template-columns:1fr}.presentation-badge{min-width:0}.benefit-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:680px){.nav{grid-template-columns:repeat(6,minmax(95px,1fr))}.benefit-grid{grid-template-columns:1fr}.presentation-hero{padding:22px}.presentation-hero h2{font-size:28px}}
+
+
+.btn.danger{
+  background:#b42318;
+  color:#fff;
+  border-color:#b42318;
+}
+.btn.danger:hover{
+  filter:brightness(.95);
+}
