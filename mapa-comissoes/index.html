@@ -291,11 +291,11 @@
               <thead>
                 <tr>
                   <th>Vendas/mês</th>
-                  <th>0% financiado</th>
-                  <th>25% financiado</th>
-                  <th>50% financiado</th>
-                  <th>75% financiado</th>
-                  <th>100% financiado</th>
+                  <th>0% financiado <button type="button" class="info-btn" data-info="Comissão-base quando não existe financiamento.">i</button></th>
+                  <th>25% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 25% do PVP é financiado. Percentagens intermédias são interpoladas.">i</button></th>
+                  <th>50% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 50% do PVP é financiado.">i</button></th>
+                  <th>75% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 75% do PVP é financiado.">i</button></th>
+                  <th>100% financiado <button type="button" class="info-btn" data-info="Comissão-base quando o valor financiado atinge 100% do PVP considerado.">i</button></th>
                 </tr>
               </thead>
               <tbody id="volumeTiersBody"></tbody>
@@ -310,7 +310,7 @@
           </div>
           <div class="table-wrap">
             <table class="settings-table">
-              <thead><tr><th>Faixa</th><th>Mínimo</th><th>Máximo</th><th>Fator sobre comissão</th><th></th></tr></thead>
+              <thead><tr><th>Faixa</th><th>Mínimo</th><th>Máximo</th><th>Fator sobre comissão <button type="button" class="info-btn" data-info="Multiplicador aplicado à comissão-base. Ex.: 0,70 reduz para 70%; 1,00 mantém 100%.">i</button></th><th></th></tr></thead>
               <tbody id="marginBandsBody"></tbody>
             </table>
           </div>
