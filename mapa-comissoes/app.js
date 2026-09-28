@@ -73,7 +73,7 @@
     referenceLenderRatePct: "Percentagem de referência paga pela financeira ao stand. É usada como valor inicial em novas operações.",
     dealSeller: "Vendedor responsável pela operação.",
     dealDate: "Data que coloca a venda no mês correto e determina a posição no escalão mensal.",
-    dealStatus: "Rascunho permite editar. Oficial congela a comissão. Uma venda oficial só pode ser anulada, não apagada.",
+    dealStatus: "Rascunho permite editar. Oficial congela a comissão. O administrador pode anular a venda para manter histórico ou eliminá-la definitivamente quando necessário.",
     dealStock: "Número interno de stock da viatura.",
     dealPlate: "Matrícula da viatura, útil para pesquisa e controlo.",
     dealVehicle: "Marca, modelo e versão da viatura.",
@@ -338,8 +338,13 @@
         ruleVersion: ruleVersionById[r.rule_set_id] || state.config.version,
         lockedAt: r.closed_at,
         salePosition: r.sale_position,
-        financePct: num(r.finance_pct),
-        vehicleMargin: num(r.vehicle_margin)
+        financePct: r.finance_pct === null ? null : num(r.finance_pct),
+        vehicleMargin: r.vehicle_margin === null ? null : num(r.vehicle_margin),
+        financeRevenue: r.finance_revenue === null ? null : num(r.finance_revenue),
+        baseCommission: r.base_commission === null ? null : num(r.base_commission),
+        marginFactor: r.margin_factor === null ? null : num(r.margin_factor),
+        resultBeforeCommission: r.result_before_commission === null ? null : num(r.result_before_commission),
+        resultAfterCommission: r.result_after_commission === null ? null : num(r.result_after_commission)
       }
     };
   }
@@ -483,8 +488,11 @@
     if (deal.status === "draft") {
       actions.push('<button type="button" class="positive-action" data-confirm-deal="' + deal.id + '">✓ Tornar oficial</button>');
       actions.push('<button type="button" class="danger-action" data-delete-deal="' + deal.id + '">🗑 Eliminar definitivamente</button>');
-    } else if (deal.status === "closed" && isAdmin()) {
-      actions.push('<button type="button" class="danger-action" data-cancel-deal="' + deal.id + '">⛔ Anular venda</button>');
+    } else if (isAdmin()) {
+      if (deal.status === "closed") {
+        actions.push('<button type="button" class="danger-action" data-cancel-deal="' + deal.id + '">⛔ Anular venda</button>');
+      }
+      actions.push('<button type="button" class="danger-action" data-delete-deal="' + deal.id + '">🗑 Eliminar definitivamente</button>');
     }
     return '<details class="row-actions"><summary aria-label="Ações" title="Ações">•••</summary><div class="row-actions-menu">' + actions.join("") + '</div></details>';
   }
@@ -705,6 +713,10 @@
     }
 
     q("dealSaveButton").hidden = locked;
+    const deleteButton = q("dealDeleteButton");
+    if (deleteButton) {
+      deleteButton.hidden = !deal || (deal.status !== "draft" && !isAdmin());
+    }
     updateDealPreview();
     q("dealModal").classList.add("open");
   }
@@ -742,6 +754,17 @@
   }
 
   function updateDealPreview() {
+    const existing = q("dealId").value ? state.deals.find(x => x.id === q("dealId").value) : null;
+    if (existing && existing.status !== "draft" && existing.commissionSnapshot) {
+      const pos = existing.commissionSnapshot.salePosition || 1;
+      const c = E.calcDeal(existing, pos, state.config);
+      q("dealPreviewMargin").textContent = fmtMoney(c.vehicleMargin);
+      q("dealPreviewFinancePct").textContent = fmtPct(c.financePctApplied);
+      q("dealPreviewCommission").textContent = fmtMoney(c.commission);
+      q("dealPreviewNet").textContent = fmtMoney(c.resultAfterCommission);
+      return;
+    }
+
     const d = formDeal();
     if (!d.sellerId || !d.saleDate) return;
     const pos = positionForDraft({ ...d, status: "draft" });
@@ -1137,20 +1160,40 @@
     toast("Venda oficial confirmada e comissão congelada.");
   }
 
-  async function deleteDraftDeal(id) {
+  async function deleteDealPermanently(id) {
     const deal = state.deals.find(d => d.id === id);
-    if (!deal || deal.status !== "draft") return;
-    if (!confirm("Eliminar definitivamente este rascunho? Esta ação não pode ser desfeita.")) return;
-    setSync("A eliminar rascunho…", true);
-    const { error } = await db.from("deals").delete().eq("id", id).eq("status", "draft");
+    if (!deal) return false;
+    if (deal.status !== "draft" && !isAdmin()) return false;
+
+    const label = deal.status === "draft"
+      ? "este rascunho"
+      : 'a venda "' + (deal.vehicle || deal.plate || deal.stock || "selecionada") + '"';
+    const warning = deal.status === "draft"
+      ? "Eliminar definitivamente " + label + "? Esta ação não pode ser desfeita."
+      : "Eliminar DEFINITIVAMENTE " + label + "? A operação será removida do mapa, das contas e do histórico operacional. Esta ação não pode ser desfeita.";
+    if (!confirm(warning)) return false;
+
+    setSync("A eliminar operação…", true);
+    let error = null;
+    if (isAdmin()) {
+      const result = await db.rpc("delete_deal_permanently", { p_deal_id: id });
+      error = result.error;
+    } else {
+      const result = await db.from("deals").delete().eq("id", id).eq("status", "draft");
+      error = result.error;
+    }
+
     if (error) {
       console.error(error);
       setSync("Erro ao eliminar", false);
-      toast(error.message || "Não foi possível eliminar o rascunho.");
-      return;
+      toast(error.message || "Não foi possível eliminar a operação.");
+      return false;
     }
-    await refreshData("Rascunho eliminado");
-    toast("Rascunho eliminado definitivamente.");
+
+    if (q("dealId").value === id) closeDealModal();
+    await refreshData("Operação eliminada");
+    toast("Operação eliminada definitivamente.");
+    return true;
   }
 
   async function cancelOfficialDeal(id) {
@@ -1224,6 +1267,10 @@
     qa("[data-close-seller]").forEach(el => el.addEventListener("click", closeSellerModal));
     qa("[data-close-modal]").forEach(el => el.addEventListener("click", closeDealModal));
     q("dealForm").addEventListener("submit", saveDealFromForm);
+    q("dealDeleteButton")?.addEventListener("click", async () => {
+      const id = q("dealId").value;
+      if (id) await deleteDealPermanently(id);
+    });
     qa("#dealForm input,#dealForm select").forEach(el => el.addEventListener("input", updateDealPreview));
     qa("#simForm input").forEach(el => el.addEventListener("input", renderSimulator));
     q("btnSaveRules").addEventListener("click", saveRules);
@@ -1275,7 +1322,7 @@
 
       const deleteDeal = ev.target.closest("[data-delete-deal]");
       if (deleteDeal) {
-        await deleteDraftDeal(deleteDeal.dataset.deleteDeal);
+        await deleteDealPermanently(deleteDeal.dataset.deleteDeal);
         return;
       }
 
