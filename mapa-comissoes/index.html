@@ -189,13 +189,13 @@
             </div>
             <div class="form-grid two" id="simForm">
               <label><span>Posição da venda no mês</span><input type="number" id="simPosition" value="8" min="1"></label>
-              <label><span>PVP</span><input type="number" id="simSalePrice" value="25000" step="0.01"></label>
-              <label><span>Custo de aquisição</span><input type="number" id="simAcquisition" value="21000" step="0.01"></label>
-              <label><span>Preparação</span><input type="number" id="simPrep" value="500" step="0.01"></label>
-              <label><span>Garantia</span><input type="number" id="simWarranty" value="500" step="0.01"></label>
-              <label><span>Outros custos</span><input type="number" id="simOther" value="500" step="0.01"></label>
-              <label><span>Capital financiado</span><input type="number" id="simFinanced" value="18750" step="0.01"></label>
-              <label><span>Comissão da financeira ao stand</span><div class="input-suffix"><input type="number" id="simLenderRate" value="3.5" step=".1"><em>%</em></div></label>
+              <label><span>PVP</span><input type="number" id="simSalePrice" value="25000" min="0.01" step="0.01"></label>
+              <label><span>Custo de aquisição</span><input type="number" id="simAcquisition" value="21000" min="0" step="0.01"></label>
+              <label><span>Preparação</span><input type="number" id="simPrep" value="500" min="0" step="0.01"></label>
+              <label><span>Garantia</span><input type="number" id="simWarranty" value="500" min="0" step="0.01"></label>
+              <label><span>Outros custos</span><input type="number" id="simOther" value="500" min="0" step="0.01"></label>
+              <label><span>Capital financiado</span><input type="number" id="simFinanced" value="18750" min="0" step="0.01"></label>
+              <label><span>Comissão da financeira ao stand</span><div class="input-suffix"><input type="number" id="simLenderRate" value="3.5" min="0" max="20" step=".1"><em>%</em></div></label>
             </div>
           </div>
           <div class="panel result-panel">
