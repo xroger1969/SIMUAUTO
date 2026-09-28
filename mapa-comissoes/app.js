@@ -438,9 +438,13 @@
       btn.hidden = !admin && btn.dataset.view !== "sellers";
     });
 
-    ["btnAddSeller", "btnAddSeller2", "btnNewDeal", "btnNewDeal2", "btnNewDealForSeller", "btnExport", "btnGoSellers"].forEach(id => {
+    ["btnAddSeller", "btnAddSeller2", "btnNewDeal", "btnNewDeal2", "btnNewDealForSeller", "btnPrintAdminMap", "btnExport", "btnGoSellers"].forEach(id => {
       if (q(id)) q(id).hidden = !admin;
     });
+
+    if (q("btnPrintSellerMap")) {
+      q("btnPrintSellerMap").textContent = admin ? "Imprimir mapa — Vendedor" : "Imprimir meu mapa";
+    }
 
     if (q("sellerSelector")) q("sellerSelector").hidden = !admin;
     if (q("dealSeller")) q("dealSeller").disabled = !admin;
@@ -700,6 +704,156 @@
         '<td>' + dealActionsHtml(deal) + '</td>' +
         '</tr>';
     }).join("");
+  }
+
+
+  function printMonthLabel() {
+    const parts = String(state.month || "").split("-").map(Number);
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return state.month || "—";
+    const d = new Date(parts[0], parts[1] - 1, 1);
+    return new Intl.DateTimeFormat("pt-PT", { month: "long", year: "numeric" }).format(d);
+  }
+
+  function openPrintDocument(title, subtitle, summaryHtml, tableHtml, landscape) {
+    const printWin = window.open("", "_blank", "width=1180,height=820");
+    if (!printWin) {
+      toast("O navegador bloqueou a janela de impressão.");
+      return;
+    }
+
+    const pageSize = landscape ? "A4 landscape" : "A4 portrait";
+    const css =
+      "<style>" +
+      "@page{size:" + pageSize + ";margin:11mm}" +
+      "*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#111827;margin:0;font-size:11px}" +
+      ".brand{border-bottom:3px solid #111827;padding-bottom:10px;margin-bottom:14px}.brand h1{margin:0;font-size:21px}.brand p{margin:4px 0 0;color:#4b5563}" +
+      ".summary{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:0 0 14px}.metric{border:1px solid #d1d5db;border-radius:8px;padding:8px}.metric span{display:block;color:#6b7280;font-size:9px;text-transform:uppercase;letter-spacing:.05em}.metric strong{display:block;font-size:15px;margin-top:3px}" +
+      "table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border-bottom:1px solid #e5e7eb;padding:6px 5px;text-align:left;vertical-align:top}th{background:#f3f4f6;font-size:9px;text-transform:uppercase;color:#4b5563}tr{break-inside:avoid}.muted{color:#6b7280;font-size:9px}.right{text-align:right}.negative{color:#b91c1c}.positive{color:#166534}" +
+      ".footer{margin-top:12px;padding-top:8px;border-top:1px solid #d1d5db;color:#6b7280;font-size:9px}.screen-only{margin:12px 0}.screen-only button{border:0;border-radius:7px;background:#111827;color:#fff;padding:8px 14px;font-weight:700;cursor:pointer}" +
+      "@media print{.screen-only{display:none}.brand{margin-top:0}}" +
+      "</style>";
+
+    printWin.document.open();
+    printWin.document.write(
+      "<!doctype html><html lang='pt'><head><meta charset='utf-8'><title>" + escapeHtml(title) + "</title>" + css + "</head><body>" +
+      "<div class='screen-only'><button onclick='window.print()'>Imprimir</button></div>" +
+      "<header class='brand'><h1>" + escapeHtml(title) + "</h1><p>" + escapeHtml(subtitle) + "</p></header>" +
+      summaryHtml + tableHtml +
+      "<div class='footer'>Gerado em " + escapeHtml(fmtDateTime(new Date().toISOString())) + " · " + escapeHtml(state.companyName) + "</div>" +
+      "</body></html>"
+    );
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => printWin.print(), 180);
+  }
+
+  function printSellerMap(kind) {
+    const seller = state.sellers.find(s => s.id === currentSellerId);
+    if (!seller) {
+      toast("Seleciona primeiro um vendedor.");
+      return;
+    }
+    if (kind === "admin" && !isAdmin()) {
+      toast("Esta impressão está reservada ao administrador.");
+      return;
+    }
+
+    const monthLabel = printMonthLabel();
+
+    if (kind === "admin") {
+      const m = getSellerMonth(seller.id);
+      const summary =
+        "<section class='summary'>" +
+        "<div class='metric'><span>Vendas oficiais</span><strong>" + m.salesCount + "</strong></div>" +
+        "<div class='metric'><span>Rascunhos</span><strong>" + m.draftCount + "</strong></div>" +
+        "<div class='metric'><span>Capital financiado</span><strong>" + fmtMoney(m.totalFinanced) + "</strong></div>" +
+        "<div class='metric'><span>Comissões</span><strong>" + fmtMoney(m.totalCommission) + "</strong></div>" +
+        "<div class='metric'><span>Resultado</span><strong>" + fmtMoney(m.totalResult) + "</strong></div>" +
+        "</section>";
+
+      const rows = m.rows.map(({ deal, calc }) => {
+        const cancelled = deal.status === "cancelled";
+        const official = deal.status === "closed";
+        const pos = official ? (deal.commissionSnapshot?.salePosition || calc.salePosition) : "—";
+        const commission = cancelled ? "—" : fmtMoney(deal.status === "draft" ? calc.calculatedCommission : calc.commission);
+        const result = cancelled ? "—" : fmtMoney(calc.resultAfterCommission);
+        const bonus = !cancelled && calc.financedCapitalBonus > 0
+          ? "<div class='muted'>inclui +" + fmtMoney(calc.financedCapitalBonus) + " bónus financiamento</div>"
+          : "";
+        return "<tr>" +
+          "<td><strong>" + escapeHtml(pos) + "</strong></td>" +
+          "<td>" + escapeHtml(deal.saleDate || "—") + "</td>" +
+          "<td><strong>" + escapeHtml(vehicleLabel(deal)) + "</strong><div class='muted'>" + escapeHtml(deal.stock || deal.plate || "") + "</div></td>" +
+          "<td class='right'>" + fmtMoney(calc.salePrice) + "</td>" +
+          "<td class='right" + (calc.vehicleMargin < 0 ? " negative" : "") + "'>" + fmtMoney(calc.vehicleMargin) + "</td>" +
+          "<td class='right'>" + fmtMoney(calc.financedAmount) + "</td>" +
+          "<td class='right'>" + fmtPct(calc.financePctRaw) + "</td>" +
+          "<td class='right'>" + fmtMoney(calc.financeRevenue) + "</td>" +
+          "<td class='right'><strong>" + commission + "</strong>" + bonus + "</td>" +
+          "<td class='right" + (!cancelled && calc.resultAfterCommission < 0 ? " negative" : (!cancelled ? " positive" : "")) + "'><strong>" + result + "</strong></td>" +
+          "<td>" + escapeHtml(statusLabel(deal.status)) + "</td>" +
+          "</tr>";
+      }).join("");
+
+      const table =
+        "<table><thead><tr><th>#</th><th>Data</th><th>Viatura</th><th class='right'>PVP</th><th class='right'>Margem</th><th class='right'>Financiado</th><th class='right'>%</th><th class='right'>Receita fin.</th><th class='right'>Comissão</th><th class='right'>Resultado</th><th>Estado</th></tr></thead><tbody>" +
+        (rows || "<tr><td colspan='11'>Sem operações neste mês.</td></tr>") +
+        "</tbody></table>";
+
+      openPrintDocument(
+        state.companyName + " — Mapa Administrador",
+        seller.name + " · " + monthLabel + " · documento interno de gestão",
+        summary,
+        table,
+        true
+      );
+      return;
+    }
+
+    const sellerRows = state.deals
+      .filter(d => d.sellerId === seller.id)
+      .sort((a, b) => String(a.saleDate || "").localeCompare(String(b.saleDate || "")));
+    const official = sellerRows.filter(d => d.status === "closed");
+    const drafts = sellerRows.filter(d => d.status === "draft").length;
+    const pvpTotal = official.reduce((sum, d) => sum + num(d.salePrice), 0);
+    const financedCount = official.filter(d => d.isFinanced).length;
+    const commissionTotal = official.reduce((sum, d) => sum + num(d.commissionSnapshot?.amount), 0);
+
+    const summary =
+      "<section class='summary'>" +
+      "<div class='metric'><span>Vendas oficiais</span><strong>" + official.length + "</strong></div>" +
+      "<div class='metric'><span>Em preparação</span><strong>" + drafts + "</strong></div>" +
+      "<div class='metric'><span>PVP vendido</span><strong>" + fmtMoney(pvpTotal) + "</strong></div>" +
+      "<div class='metric'><span>Vendas financiadas</span><strong>" + financedCount + "</strong></div>" +
+      "<div class='metric'><span>Comissões</span><strong>" + fmtMoney(commissionTotal) + "</strong></div>" +
+      "</section>";
+
+    const rows = sellerRows.map(deal => {
+      const pos = deal.status === "closed" ? (deal.commissionSnapshot?.salePosition || "—") : "—";
+      const commission = deal.status === "closed" ? fmtMoney(deal.commissionSnapshot?.amount || 0) : "—";
+      return "<tr>" +
+        "<td><strong>" + escapeHtml(pos) + "</strong></td>" +
+        "<td>" + escapeHtml(deal.saleDate || "—") + "</td>" +
+        "<td><strong>" + escapeHtml(vehicleLabel(deal)) + "</strong><div class='muted'>" + escapeHtml(deal.plate || deal.stock || "") + "</div></td>" +
+        "<td class='right'>" + fmtMoney(deal.salePrice) + "</td>" +
+        "<td>" + (deal.isFinanced ? "Sim" : "Não") + "</td>" +
+        "<td class='right'><strong>" + commission + "</strong></td>" +
+        "<td>" + escapeHtml(statusLabel(deal.status)) + "</td>" +
+        "</tr>";
+    }).join("");
+
+    const table =
+      "<table><thead><tr><th>#</th><th>Data</th><th>Viatura</th><th class='right'>PVP</th><th>Financiamento</th><th class='right'>Comissão</th><th>Estado</th></tr></thead><tbody>" +
+      (rows || "<tr><td colspan='7'>Sem vendas neste mês.</td></tr>") +
+      "</tbody></table>";
+
+    openPrintDocument(
+      state.companyName + " — Mapa do Vendedor",
+      seller.name + " · " + monthLabel,
+      summary,
+      table,
+      false
+    );
   }
 
   function renderOperations() {
@@ -1511,6 +1665,8 @@
     q("btnNewDeal").addEventListener("click", () => openDealModal());
     q("btnNewDeal2").addEventListener("click", () => openDealModal());
     q("btnNewDealForSeller").addEventListener("click", () => openDealModal(null, currentSellerId));
+    q("btnPrintAdminMap").addEventListener("click", () => printSellerMap("admin"));
+    q("btnPrintSellerMap").addEventListener("click", () => printSellerMap("seller"));
     q("btnExport").addEventListener("click", exportCSV);
     q("btnGoSellers").addEventListener("click", () => switchView("sellers"));
     q("sellerSelector").addEventListener("change", () => {
