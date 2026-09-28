@@ -244,3 +244,8 @@ td{color:#222;border-bottom-color:#ebebeb}
 .btn.danger:hover{
   filter:brightness(.95);
 }
+
+/* Finance bonus breakdown */
+.deal-preview{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:980px){.deal-preview{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:680px){.deal-preview{grid-template-columns:repeat(2,minmax(0,1fr))}}
