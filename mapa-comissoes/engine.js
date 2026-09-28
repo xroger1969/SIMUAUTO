@@ -4,10 +4,11 @@
   const FINANCE_POINTS = [0,25,50,75,100];
 
   const DEFAULT_CONFIG = {
-    version: 5,
+    version: 6,
     globalMinCommission: 120,
     globalMaxCommission: 750,
     financeCapPct: 100,
+    financedCapitalBonusPct: 1,
     volumeTiers: [
       { id:"t0", label:"0–1", from:0, to:1, financeGrid:{"0":120,"25":130,"50":140,"75":150,"100":160} },
       { id:"t1", label:"2–3", from:2, to:3, financeGrid:{"0":120,"25":135,"50":150,"75":165,"100":180} },
@@ -68,6 +69,7 @@
     if(Number.isFinite(Number(source.globalMinCommission))) out.globalMinCommission=Math.max(0,num(source.globalMinCommission));
     if(Number.isFinite(Number(source.globalMaxCommission))) out.globalMaxCommission=Math.max(out.globalMinCommission,num(source.globalMaxCommission));
     if(Number.isFinite(Number(source.financeCapPct))) out.financeCapPct=clamp(num(source.financeCapPct),1,100);
+    if(Number.isFinite(Number(source.financedCapitalBonusPct))) out.financedCapitalBonusPct=clamp(num(source.financedCapitalBonusPct),0,20);
 
     const tierSource=Array.isArray(source.volumeTiers) && source.volumeTiers.length ? source.volumeTiers : DEFAULT_CONFIG.volumeTiers;
     out.volumeTiers=tierSource.map((src,index)=>{
@@ -199,7 +201,7 @@
     const noFinanceBase=Math.max(0,num(volumeTier.financeGrid["0"]));
     const vehicleComponent=Math.max(0,noFinanceBase*num(marginBand.factor));
     const financeBonus=Math.max(0,volumeFinanceCommission-noFinanceBase);
-    const calculatedCommission=round2(
+    const regularCommission=round2(
       eligible
         ? Math.min(
             Math.max(num(config.globalMinCommission),num(config.globalMaxCommission)),
@@ -207,6 +209,16 @@
           )
         : 0
     );
+
+    const financedCapitalBonusPct=locked
+      ? snapNum("financedCapitalBonusPct",0)
+      : Math.max(0,num(config.financedCapitalBonusPct));
+    const financedCapitalBonus=round2(
+      locked
+        ? snapNum("financedCapitalBonusAmount",0)
+        : (financedAmount>0 ? financedAmount*financedCapitalBonusPct/100 : 0)
+    );
+    const calculatedCommission=round2(regularCommission+financedCapitalBonus);
 
     const commission=locked
       ? snapNum("amount",calculatedCommission)
@@ -237,6 +249,9 @@
       noFinanceBase:round2(noFinanceBase),
       vehicleComponent:round2(vehicleComponent),
       financeBonus:round2(financeBonus),
+      regularCommission,
+      financedCapitalBonusPct:round2(financedCapitalBonusPct),
+      financedCapitalBonus,
       calculatedCommission,
       commission:round2(commission),
       resultBeforeCommission,
@@ -389,7 +404,10 @@
       vehicleMargin:calc.vehicleMargin,
       volumeTierId:calc.volumeTier.id,
       marginBandId:calc.marginBand.id,
-      financeBracket:clone(calc.financeBracket)
+      financeBracket:clone(calc.financeBracket),
+      financedCapitalBonusPct:calc.financedCapitalBonusPct,
+      financedCapitalBonusAmount:calc.financedCapitalBonus,
+      regularCommission:calc.regularCommission
     };
     next.status="closed";
     return next;
