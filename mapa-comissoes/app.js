@@ -222,12 +222,17 @@
   }
 
   async function loadMembership() {
-    const { data, error } = await db.from("members")
-      .select("user_id,role,seller_id,active")
-      .eq("user_id", session.user.id)
-      .maybeSingle();
-    if (error) throw error;
-    member = data || null;
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data, error } = await db.rpc("get_current_member");
+      if (!error) {
+        member = data || null;
+        return;
+      }
+      lastError = error;
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    throw lastError || new Error("Não foi possível validar o acesso.");
   }
 
   async function loadConfiguration() {
@@ -391,6 +396,7 @@
       return;
     }
 
+    setAuthMessage("");
     showOnlyGate("app");
     q("userIdentity").textContent = session.user.email || "Utilizador";
     q("rolePill").textContent = isAdmin() ? "Administrador" : "Vendedor";
