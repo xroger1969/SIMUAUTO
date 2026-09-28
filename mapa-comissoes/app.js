@@ -1014,9 +1014,9 @@
     const payload = dealPayload(d);
     let result;
     if (d.id) {
-      result = await db.from("deals").update(payload).eq("id", d.id).select().single();
+      result = await db.from("deals").update(payload).eq("id", d.id);
     } else {
-      result = await db.from("deals").insert(payload).select().single();
+      result = await db.from("deals").insert(payload);
     }
 
     if (result.error) {
@@ -1026,10 +1026,10 @@
       return;
     }
 
-    currentSellerId = result.data.seller_id;
+    currentSellerId = d.sellerId;
     closeDealModal();
     await refreshData("Operação guardada");
-    toast(result.data.status === "closed" ? "Venda oficial confirmada e comissão congelada." : "Rascunho guardado.");
+    toast(d.status === "closed" ? "Venda oficial confirmada e comissão congelada." : "Rascunho guardado.");
   }
 
   function loadRecommendedScenario() {
@@ -1378,19 +1378,17 @@
     if (!deal || deal.status !== "draft") return;
     if (!confirm("Confirmar esta operação como venda oficial? Vai passar a contar nas vendas, comissões, margem e resultado do mês.")) return;
     setSync("A tornar venda oficial…", true);
-    const { data, error } = await db.from("deals")
+    const { error } = await db.from("deals")
       .update({ status: "closed" })
       .eq("id", id)
-      .eq("status", "draft")
-      .select()
-      .single();
+      .eq("status", "draft");
     if (error) {
       console.error(error);
       setSync("Erro ao confirmar", false);
       toast(error.message || "Não foi possível tornar a venda oficial.");
       return;
     }
-    currentSellerId = data.seller_id;
+    currentSellerId = deal.sellerId;
     await refreshData("Venda oficial confirmada");
     toast("Venda oficial confirmada e comissão congelada.");
   }
