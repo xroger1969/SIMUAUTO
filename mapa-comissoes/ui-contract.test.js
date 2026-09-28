@@ -30,6 +30,9 @@ for (const marker of [
   "positionRowActionMenu",
   "closeRowActionMenus",
   "friendlyDealError",
+  "dealSanityWarnings",
+  "confirmSuspiciousDeal",
+  "d.lenderRatePct > 20",
   "deals_active_stock_unique",
   "deals_active_plate_unique",
   "financedCapitalBonusPct",
@@ -49,5 +52,9 @@ for (const id of ["dealAcquisition", "dealPrep", "dealWarranty", "dealOther", "d
 }
 assert.ok(/id="dealSalePrice"[^>]*min="0\.01"/.test(html),
   "PVP must be greater than zero in the browser");
+assert.ok(/id="dealLenderRate"[^>]*min="0"[^>]*max="20"/.test(html),
+  "deal lender remuneration must be capped at 20% in the browser");
+assert.ok(/id="simLenderRate"[^>]*min="0"[^>]*max="20"/.test(html),
+  "simulator lender remuneration must be capped at 20% in the browser");
 
 console.log("ui-contract.test.js: OK");
