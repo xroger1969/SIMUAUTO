@@ -29,6 +29,36 @@ for (const pct of [0, 25, 50, 75, 100, 125]) {
   assert.ok(calc.calculatedCommission <= cfg.globalMaxCommission);
 }
 
+const firstSaleNoFinance = E.calcDeal({ ...base, financedAmount: 0 }, 1, cfg);
+const firstSaleHalfFinance = E.calcDeal({ ...base, financedAmount: 12500 }, 1, cfg);
+const firstSaleFullFinance = E.calcDeal({ ...base, financedAmount: 25000 }, 1, cfg);
+almost(firstSaleNoFinance.calculatedCommission, 120);
+almost(firstSaleHalfFinance.calculatedCommission, 140);
+almost(firstSaleFullFinance.calculatedCommission, 160);
+assert.ok(firstSaleHalfFinance.calculatedCommission > firstSaleNoFinance.calculatedCommission);
+assert.ok(firstSaleFullFinance.calculatedCommission > firstSaleHalfFinance.calculatedCommission);
+
+const lowMarginNoFinance = E.calcDeal({
+  ...base,
+  salePrice: 22000,
+  acquisitionCost: 21000,
+  preparationCost: 500,
+  warrantyCost: 500,
+  otherDirectCosts: 500,
+  financedAmount: 0
+}, 1, cfg);
+const lowMarginHalfFinance = E.calcDeal({
+  ...base,
+  salePrice: 22000,
+  acquisitionCost: 21000,
+  preparationCost: 500,
+  warrantyCost: 500,
+  otherDirectCosts: 500,
+  financedAmount: 11000
+}, 1, cfg);
+assert.ok(lowMarginHalfFinance.calculatedCommission > lowMarginNoFinance.calculatedCommission,
+  "financing bonus must remain visible even with a low margin factor");
+
 const negative = E.calcDeal({
   ...base,
   salePrice: 22000,
@@ -136,7 +166,7 @@ const tesla = E.calcSellerMonth([{
 
 almost(tesla.projectedTotalFinanced, 11000);
 almost(tesla.projectedTotalMargin, 3880);
-almost(tesla.projectedTotalCommission, 120);
-almost(tesla.projectedTotalResult, 4145);
+almost(tesla.projectedTotalCommission, 140.01);
+almost(tesla.projectedTotalResult, 4124.99);
 
 console.log("engine.test.js: OK");
