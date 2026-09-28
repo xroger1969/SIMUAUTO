@@ -332,9 +332,12 @@
     const total=(key)=>round2(sellerMaps.reduce((sum,m)=>sum+num(m[key]),0));
     const totalPvp=total("totalPvp");
     const totalFinanced=total("totalFinanced");
+    const projectedTotalPvp=total("projectedTotalPvp");
+    const projectedTotalFinanced=total("projectedTotalFinanced");
     return {
       sellerMaps,
       salesCount:sellerMaps.reduce((sum,m)=>sum+m.salesCount,0),
+      projectedSalesCount:sellerMaps.reduce((sum,m)=>sum+m.projectedSalesCount,0),
       draftCount:sellerMaps.reduce((sum,m)=>sum+m.draftCount,0),
       cancelledCount:sellerMaps.reduce((sum,m)=>sum+m.cancelledCount,0),
       totalPvp,
@@ -343,7 +346,14 @@
       totalMargin:total("totalMargin"),
       totalFinanceRevenue:total("totalFinanceRevenue"),
       totalCommission:total("totalCommission"),
-      totalResult:total("totalResult")
+      totalResult:total("totalResult"),
+      projectedTotalPvp,
+      projectedTotalFinanced,
+      projectedFinancePenetrationPct:projectedTotalPvp>0 ? round2(projectedTotalFinanced/projectedTotalPvp*100) : 0,
+      projectedTotalMargin:total("projectedTotalMargin"),
+      projectedTotalFinanceRevenue:total("projectedTotalFinanceRevenue"),
+      projectedTotalCommission:total("projectedTotalCommission"),
+      projectedTotalResult:total("projectedTotalResult")
     };
   }
 
