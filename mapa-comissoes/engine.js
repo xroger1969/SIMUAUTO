@@ -9,7 +9,7 @@
     globalMaxCommission: 750,
     financeCapPct: 100,
     volumeTiers: [
-      { id:"t0", label:"0–1", from:0, to:1, financeGrid:{"0":120,"25":120,"50":120,"75":120,"100":120} },
+      { id:"t0", label:"0–1", from:0, to:1, financeGrid:{"0":120,"25":130,"50":140,"75":150,"100":160} },
       { id:"t1", label:"2–3", from:2, to:3, financeGrid:{"0":120,"25":135,"50":150,"75":165,"100":180} },
       { id:"t2", label:"4–5", from:4, to:5, financeGrid:{"0":160,"25":180,"50":200,"75":220,"100":240} },
       { id:"t3", label:"6–7", from:6, to:7, financeGrid:{"0":220,"25":248,"50":275,"75":303,"100":330} },
@@ -196,10 +196,15 @@
       : marginBandBase;
 
     const eligible=salePosition>=1 && volumeFinanceCommission>0;
-    const rawCommission=Math.max(0,volumeFinanceCommission*num(marginBand.factor));
+    const noFinanceBase=Math.max(0,num(volumeTier.financeGrid["0"]));
+    const vehicleComponent=Math.max(0,noFinanceBase*num(marginBand.factor));
+    const financeBonus=Math.max(0,volumeFinanceCommission-noFinanceBase);
     const calculatedCommission=round2(
       eligible
-        ? clamp(rawCommission,Math.max(0,num(config.globalMinCommission)),Math.max(num(config.globalMinCommission),num(config.globalMaxCommission)))
+        ? Math.min(
+            Math.max(num(config.globalMinCommission),num(config.globalMaxCommission)),
+            Math.max(0,num(config.globalMinCommission),vehicleComponent)+financeBonus
+          )
         : 0
     );
 
@@ -229,6 +234,9 @@
       marginBand,
       financeBracket,
       volumeFinanceCommission,
+      noFinanceBase:round2(noFinanceBase),
+      vehicleComponent:round2(vehicleComponent),
+      financeBonus:round2(financeBonus),
       calculatedCommission,
       commission:round2(commission),
       resultBeforeCommission,
