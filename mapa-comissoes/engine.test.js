@@ -149,6 +149,61 @@ assert.equal(afterDelete.projectedSalesCount, 2);
 assert.equal(afterDelete.totalResult, 0);
 assert.ok(afterDelete.projectedTotalResult > 0);
 
+const frozenOutOfOrder = E.calcSellerMonth([
+  {
+    ...base,
+    id: "late",
+    sellerId: "seller",
+    saleDate: "2026-09-20",
+    createdAt: "2026-09-20T10:00:00Z",
+    status: "closed",
+    financedAmount: 0,
+    commissionSnapshot: {
+      amount: 120,
+      salePosition: 1,
+      financePct: 0,
+      vehicleMargin: 2500,
+      financeRevenue: 0,
+      baseCommission: 120,
+      marginFactor: 1,
+      resultBeforeCommission: 2500,
+      resultAfterCommission: 2380
+    }
+  },
+  {
+    ...base,
+    id: "early",
+    sellerId: "seller",
+    saleDate: "2026-09-05",
+    createdAt: "2026-09-21T10:00:00Z",
+    status: "closed",
+    financedAmount: 0,
+    commissionSnapshot: {
+      amount: 120,
+      salePosition: 2,
+      financePct: 0,
+      vehicleMargin: 2500,
+      financeRevenue: 0,
+      baseCommission: 120,
+      marginFactor: 1,
+      resultBeforeCommission: 2500,
+      resultAfterCommission: 2380
+    }
+  },
+  {
+    ...base,
+    id: "next-draft",
+    sellerId: "seller",
+    saleDate: "2026-09-01",
+    createdAt: "2026-09-22T10:00:00Z",
+    status: "draft",
+    financedAmount: 12500
+  }
+], "seller", "2026-09", cfg);
+const nextDraftRow = frozenOutOfOrder.rows.find(row => row.deal.id === "next-draft");
+assert.equal(nextDraftRow.calc.salePosition, 3,
+  "draft preview must use the next unused frozen monthly position, not sale-date order");
+
 const tesla = E.calcSellerMonth([{
   id: "tesla",
   sellerId: "seller",
