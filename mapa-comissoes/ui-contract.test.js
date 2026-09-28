@@ -28,7 +28,10 @@ for (const marker of [
   "data-cancel-deal",
   "dealDeleteButton",
   "positionRowActionMenu",
-  "closeRowActionMenus"
+  "closeRowActionMenus",
+  "friendlyDealError",
+  "deals_active_stock_unique",
+  "deals_active_plate_unique"
 ]) {
   assert.ok(app.includes(marker) || html.includes(marker), `missing UI contract: ${marker}`);
 }
@@ -36,5 +39,12 @@ for (const marker of [
 assert.ok(/\\.row-actions-menu\\{[^}]*position:fixed/.test(css),
   "row action menu must be fixed so table overflow cannot clip Edit/Tornar oficial");
 assert.ok(/z-index:1000/.test(css), "row action menu must appear above the table");
+
+for (const id of ["dealAcquisition", "dealPrep", "dealWarranty", "dealOther", "dealFinanced", "dealLenderRate"]) {
+  assert.ok(new RegExp('id="' + id + '"[^>]*min="0"').test(html),
+    id + " must prevent negative values in the browser");
+}
+assert.ok(/id="dealSalePrice"[^>]*min="0\.01"/.test(html),
+  "PVP must be greater than zero in the browser");
 
 console.log("ui-contract.test.js: OK");
