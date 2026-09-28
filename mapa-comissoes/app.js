@@ -489,6 +489,39 @@
     }).join("");
   }
 
+  function closeRowActionMenus(except) {
+    qa(".row-actions[open]").forEach(details => {
+      if (details !== except) details.removeAttribute("open");
+    });
+  }
+
+  function positionRowActionMenu(details) {
+    if (!details?.open) return;
+    const summary = details.querySelector("summary");
+    const menu = details.querySelector(".row-actions-menu");
+    if (!summary || !menu) return;
+
+    menu.style.visibility = "hidden";
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+
+    const trigger = summary.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const margin = 12;
+    const gap = 8;
+
+    let left = trigger.right - menuRect.width;
+    left = Math.max(margin, Math.min(left, window.innerWidth - menuRect.width - margin));
+
+    let top = trigger.top - menuRect.height - gap;
+    if (top < margin) top = trigger.bottom + gap;
+    top = Math.max(margin, Math.min(top, window.innerHeight - menuRect.height - margin));
+
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+    menu.style.visibility = "visible";
+  }
+
   function dealActionsHtml(deal) {
     const actions = [];
     actions.push('<button type="button" data-edit-deal="' + deal.id + '">' + (deal.status === "draft" ? "Editar" : "Ver detalhes") + '</button>');
@@ -1290,6 +1323,14 @@
     q("btnAddMarginBand").addEventListener("click", addMarginBand);
 
     document.addEventListener("click", async (ev) => {
+      const actionSummary = ev.target.closest(".row-actions summary");
+      if (actionSummary) {
+        const details = actionSummary.closest(".row-actions");
+        closeRowActionMenus(details);
+        requestAnimationFrame(() => positionRowActionMenu(details));
+        return;
+      }
+
       const info = ev.target.closest("[data-info]");
       if (info) {
         ev.stopPropagation();
@@ -1369,8 +1410,14 @@
         hideInfo();
       }
     });
-    window.addEventListener("resize", hideInfo);
-    window.addEventListener("scroll", hideInfo, true);
+    window.addEventListener("resize", () => {
+      hideInfo();
+      closeRowActionMenus();
+    });
+    window.addEventListener("scroll", () => {
+      hideInfo();
+      closeRowActionMenus();
+    }, true);
 
     db.auth.onAuthStateChange((_event, nextSession) => {
       setTimeout(() => {
