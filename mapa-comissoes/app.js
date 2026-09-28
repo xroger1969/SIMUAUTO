@@ -425,7 +425,12 @@
     const toolbar = q("sellerSelector")?.closest(".inline-actions");
     if (toolbar) toolbar.hidden = !admin;
 
-    const sellerTitle = q("sellerMapTitle")?.closest(".panel")?.previousElementSibling;
+    const sellerToolbar = document.querySelector("#view-sellers .split-toolbar");
+    const sellerEyebrow = sellerToolbar?.querySelector(".eyebrow");
+    const sellerHeading = sellerToolbar?.querySelector("h2");
+    if (sellerEyebrow) sellerEyebrow.textContent = admin ? "Até " + state.settings.maxSellers + " vendedores" : "Área pessoal";
+    if (sellerHeading) sellerHeading.textContent = admin ? "Mapa individual" : "Meu mapa mensal";
+
     if (!admin) {
       if (currentView !== "sellers") switchView("sellers");
       q("pageTitle").textContent = "Meu mapa";
