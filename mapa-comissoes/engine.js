@@ -263,17 +263,28 @@
         return String(a.createdAt||"").localeCompare(String(b.createdAt||""));
       });
 
-    let officialPosition=0;
+    const nonDraftRows=monthDeals.filter(deal=>deal.status==="closed" || deal.status==="cancelled");
+    const frozenPositions=nonDraftRows
+      .map(deal=>num(deal.commissionSnapshot?.salePosition))
+      .filter(position=>position>0);
+    const baseUsedPosition=Math.max(
+      nonDraftRows.length,
+      frozenPositions.length ? Math.max(...frozenPositions) : 0
+    );
+
+    let legacyClosedSeen=0;
+    let legacyCancelledSeen=0;
     let previewDraftsSeen=0;
     const rows=monthDeals.map(deal=>{
       let salePosition;
       if(deal.status==="closed"){
-        officialPosition+=1;
-        salePosition=deal.commissionSnapshot?.salePosition || officialPosition;
+        legacyClosedSeen+=1;
+        salePosition=deal.commissionSnapshot?.salePosition || legacyClosedSeen;
       }else if(deal.status==="cancelled"){
-        salePosition=deal.commissionSnapshot?.salePosition || Math.max(1,officialPosition+1);
+        legacyCancelledSeen+=1;
+        salePosition=deal.commissionSnapshot?.salePosition || Math.max(1,legacyClosedSeen+legacyCancelledSeen);
       }else{
-        salePosition=Math.max(1,officialPosition+previewDraftsSeen+1);
+        salePosition=Math.max(1,baseUsedPosition+previewDraftsSeen+1);
         previewDraftsSeen+=1;
       }
       return {deal,calc:calcDeal(deal,salePosition,config)};
