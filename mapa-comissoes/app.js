@@ -1331,6 +1331,8 @@
         return;
       }
 
+      if (!ev.target.closest(".row-actions")) closeRowActionMenus();
+
       const info = ev.target.closest("[data-info]");
       if (info) {
         ev.stopPropagation();
