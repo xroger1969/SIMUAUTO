@@ -212,17 +212,31 @@
 
   function calcSellerMonth(deals,sellerId,month,configInput){
     const config=normalizeConfig(configInput);
-    const rows=deals
-      .filter(d=>d.sellerId===sellerId && d.status!=="cancelled" && monthKey(d.saleDate)===month)
+    const monthDeals=deals
+      .filter(d=>d.sellerId===sellerId && monthKey(d.saleDate)===month)
       .sort((a,b)=>{
         const da=new Date(a.saleDate||a.createdAt||0).getTime();
         const db=new Date(b.saleDate||b.createdAt||0).getTime();
         if(da!==db) return da-db;
         return String(a.createdAt||"").localeCompare(String(b.createdAt||""));
-      })
-      .map((deal,index)=>({deal,calc:calcDeal(deal,index+1,config)}));
+      });
 
-    const total=(selector)=>round2(rows.reduce((sum,row)=>sum+num(selector(row)),0));
+    let officialPosition=0;
+    const rows=monthDeals.map(deal=>{
+      let salePosition;
+      if(deal.status==="closed"){
+        officialPosition+=1;
+        salePosition=deal.commissionSnapshot?.salePosition || officialPosition;
+      }else if(deal.status==="cancelled"){
+        salePosition=deal.commissionSnapshot?.salePosition || Math.max(1,officialPosition+1);
+      }else{
+        salePosition=Math.max(1,officialPosition+1);
+      }
+      return {deal,calc:calcDeal(deal,salePosition,config)};
+    });
+
+    const officialRows=rows.filter(r=>r.deal.status==="closed");
+    const total=(selector)=>round2(officialRows.reduce((sum,row)=>sum+num(selector(row)),0));
     const totalPvp=total(r=>r.calc.salePrice);
     const totalFinanced=total(r=>r.calc.financedAmount);
     const totalMargin=total(r=>r.calc.vehicleMargin);
@@ -232,7 +246,10 @@
 
     return {
       rows,
-      salesCount:rows.length,
+      officialRows,
+      salesCount:officialRows.length,
+      draftCount:rows.filter(r=>r.deal.status==="draft").length,
+      cancelledCount:rows.filter(r=>r.deal.status==="cancelled").length,
       totalPvp,
       totalFinanced,
       financePenetrationPct:totalPvp>0 ? round2(totalFinanced/totalPvp*100) : 0,
@@ -240,14 +257,14 @@
       totalFinanceRevenue,
       totalCommission,
       totalResult,
-      avgMarginPerCar:rows.length ? round2(totalMargin/rows.length) : 0,
-      avgFinancedPerCar:rows.length ? round2(totalFinanced/rows.length) : 0
+      avgMarginPerCar:officialRows.length ? round2(totalMargin/officialRows.length) : 0,
+      avgFinancedPerCar:officialRows.length ? round2(totalFinanced/officialRows.length) : 0
     };
   }
 
   function calcCompanyMonth(deals,sellers,month,configInput){
     const config=normalizeConfig(configInput);
-    const sellerMaps=sellers.filter(s=>s.active!==false).map(s=>({
+    const sellerMaps=sellers.map(s=>({
       seller:s,
       ...calcSellerMonth(deals,s.id,month,config)
     }));
@@ -257,6 +274,8 @@
     return {
       sellerMaps,
       salesCount:sellerMaps.reduce((sum,m)=>sum+m.salesCount,0),
+      draftCount:sellerMaps.reduce((sum,m)=>sum+m.draftCount,0),
+      cancelledCount:sellerMaps.reduce((sum,m)=>sum+m.cancelledCount,0),
       totalPvp,
       totalFinanced,
       financePenetrationPct:totalPvp>0 ? round2(totalFinanced/totalPvp*100) : 0,
