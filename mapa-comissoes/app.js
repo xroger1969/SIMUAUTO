@@ -17,6 +17,7 @@
 
   const euro = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
   const percent = new Intl.NumberFormat("pt-PT", { style: "percent", maximumFractionDigits: 1 });
+  const dateTime = new Intl.DateTimeFormat("pt-PT", { dateStyle: "short", timeStyle: "short" });
   const q = (id) => document.getElementById(id);
   const qa = (sel) => Array.from(document.querySelectorAll(sel));
   const num = E.num;
@@ -36,6 +37,11 @@
   }
   function fmtMoney(v) { return euro.format(Math.round(num(v))); }
   function fmtPct(v) { return percent.format(num(v) / 100); }
+  function fmtDateTime(v) {
+    if (!v) return "—";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "—" : dateTime.format(d);
+  }
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[m]));
   }
@@ -68,9 +74,13 @@
 
   function isAdmin() { return member?.role === "admin"; }
   function activeSellers() { return state.sellers.filter(s => s.active !== false); }
+  function reportSellers() {
+    const sellersWithDeals = new Set(state.deals.map(d => d.sellerId));
+    return state.sellers.filter(s => s.active !== false || sellersWithDeals.has(s.id));
+  }
   function vehicleLabel(d) { return d.vehicle || "Viatura sem descrição"; }
   function getSellerMonth(id) { return E.calcSellerMonth(state.deals, id, state.month, state.config); }
-  function getCompanyMonth() { return E.calcCompanyMonth(state.deals, activeSellers(), state.month, state.config); }
+  function getCompanyMonth() { return E.calcCompanyMonth(state.deals, reportSellers(), state.month, state.config); }
 
   function showOnlyGate(which) {
     q("authGate").classList.toggle("open", which === "auth");
@@ -240,6 +250,13 @@
       notes: r.notes || "",
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      closedAt: r.closed_at,
+      closedBy: r.closed_by,
+      closedByEmail: r.closed_by_email || "",
+      cancelledAt: r.cancelled_at,
+      cancelledBy: r.cancelled_by,
+      cancelledByEmail: r.cancelled_by_email || "",
+      cancellationReason: r.cancellation_reason || "",
       commissionSnapshot: r.commission_amount === null ? null : {
         amount: num(r.commission_amount),
         ruleVersion: ruleVersionById[r.rule_set_id] || state.config.version,
@@ -322,23 +339,42 @@
     q("ruleVersion").textContent = "Versão " + state.config.version;
   }
 
-  function renderSellerOptions() {
-    const sellers = activeSellers();
-    if (!sellers.some(s => s.id === currentSellerId)) currentSellerId = (sellers[0] || {}).id || "";
-    [q("sellerSelector"), q("dealSeller")].forEach(select => {
-      if (!select) return;
-      const old = select.value;
-      select.innerHTML = sellers.map(s => '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>').join("");
-      if (sellers.some(s => s.id === old)) select.value = old;
-      else if (currentSellerId) select.value = currentSellerId;
-    });
-    if (q("sellerSelector")) q("sellerSelector").value = currentSellerId;
+  function renderSellerOptions(includeDealSellerId) {
+    const report = reportSellers();
+    if (!report.some(s => s.id === currentSellerId)) currentSellerId = (activeSellers()[0] || report[0] || {}).id || "";
+
+    const sellerSelector = q("sellerSelector");
+    if (sellerSelector) {
+      const old = sellerSelector.value;
+      sellerSelector.innerHTML = report.map(s =>
+        '<option value="' + s.id + '">' + escapeHtml(s.name) + (s.active === false ? ' · inativo' : '') + '</option>'
+      ).join("");
+      if (report.some(s => s.id === old)) sellerSelector.value = old;
+      else if (currentSellerId) sellerSelector.value = currentSellerId;
+    }
+
+    const dealSeller = q("dealSeller");
+    if (dealSeller) {
+      const dealOptions = activeSellers().slice();
+      const historical = includeDealSellerId ? state.sellers.find(s => s.id === includeDealSellerId) : null;
+      if (historical && !dealOptions.some(s => s.id === historical.id)) dealOptions.push(historical);
+      const old = dealSeller.value;
+      dealSeller.innerHTML = dealOptions.map(s =>
+        '<option value="' + s.id + '">' + escapeHtml(s.name) + (s.active === false ? ' · inativo' : '') + '</option>'
+      ).join("");
+      if (dealOptions.some(s => s.id === old)) dealSeller.value = old;
+      else if (includeDealSellerId && dealOptions.some(s => s.id === includeDealSellerId)) dealSeller.value = includeDealSellerId;
+      else if (currentSellerId && dealOptions.some(s => s.id === currentSellerId)) dealSeller.value = currentSellerId;
+    }
+
+    if (sellerSelector && currentSellerId) sellerSelector.value = currentSellerId;
   }
 
   function renderDashboard() {
     const c = getCompanyMonth();
     q("dashNet").textContent = fmtMoney(c.totalResult);
     q("dashSales").textContent = c.salesCount;
+    if (q("dashSalesHint")) q("dashSalesHint").textContent = c.draftCount + " rascunho" + (c.draftCount === 1 ? "" : "s") + " pendente" + (c.draftCount === 1 ? "" : "s");
     q("dashPvp").textContent = fmtMoney(c.totalPvp);
     q("dashFinanced").textContent = fmtMoney(c.totalFinanced);
     q("dashFinancePct").textContent = fmtPct(c.financePenetrationPct) + " do PVP";
@@ -356,11 +392,23 @@
       const financeWidth = Math.min(100, Math.max(0, m.financePenetrationPct));
       const tier = E.getVolumeTier(m.salesCount, state.config);
       return '<article class="seller-card" data-open-seller="' + m.seller.id + '">' +
-        '<div class="seller-card-head"><div style="display:flex;align-items:center;gap:10px"><div class="seller-avatar">' + escapeHtml(m.seller.name.slice(0, 2).toUpperCase()) + '</div><div><h3>' + escapeHtml(m.seller.name) + '</h3><small>' + m.salesCount + ' vendas · escalão ' + escapeHtml(tier.label) + '</small></div></div><strong>' + fmtMoney(m.totalResult) + '</strong></div>' +
+        '<div class="seller-card-head"><div style="display:flex;align-items:center;gap:10px"><div class="seller-avatar">' + escapeHtml(m.seller.name.slice(0, 2).toUpperCase()) + '</div><div><h3>' + escapeHtml(m.seller.name) + (m.seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</h3><small>' + m.salesCount + ' oficiais · ' + m.draftCount + ' rascunho' + (m.draftCount === 1 ? '' : 's') + ' · escalão ' + escapeHtml(tier.label) + '</small></div></div><strong>' + fmtMoney(m.totalResult) + '</strong></div>' +
         '<div class="seller-card-kpis"><div><span>MARGEM</span><strong>' + fmtMoney(m.totalMargin) + '</strong></div><div><span>FINANCIADO</span><strong>' + fmtPct(m.financePenetrationPct) + '</strong></div><div><span>COMISSÕES</span><strong>' + fmtMoney(m.totalCommission) + '</strong></div></div>' +
         '<div class="progress"><i style="width:' + financeWidth + '%"></i></div>' +
         '</article>';
     }).join("");
+  }
+
+  function dealActionsHtml(deal) {
+    const actions = [];
+    actions.push('<button type="button" data-edit-deal="' + deal.id + '">' + (deal.status === "draft" ? "Editar" : "Ver detalhes") + '</button>');
+    if (deal.status === "draft") {
+      actions.push('<button type="button" class="positive-action" data-confirm-deal="' + deal.id + '">✓ Tornar oficial</button>');
+      actions.push('<button type="button" class="danger-action" data-delete-deal="' + deal.id + '">🗑 Eliminar definitivamente</button>');
+    } else if (deal.status === "closed" && isAdmin()) {
+      actions.push('<button type="button" class="danger-action" data-cancel-deal="' + deal.id + '">⛔ Anular venda</button>');
+    }
+    return '<details class="row-actions"><summary aria-label="Ações" title="Ações">•••</summary><div class="row-actions-menu">' + actions.join("") + '</div></details>';
   }
 
   function renderSellerMap() {
@@ -372,41 +420,46 @@
     const m = getSellerMonth(seller.id);
     const tier = E.getVolumeTier(m.salesCount, state.config);
     q("sellerSales").textContent = m.salesCount;
-    q("sellerTier").textContent = "Escalão " + tier.label;
+    q("sellerTier").textContent = m.salesCount + " oficiais · " + m.draftCount + " rascunho" + (m.draftCount === 1 ? "" : "s") + " · Escalão " + tier.label;
     q("sellerFinanced").textContent = fmtMoney(m.totalFinanced);
     q("sellerFinancePct").textContent = fmtPct(m.financePenetrationPct) + " do PVP";
     q("sellerAvgMargin").textContent = fmtMoney(m.avgMarginPerCar);
     q("sellerCommission").textContent = fmtMoney(m.totalCommission);
     q("sellerNet").textContent = fmtMoney(m.totalResult);
-    q("sellerMapTitle").textContent = "Operações de " + seller.name;
+    q("sellerMapTitle").textContent = "Operações de " + seller.name + (seller.active === false ? " · inativo" : "");
 
     const body = q("sellerMapBody");
     if (!m.rows.length) {
       body.innerHTML = '<tr><td colspan="12" class="empty">Ainda não existem operações neste mês.</td></tr>';
       return;
     }
-    body.innerHTML = m.rows.map(({ deal, calc }) =>
-      '<tr>' +
-      '<td><strong>' + calc.salePosition + '</strong></td>' +
-      '<td>' + escapeHtml(deal.saleDate || "—") + '</td>' +
-      '<td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong><br><span class="muted">' + escapeHtml(deal.stock || deal.plate || "") + '</span></td>' +
-      '<td>' + fmtMoney(calc.salePrice) + '</td>' +
-      '<td class="' + (calc.vehicleMargin < 0 ? "negative" : "") + '">' + fmtMoney(calc.vehicleMargin) + '</td>' +
-      '<td>' + fmtMoney(calc.financedAmount) + '</td>' +
-      '<td>' + fmtPct(calc.financePctRaw) + '</td>' +
-      '<td>' + fmtMoney(calc.financeRevenue) + '</td>' +
-      '<td><strong>' + fmtMoney(calc.commission) + '</strong>' + (calc.isLocked ? ' <span class="badge locked">fixa</span>' : '') + '</td>' +
-      '<td class="' + (calc.resultAfterCommission < 0 ? "negative" : "positive") + '"><strong>' + fmtMoney(calc.resultAfterCommission) + '</strong></td>' +
-      '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
-      '<td><button class="link-btn" data-edit-deal="' + deal.id + '">' + (deal.status === "draft" ? "Editar" : "Ver") + '</button></td>' +
-      '</tr>'
-    ).join("");
+    body.innerHTML = m.rows.map(({ deal, calc }) => {
+      const official = deal.status === "closed";
+      const cancelled = deal.status === "cancelled";
+      const pos = official ? (deal.commissionSnapshot?.salePosition || calc.salePosition) : "—";
+      const commission = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.calculatedCommission) : fmtMoney(calc.commission));
+      const result = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.resultAfterCommission) : fmtMoney(calc.resultAfterCommission));
+      return '<tr class="deal-row status-' + deal.status + '">' +
+        '<td><strong>' + pos + '</strong></td>' +
+        '<td>' + escapeHtml(deal.saleDate || "—") + '</td>' +
+        '<td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong><br><span class="muted">' + escapeHtml(deal.stock || deal.plate || "") + '</span></td>' +
+        '<td>' + fmtMoney(calc.salePrice) + '</td>' +
+        '<td class="' + (calc.vehicleMargin < 0 ? "negative" : "") + '">' + fmtMoney(calc.vehicleMargin) + '</td>' +
+        '<td>' + fmtMoney(calc.financedAmount) + '</td>' +
+        '<td>' + fmtPct(calc.financePctRaw) + '</td>' +
+        '<td>' + fmtMoney(calc.financeRevenue) + '</td>' +
+        '<td><strong>' + commission + '</strong>' + (official && calc.isLocked ? ' <span class="badge locked">fixa</span>' : (deal.status === "draft" ? ' <span class="badge draft">prévia</span>' : '')) + '</td>' +
+        '<td class="' + (!cancelled && calc.resultAfterCommission < 0 ? "negative" : (!cancelled ? "positive" : "")) + '"><strong>' + result + '</strong></td>' +
+        '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
+        '<td>' + dealActionsHtml(deal) + '</td>' +
+        '</tr>';
+    }).join("");
   }
 
   function renderOperations() {
     const search = (q("operationSearch").value || "").trim().toLowerCase();
     const rows = [];
-    activeSellers().forEach(s => {
+    state.sellers.forEach(s => {
       const m = E.calcSellerMonth(state.deals, s.id, state.month, state.config);
       m.rows.forEach(row => rows.push({ ...row, seller: s }));
     });
@@ -420,20 +473,23 @@
       body.innerHTML = '<tr><td colspan="12" class="empty">Nenhuma operação encontrada.</td></tr>';
       return;
     }
-    body.innerHTML = filtered.map(({ deal, calc, seller }) =>
-      '<tr>' +
-      '<td>' + escapeHtml(deal.saleDate || "—") + '</td><td>' + escapeHtml(seller.name) + '</td>' +
-      '<td>' + escapeHtml(deal.stock || "—") + '</td><td>' + escapeHtml(deal.plate || "—") + '</td><td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong></td>' +
-      '<td>' + fmtMoney(calc.salePrice) + '</td><td>' + fmtMoney(calc.vehicleMargin) + '</td><td>' + fmtMoney(calc.financedAmount) + ' <span class="muted">(' + fmtPct(calc.financePctRaw) + ')</span></td>' +
-      '<td><strong>' + fmtMoney(calc.commission) + '</strong></td><td class="' + (calc.resultAfterCommission < 0 ? "negative" : "positive") + '"><strong>' + fmtMoney(calc.resultAfterCommission) + '</strong></td>' +
-      '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
-      '<td><button class="link-btn" data-edit-deal="' + deal.id + '">' + (deal.status === "draft" ? "Editar" : "Ver") + '</button></td>' +
-      '</tr>'
-    ).join("");
+    body.innerHTML = filtered.map(({ deal, calc, seller }) => {
+      const cancelled = deal.status === "cancelled";
+      const commission = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.calculatedCommission) : fmtMoney(calc.commission));
+      const result = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.resultAfterCommission) : fmtMoney(calc.resultAfterCommission));
+      return '<tr class="deal-row status-' + deal.status + '">' +
+        '<td>' + escapeHtml(deal.saleDate || "—") + '</td><td>' + escapeHtml(seller.name) + (seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</td>' +
+        '<td>' + escapeHtml(deal.stock || "—") + '</td><td>' + escapeHtml(deal.plate || "—") + '</td><td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong></td>' +
+        '<td>' + fmtMoney(calc.salePrice) + '</td><td>' + fmtMoney(calc.vehicleMargin) + '</td><td>' + fmtMoney(calc.financedAmount) + ' <span class="muted">(' + fmtPct(calc.financePctRaw) + ')</span></td>' +
+        '<td><strong>' + commission + '</strong>' + (deal.status === "draft" ? ' <span class="badge draft">prévia</span>' : '') + '</td><td class="' + (!cancelled && calc.resultAfterCommission < 0 ? "negative" : (!cancelled ? "positive" : "")) + '"><strong>' + result + '</strong></td>' +
+        '<td><span class="badge ' + deal.status + '">' + statusLabel(deal.status) + '</span></td>' +
+        '<td>' + dealActionsHtml(deal) + '</td>' +
+        '</tr>';
+    }).join("");
   }
 
   function statusLabel(status) {
-    return status === "closed" ? "Fechada" : status === "cancelled" ? "Cancelada" : "Rascunho";
+    return status === "closed" ? "Oficial" : status === "cancelled" ? "Anulada" : "Rascunho";
   }
 
   function renderSellerAdmin() {
@@ -447,6 +503,7 @@
       '<span class="badge ' + (s.active === false ? "cancelled" : "closed") + '">' + (s.active === false ? "inativo" : "ativo") + '</span>' +
       '<input value="' + escapeHtml(s.name) + '" data-seller-name="' + s.id + '" ' + (s.active === false ? "disabled" : "") + '>' +
       '<button type="button" data-toggle-seller="' + s.id + '">' + (s.active === false ? "Reativar" : "Desativar") + '</button>' +
+      '<button type="button" class="seller-delete" data-delete-seller="' + s.id + '">Eliminar</button>' +
       '</div>'
     ).join("");
   }
@@ -501,9 +558,10 @@
 
   function openDealModal(dealId, presetSeller) {
     const deal = dealId ? state.deals.find(d => d.id === dealId) : null;
-    q("dealModalTitle").textContent = deal ? (deal.status === "draft" ? "Editar operação" : "Operação fechada") : "Nova operação";
+    const title = !deal ? "Nova operação" : deal.status === "draft" ? "Editar rascunho" : deal.status === "closed" ? "Venda oficial" : "Venda anulada";
+    q("dealModalTitle").textContent = title;
     q("dealId").value = deal?.id || "";
-    renderSellerOptions();
+    renderSellerOptions(deal?.sellerId);
     q("dealSeller").value = deal?.sellerId || presetSeller || currentSellerId || activeSellers()[0]?.id || "";
     q("dealDate").value = deal?.saleDate || today();
     q("dealStock").value = deal?.stock || "";
@@ -527,22 +585,37 @@
     q("dealSeller").disabled = !isAdmin() || locked;
     q("dealDate").disabled = locked;
 
-    if (locked && isAdmin() && deal.status === "closed") {
-      q("dealStatus").innerHTML = '<option value="closed">Fechada</option><option value="cancelled">Cancelada</option>';
-      q("dealStatus").disabled = false;
-      q("dealStatus").value = deal.status;
+    if (locked) {
+      q("dealStatus").innerHTML = '<option value="' + deal.status + '">' + statusLabel(deal.status) + '</option>';
+      q("dealStatus").disabled = true;
     } else {
-      q("dealStatus").innerHTML = '<option value="draft">Rascunho</option><option value="closed">Fechada</option><option value="cancelled">Cancelada</option>';
-      q("dealStatus").disabled = locked;
+      q("dealStatus").innerHTML = '<option value="draft">Rascunho</option><option value="closed">Oficial</option>';
+      q("dealStatus").disabled = false;
       q("dealStatus").value = deal?.status || "draft";
     }
 
-    q("dealSaveButton").hidden = locked && !(isAdmin() && deal.status === "closed");
+    const audit = q("dealAuditInfo");
+    if (audit) {
+      if (!deal || deal.status === "draft") {
+        audit.hidden = true;
+        audit.innerHTML = "";
+      } else {
+        const official = '<strong>Oficializada:</strong> ' + fmtDateTime(deal.closedAt) + ' · ' + escapeHtml(deal.closedByEmail || "utilizador autenticado");
+        const cancelled = deal.status === "cancelled"
+          ? '<br><strong>Anulada:</strong> ' + fmtDateTime(deal.cancelledAt) + ' · ' + escapeHtml(deal.cancelledByEmail || "administrador") +
+            (deal.cancellationReason ? '<br><strong>Motivo:</strong> ' + escapeHtml(deal.cancellationReason) : '')
+          : '';
+        audit.innerHTML = official + cancelled;
+        audit.hidden = false;
+      }
+    }
+
+    q("dealSaveButton").hidden = locked;
     updateDealPreview();
     q("dealModal").classList.add("open");
   }
 
-  function closeDealModal() { q("dealModal").classList.remove("open"); }
+  function closeDealModal()  function closeDealModal() { q("dealModal").classList.remove("open"); }
 
   function formDeal() {
     return {
@@ -613,6 +686,12 @@
       return;
     }
 
+    const existing = d.id ? state.deals.find(x => x.id === d.id) : null;
+    const becomingOfficial = d.status === "closed" && (!existing || existing.status === "draft");
+    if (becomingOfficial && !confirm("Confirmar esta operação como venda oficial? A partir deste momento será contabilizada no mapa comercial e a comissão ficará congelada.")) {
+      return;
+    }
+
     setSync("A guardar operação…", true);
     const payload = dealPayload(d);
     let result;
@@ -632,7 +711,7 @@
     currentSellerId = result.data.seller_id;
     closeDealModal();
     await refreshData("Operação guardada");
-    toast(result.data.status === "closed" ? "Operação fechada e comissão congelada." : "Operação guardada.");
+    toast(result.data.status === "closed" ? "Venda oficial confirmada e comissão congelada." : "Rascunho guardado.");
   }
 
   function loadRecommendedScenario() {
@@ -808,14 +887,16 @@
   }
 
   function exportCSV() {
-    const rows = [["Data", "Vendedor", "Stock", "Matricula", "Viatura", "PVP", "Margem", "Capital financiado", "Percentagem financiada", "Receita financeira", "Comissao", "Resultado", "Estado", "Versao regra"]];
-    activeSellers().forEach(s => {
+    const rows = [["Data", "Vendedor", "Stock", "Matricula", "Viatura", "PVP", "Margem", "Capital financiado", "Percentagem financiada", "Receita financeira", "Comissao", "Resultado", "Estado", "Versao regra", "Oficializada em", "Oficializada por", "Anulada em", "Anulada por", "Motivo anulacao"]];
+    reportSellers().forEach(s => {
       const m = E.calcSellerMonth(state.deals, s.id, state.month, state.config);
       m.rows.forEach(({ deal, calc }) => rows.push([
         deal.saleDate, s.name, deal.stock || "", deal.plate || "", deal.vehicle || "",
         calc.salePrice, calc.vehicleMargin, calc.financedAmount, calc.financePctRaw,
-        calc.financeRevenue, calc.commission, calc.resultAfterCommission,
-        statusLabel(deal.status), deal.commissionSnapshot?.ruleVersion || state.config.version
+        calc.financeRevenue, deal.status === "cancelled" ? "" : calc.commission,
+        deal.status === "cancelled" ? "" : calc.resultAfterCommission,
+        statusLabel(deal.status), deal.commissionSnapshot?.ruleVersion || state.config.version,
+        deal.closedAt || "", deal.closedByEmail || "", deal.cancelledAt || "", deal.cancelledByEmail || "", deal.cancellationReason || ""
       ]));
     });
     const csv = "\uFEFF" + rows.map(r => r.map(v => String(v ?? "").replace(/"/g, '""')).map(v => '"' + v + '"').join(";")).join("\n");
@@ -855,8 +936,86 @@
     await refreshData("Nome atualizado");
   }
 
+  async function confirmOfficialDeal(id) {
+    const deal = state.deals.find(d => d.id === id);
+    if (!deal || deal.status !== "draft") return;
+    if (!confirm("Confirmar esta operação como venda oficial? Vai passar a contar nas vendas, comissões, margem e resultado do mês.")) return;
+    setSync("A tornar venda oficial…", true);
+    const { data, error } = await db.from("deals")
+      .update({ status: "closed" })
+      .eq("id", id)
+      .eq("status", "draft")
+      .select()
+      .single();
+    if (error) {
+      console.error(error);
+      setSync("Erro ao confirmar", false);
+      toast(error.message || "Não foi possível tornar a venda oficial.");
+      return;
+    }
+    currentSellerId = data.seller_id;
+    await refreshData("Venda oficial confirmada");
+    toast("Venda oficial confirmada e comissão congelada.");
+  }
+
+  async function deleteDraftDeal(id) {
+    const deal = state.deals.find(d => d.id === id);
+    if (!deal || deal.status !== "draft") return;
+    if (!confirm("Eliminar definitivamente este rascunho? Esta ação não pode ser desfeita.")) return;
+    setSync("A eliminar rascunho…", true);
+    const { error } = await db.from("deals").delete().eq("id", id).eq("status", "draft");
+    if (error) {
+      console.error(error);
+      setSync("Erro ao eliminar", false);
+      toast(error.message || "Não foi possível eliminar o rascunho.");
+      return;
+    }
+    await refreshData("Rascunho eliminado");
+    toast("Rascunho eliminado definitivamente.");
+  }
+
+  async function cancelOfficialDeal(id) {
+    if (!isAdmin()) return;
+    const deal = state.deals.find(d => d.id === id);
+    if (!deal || deal.status !== "closed") return;
+    const reason = prompt("Motivo da anulação (opcional):", "");
+    if (reason === null) return;
+    if (!confirm("Anular esta venda oficial? Deixará de contar nos resultados e comissões, mas ficará guardada no histórico.")) return;
+    setSync("A anular venda…", true);
+    const { error } = await db.from("deals")
+      .update({ status: "cancelled", cancellation_reason: reason.trim() || null })
+      .eq("id", id)
+      .eq("status", "closed");
+    if (error) {
+      console.error(error);
+      setSync("Erro ao anular", false);
+      toast(error.message || "Não foi possível anular a venda.");
+      return;
+    }
+    await refreshData("Venda anulada");
+    toast("Venda anulada e preservada no histórico.");
+  }
+
+  async function deleteSeller(id) {
+    if (!isAdmin()) return;
+    const seller = state.sellers.find(s => s.id === id);
+    if (!seller) return;
+    if (!confirm('Eliminar definitivamente o vendedor "' + seller.name + '"? Só será permitido se nunca tiver operações registadas.')) return;
+    setSync("A verificar vendedor…", true);
+    const { error } = await db.rpc("delete_unused_seller", { p_seller_id: id });
+    if (error) {
+      console.error(error);
+      setSync("Não eliminado", false);
+      toast(error.message || "Não foi possível eliminar o vendedor.");
+      return;
+    }
+    if (currentSellerId === id) currentSellerId = "";
+    await refreshData("Vendedor eliminado");
+    toast("Vendedor eliminado definitivamente.");
+  }
+
   function bindEvents() {
-    q("authForm").addEventListener("submit", signIn);
+    q("authForm").addEventListener("submit", signIn);    q("authForm").addEventListener("submit", signIn);
     q("btnSignup").addEventListener("click", signUp);
     q("btnLogout").addEventListener("click", signOut);
     q("btnPendingLogout").addEventListener("click", signOut);
@@ -907,9 +1066,33 @@
         return;
       }
 
+      const confirmDeal = ev.target.closest("[data-confirm-deal]");
+      if (confirmDeal) {
+        await confirmOfficialDeal(confirmDeal.dataset.confirmDeal);
+        return;
+      }
+
+      const deleteDeal = ev.target.closest("[data-delete-deal]");
+      if (deleteDeal) {
+        await deleteDraftDeal(deleteDeal.dataset.deleteDeal);
+        return;
+      }
+
+      const cancelDeal = ev.target.closest("[data-cancel-deal]");
+      if (cancelDeal) {
+        await cancelOfficialDeal(cancelDeal.dataset.cancelDeal);
+        return;
+      }
+
       const toggle = ev.target.closest("[data-toggle-seller]");
       if (toggle) {
         await toggleSeller(toggle.dataset.toggleSeller);
+        return;
+      }
+
+      const removeSeller = ev.target.closest("[data-delete-seller]");
+      if (removeSeller) {
+        await deleteSeller(removeSeller.dataset.deleteSeller);
       }
     });
 
