@@ -845,6 +845,44 @@
     };
   }
 
+  function dealSanityWarnings(d) {
+    const warnings = [];
+    const pvp = Math.max(0, num(d.salePrice));
+    if (d.lenderRatePct > 8) {
+      warnings.push("A comissão da financeira ao stand é " + String(d.lenderRatePct).replace(".", ",") + "%. Confirma que não querias escrever, por exemplo, 3,5%.");
+    }
+    if (pvp > 0 && d.financedAmount > pvp) {
+      warnings.push("O capital financiado (" + fmtMoney(d.financedAmount) + ") é superior ao PVP (" + fmtMoney(pvp) + ").");
+    }
+    if (pvp > 0 && d.acquisitionCost > pvp) {
+      warnings.push("O custo de aquisição (" + fmtMoney(d.acquisitionCost) + ") é superior ao PVP (" + fmtMoney(pvp) + ").");
+    }
+    const unusuallyHighCosts = [
+      ["Preparação / recondicionamento", d.preparationCost],
+      ["Garantia", d.warrantyCost],
+      ["Outros custos diretos", d.otherDirectCosts]
+    ].filter(([, value]) => pvp > 0 && value > Math.max(10000, pvp * 0.25));
+    unusuallyHighCosts.forEach(([label, value]) => {
+      warnings.push(label + " parece elevado: " + fmtMoney(value) + ".");
+    });
+
+    const margin = E.calcVehicleMargin(d);
+    if (margin < 0) {
+      warnings.push("A operação tem margem negativa de " + fmtMoney(margin) + ".");
+    }
+    return warnings;
+  }
+
+  function confirmSuspiciousDeal(d) {
+    const warnings = dealSanityWarnings(d);
+    if (!warnings.length) return true;
+    return confirm(
+      "Confirma estes valores antes de guardar:\n\n• " +
+      warnings.join("\n• ") +
+      "\n\nGuardar mesmo assim?"
+    );
+  }
+
   function friendlyDealError(error) {
     const text = [error?.message, error?.details, error?.hint, error?.constraint].filter(Boolean).join(" ");
     if (text.includes("deals_active_stock_unique") || /n\.º de stock/i.test(text)) {
@@ -855,8 +893,12 @@
       q("dealPlate")?.focus();
       return "Já existe uma operação ativa com esta matrícula. Confirma a matrícula ou anula/elimina a operação anterior.";
     }
+    if (text.includes("deals_lender_rate_pct_max_check")) {
+      q("dealLenderRate")?.focus();
+      return "A comissão da financeira ao stand não pode exceder 20%. Confirma se querias escrever 3,5% em vez de 35%.";
+    }
     if (error?.code === "23514") {
-      return "Há um valor inválido na operação. PVP, custos, financiamento e percentagens não podem ter valores negativos.";
+      return "Há um valor inválido na operação. Confirma PVP, custos, financiamento e percentagens.";
     }
     return error?.message || "Não foi possível guardar a operação.";
   }
@@ -872,6 +914,12 @@
       toast("Custos, financiamento e percentagens não podem ter valores negativos.");
       return;
     }
+    if (d.lenderRatePct > 20) {
+      q("dealLenderRate")?.focus();
+      toast("A comissão da financeira ao stand não pode exceder 20%. Confirma se querias escrever 3,5% em vez de 35%.");
+      return;
+    }
+    if (!confirmSuspiciousDeal(d)) return;
 
     const existing = d.id ? state.deals.find(x => x.id === d.id) : null;
     const becomingOfficial = d.status === "closed" && (!existing || existing.status === "draft");
