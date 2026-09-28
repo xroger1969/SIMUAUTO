@@ -24,4 +24,7 @@ jobs:
           grep -q 'id="authGate"' mapa-comissoes/index.html
           grep -q 'id="dealSaveButton"' mapa-comissoes/index.html
           grep -q 'SUPABASE_URL' mapa-comissoes/app.js
-          grep -q 'save_rule_set' mapa-comissoes/app.js
+          grep -q 'save_configuration' mapa-comissoes/app.js
+          grep -q 'id="view-presentation"' mapa-comissoes/index.html
+          grep -q 'id="btnAddTier"' mapa-comissoes/index.html
+          grep -q 'data-confirm-deal' mapa-comissoes/app.js
