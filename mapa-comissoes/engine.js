@@ -167,14 +167,33 @@
     const salePrice=num(deal.salePrice);
     const financedAmount=Math.max(0,num(deal.financedAmount));
     const lenderRatePct=Math.max(0,num(deal.lenderRatePct));
-    const vehicleMargin=calcVehicleMargin(deal);
+    const snapshot=deal && deal.commissionSnapshot && typeof deal.commissionSnapshot==="object"
+      ? deal.commissionSnapshot
+      : null;
+    const locked=!!snapshot && (deal.status==="closed" || deal.status==="cancelled");
+    const snapNum=(key,fallback)=>{
+      const value=snapshot ? snapshot[key] : null;
+      return value!==null && typeof value!=="undefined" && Number.isFinite(Number(value))
+        ? num(value)
+        : fallback;
+    };
+
+    const calculatedVehicleMargin=calcVehicleMargin(deal);
     const financePctRaw=salePrice>0 ? (financedAmount/salePrice)*100 : 0;
-    const financePct=clamp(financePctRaw,0,Math.min(100,Math.max(1,num(config.financeCapPct))));
-    const financeRevenue=round2(financedAmount*lenderRatePct/100);
+    const calculatedFinancePct=clamp(financePctRaw,0,Math.min(100,Math.max(1,num(config.financeCapPct))));
+    const calculatedFinanceRevenue=round2(financedAmount*lenderRatePct/100);
+
+    const vehicleMargin=locked ? snapNum("vehicleMargin",calculatedVehicleMargin) : calculatedVehicleMargin;
+    const financePct=locked ? snapNum("financePct",calculatedFinancePct) : calculatedFinancePct;
+    const financeRevenue=locked ? snapNum("financeRevenue",calculatedFinanceRevenue) : calculatedFinanceRevenue;
+
     const volumeTier=getVolumeTier(salePosition,config);
-    const marginBand=getMarginBand(vehicleMargin,config);
+    const marginBandBase=getMarginBand(vehicleMargin,config);
     const financeBracket=getFinanceCommission(volumeTier,financePct);
-    const volumeFinanceCommission=round2(financeBracket.value);
+    const volumeFinanceCommission=round2(locked ? snapNum("baseCommission",financeBracket.value) : financeBracket.value);
+    const marginBand=locked
+      ? Object.assign({},marginBandBase,{factor:snapNum("marginFactor",marginBandBase.factor)})
+      : marginBandBase;
 
     const eligible=salePosition>=1 && volumeFinanceCommission>0;
     const rawCommission=Math.max(0,volumeFinanceCommission*num(marginBand.factor));
@@ -184,24 +203,28 @@
         : 0
     );
 
-    const commission=deal.status==="cancelled"
-      ? 0
-      : (deal.commissionSnapshot && Number.isFinite(Number(deal.commissionSnapshot.amount))
-          ? num(deal.commissionSnapshot.amount)
-          : calculatedCommission);
+    const commission=locked
+      ? snapNum("amount",calculatedCommission)
+      : calculatedCommission;
 
-    const resultBeforeCommission=round2(vehicleMargin+financeRevenue);
-    const resultAfterCommission=round2(resultBeforeCommission-commission);
+    const calculatedResultBefore=round2(vehicleMargin+financeRevenue);
+    const resultBeforeCommission=round2(
+      locked ? snapNum("resultBeforeCommission",calculatedResultBefore) : calculatedResultBefore
+    );
+    const calculatedResultAfter=round2(resultBeforeCommission-commission);
+    const resultAfterCommission=round2(
+      locked ? snapNum("resultAfterCommission",calculatedResultAfter) : calculatedResultAfter
+    );
 
     return {
       salePosition,
       salePrice,
       financedAmount,
       lenderRatePct,
-      vehicleMargin,
+      vehicleMargin:round2(vehicleMargin),
       financePctRaw:round2(financePctRaw),
       financePctApplied:round2(financePct),
-      financeRevenue,
+      financeRevenue:round2(financeRevenue),
       volumeTier,
       marginBand,
       financeBracket,
@@ -211,7 +234,7 @@
       resultBeforeCommission,
       resultAfterCommission,
       commissionRatioPct:resultBeforeCommission>0 ? round2((commission/resultBeforeCommission)*100) : 0,
-      isLocked:!!deal.commissionSnapshot
+      isLocked:locked
     };
   }
 
