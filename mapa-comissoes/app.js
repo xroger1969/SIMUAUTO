@@ -507,7 +507,7 @@
   function renderDashboard() {
     const c = getCompanyMonth();
     const preview = c.draftCount > 0;
-    const prefix = preview ? "~" : "";
+    const prefix = "";
     q("dashNet").textContent = prefix + fmtMoney(preview ? c.projectedTotalResult : c.totalResult);
     q("dashSales").textContent = c.salesCount;
     if (q("dashSalesHint")) q("dashSalesHint").textContent =
@@ -531,7 +531,7 @@
       const financePctValue = sellerPreview ? m.projectedFinancePenetrationPct : m.financePenetrationPct;
       const financeWidth = Math.min(100, Math.max(0, financePctValue));
       const tier = E.getVolumeTier(sellerPreview ? m.projectedSalesCount : m.salesCount, state.config);
-      const sellerPrefix = sellerPreview ? "~" : "";
+      const sellerPrefix = "";
       return '<article class="seller-card" data-open-seller="' + m.seller.id + '">' +
         '<div class="seller-card-head"><div style="display:flex;align-items:center;gap:10px"><div class="seller-avatar">' + escapeHtml(m.seller.name.slice(0, 2).toUpperCase()) + '</div><div><h3>' + escapeHtml(m.seller.name) + (m.seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</h3><small>' + m.salesCount + ' oficiais · ' + m.draftCount + ' rascunho' + (m.draftCount === 1 ? '' : 's') + (sellerPreview ? ' · prévia' : '') + ' · escalão ' + escapeHtml(tier.label) + '</small></div></div><strong>' + sellerPrefix + fmtMoney(sellerPreview ? m.projectedTotalResult : m.totalResult) + '</strong></div>' +
         '<div class="seller-card-kpis"><div><span>MARGEM</span><strong>' + sellerPrefix + fmtMoney(sellerPreview ? m.projectedTotalMargin : m.totalMargin) + '</strong></div><div><span>FINANCIADO</span><strong>' + fmtPct(financePctValue) + '</strong></div><div><span>COMISSÕES</span><strong>' + sellerPrefix + fmtMoney(sellerPreview ? m.projectedTotalCommission : m.totalCommission) + '</strong></div></div>' +
@@ -664,7 +664,7 @@
     const preview = m.draftCount > 0;
     const salesForDisplay = preview ? m.projectedSalesCount : m.salesCount;
     const tier = E.getVolumeTier(salesForDisplay, state.config);
-    const prefix = preview ? "~" : "";
+    const prefix = "";
     q("sellerSales").textContent = salesForDisplay;
     q("sellerTier").textContent = m.salesCount + " oficiais · " + m.draftCount + " rascunho" + (m.draftCount === 1 ? "" : "s") + (preview ? " · valores em prévia" : "") + " · Escalão " + tier.label;
     q("sellerFinanced").textContent = prefix + fmtMoney(preview ? m.projectedTotalFinanced : m.totalFinanced);
@@ -683,8 +683,8 @@
       const official = deal.status === "closed";
       const cancelled = deal.status === "cancelled";
       const pos = official ? (deal.commissionSnapshot?.salePosition || calc.salePosition) : "—";
-      const commission = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.calculatedCommission) : fmtMoney(calc.commission));
-      const result = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.resultAfterCommission) : fmtMoney(calc.resultAfterCommission));
+      const commission = cancelled ? "—" : (deal.status === "draft" ? fmtMoney(calc.calculatedCommission) : fmtMoney(calc.commission));
+      const result = cancelled ? "—" : (deal.status === "draft" ? fmtMoney(calc.resultAfterCommission) : fmtMoney(calc.resultAfterCommission));
       return '<tr class="deal-row status-' + deal.status + '">' +
         '<td><strong>' + pos + '</strong></td>' +
         '<td>' + escapeHtml(deal.saleDate || "—") + '</td>' +
@@ -721,8 +721,8 @@
     }
     body.innerHTML = filtered.map(({ deal, calc, seller }) => {
       const cancelled = deal.status === "cancelled";
-      const commission = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.calculatedCommission) : fmtMoney(calc.commission));
-      const result = cancelled ? "—" : (deal.status === "draft" ? "~" + fmtMoney(calc.resultAfterCommission) : fmtMoney(calc.resultAfterCommission));
+      const commission = cancelled ? "—" : (deal.status === "draft" ? fmtMoney(calc.calculatedCommission) : fmtMoney(calc.commission));
+      const result = cancelled ? "—" : (deal.status === "draft" ? fmtMoney(calc.resultAfterCommission) : fmtMoney(calc.resultAfterCommission));
       return '<tr class="deal-row status-' + deal.status + '">' +
         '<td>' + escapeHtml(deal.saleDate || "—") + '</td><td>' + escapeHtml(seller.name) + (seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</td>' +
         '<td>' + escapeHtml(deal.stock || "—") + '</td><td>' + escapeHtml(deal.plate || "—") + '</td><td><strong>' + escapeHtml(vehicleLabel(deal)) + '</strong></td>' +
