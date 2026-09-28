@@ -41,6 +41,7 @@ for (const marker of [
   "renderRestrictedSellerMap",
   "get_map_configuration",
   "get_deals_month",
+  "async function loadSellers()",
   "dealPreviewFinanceBonus",
   "simFinancedCapitalBonus"
 ]) {
