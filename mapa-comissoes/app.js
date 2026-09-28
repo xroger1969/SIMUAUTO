@@ -973,6 +973,30 @@
       lenderRatePct: num(q("simLenderRate").value),
       status: "draft"
     };
+
+    const invalidNumbers = [
+      deal.acquisitionCost,
+      deal.preparationCost,
+      deal.warrantyCost,
+      deal.otherDirectCosts,
+      deal.financedAmount,
+      deal.lenderRatePct
+    ].some(value => value < 0);
+
+    if (deal.salePrice <= 0 || invalidNumbers || deal.lenderRatePct > 20) {
+      q("simCommission").textContent = "—";
+      q("simMargin").textContent = "—";
+      q("simFinancePct").textContent = "—";
+      q("simFinanceRevenue").textContent = "—";
+      q("simFinancedCapitalBonus").textContent = "—";
+      q("simNet").textContent = "—";
+      q("simRule").textContent = "Corrige os valores";
+      q("simExplain").innerHTML = deal.lenderRatePct > 20
+        ? "<strong>Valor inválido:</strong> a comissão da financeira ao stand não pode exceder 20%. Se escreveste 35, confirma se querias indicar 3,5%."
+        : "<strong>Valor inválido:</strong> o PVP tem de ser superior a zero e os restantes valores não podem ser negativos.";
+      return;
+    }
+
     const pos = Math.max(1, num(q("simPosition").value));
     const c = E.calcDeal(deal, pos, state.config);
     q("simCommission").textContent = fmtMoney(c.calculatedCommission);
@@ -986,7 +1010,11 @@
     const bracketText = b.lowerPoint === b.upperPoint
       ? b.lowerPoint + "% = " + fmtMoney(b.lowerValue)
       : "entre " + b.lowerPoint + "% (" + fmtMoney(b.lowerValue) + ") e " + b.upperPoint + "% (" + fmtMoney(b.upperValue) + ")";
-    q("simExplain").innerHTML = "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a grelha dá uma comissão-base de <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong> (" + bracketText + "). A comissão normal, depois da margem e dos limites, fica em <strong>" + fmtMoney(c.regularCommission) + "</strong>. Como há <strong>" + fmtMoney(c.financedAmount) + "</strong> de capital financiado, soma-se ainda <strong>" + fmtPct(c.financedCapitalBonusPct) + "</strong> = <strong>" + fmtMoney(c.financedCapitalBonus) + "</strong>. Comissão total: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>. O teto de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong> aplica-se à comissão normal; o bónus do capital financiado é somado por cima.";
+    const sanityWarnings = dealSanityWarnings(deal);
+    const warningHtml = sanityWarnings.length
+      ? '<div class="sim-warning"><strong>⚠ Confirma:</strong> ' + sanityWarnings.map(escapeHtml).join(" ") + "</div>"
+      : "";
+    q("simExplain").innerHTML = warningHtml + "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a grelha dá uma comissão-base de <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong> (" + bracketText + "). A comissão normal, depois da margem e dos limites, fica em <strong>" + fmtMoney(c.regularCommission) + "</strong>. Como há <strong>" + fmtMoney(c.financedAmount) + "</strong> de capital financiado, soma-se ainda <strong>" + fmtPct(c.financedCapitalBonusPct) + "</strong> = <strong>" + fmtMoney(c.financedCapitalBonus) + "</strong>. Comissão total: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>. O teto de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong> aplica-se à comissão normal; o bónus do capital financiado é somado por cima.";
   }
 
   function addSeller() {
