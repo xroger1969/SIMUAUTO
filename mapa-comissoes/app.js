@@ -74,8 +74,8 @@
     dealSeller: "Vendedor responsável pela operação.",
     dealDate: "Data que coloca a venda no mês correto e determina a posição no escalão mensal.",
     dealStatus: "Rascunho permite editar. Oficial congela a comissão. O administrador pode anular a venda para manter histórico ou eliminá-la definitivamente quando necessário.",
-    dealStock: "Número interno de stock da viatura.",
-    dealPlate: "Matrícula da viatura, útil para pesquisa e controlo.",
+    dealStock: "Número interno de stock da viatura. O sistema bloqueia outro rascunho ou venda oficial com o mesmo número de stock.",
+    dealPlate: "Matrícula da viatura, útil para pesquisa e controlo. O sistema bloqueia outra operação ativa com a mesma matrícula, mesmo que seja escrita com separadores diferentes.",
     dealVehicle: "Marca, modelo e versão da viatura.",
     dealSalePrice: "Preço de venda ao cliente (PVP).",
     dealAcquisition: "Valor pago pelo stand para adquirir a viatura.",
@@ -838,11 +838,31 @@
     };
   }
 
+  function friendlyDealError(error) {
+    const text = [error?.message, error?.details, error?.hint, error?.constraint].filter(Boolean).join(" ");
+    if (text.includes("deals_active_stock_unique") || /n\.º de stock/i.test(text)) {
+      q("dealStock")?.focus();
+      return "Já existe uma operação ativa com este n.º de stock. Confirma o stock ou anula/elimina a operação anterior.";
+    }
+    if (text.includes("deals_active_plate_unique") || /matrícula/i.test(text)) {
+      q("dealPlate")?.focus();
+      return "Já existe uma operação ativa com esta matrícula. Confirma a matrícula ou anula/elimina a operação anterior.";
+    }
+    if (error?.code === "23514") {
+      return "Há um valor inválido na operação. PVP, custos, financiamento e percentagens não podem ter valores negativos.";
+    }
+    return error?.message || "Não foi possível guardar a operação.";
+  }
+
   async function saveDealFromForm(ev) {
     ev.preventDefault();
     const d = formDeal();
-    if (d.salePrice <= 0 || !d.vehicle || !d.sellerId) {
-      toast("Preenche vendedor, viatura e PVP.");
+    if (d.salePrice <= 0 || !d.vehicle || !d.sellerId || !d.saleDate) {
+      toast("Preenche vendedor, data, viatura e PVP.");
+      return;
+    }
+    if ([d.acquisitionCost, d.preparationCost, d.warrantyCost, d.otherDirectCosts, d.financedAmount, d.lenderRatePct].some(v => v < 0)) {
+      toast("Custos, financiamento e percentagens não podem ter valores negativos.");
       return;
     }
 
@@ -864,7 +884,7 @@
     if (result.error) {
       console.error(result.error);
       setSync("Erro ao guardar", false);
-      toast(result.error.message || "Não foi possível guardar a operação.");
+      toast(friendlyDealError(result.error));
       return;
     }
 
