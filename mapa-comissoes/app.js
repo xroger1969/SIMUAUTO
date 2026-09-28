@@ -67,10 +67,11 @@
   const INFO_TEXT = {
     companyName: "Nome apresentado no Mapa Comercial. Pode ser o nome do stand ou o nome interno do projeto.",
     globalMinCommission: "Valor mínimo pago numa venda elegível. Evita que os fatores de margem reduzam a comissão abaixo deste valor.",
-    globalMaxCommission: "Teto máximo de comissão por viatura, independentemente do escalão ou financiamento.",
+    globalMaxCommission: "Teto máximo da comissão normal calculada pela grelha. O bónus percentual sobre o capital financiado soma-se depois e pode fazer a comissão total ultrapassar este valor.",
+    financedCapitalBonusPct: "Percentagem do capital financiado que é somada diretamente à comissão normal do vendedor. Ex.: 18.000 € financiados a 1% = +180 €.",
     financeCapPct: "Percentagem máxima do PVP considerada para calcular a comissão ligada ao financiamento.",
     maxSellers: "Número máximo de vendedores que podem estar ativos ao mesmo tempo. Pode ser ajustado entre 1 e 25.",
-    referenceLenderRatePct: "Percentagem de referência paga pela financeira ao stand. É usada como valor inicial em novas operações.",
+    referenceLenderRatePct: "Percentagem paga pela financeira ao stand, usada como valor inicial nas novas operações. É receita do stand e não é o bónus do vendedor.",
     dealSeller: "Vendedor responsável pela operação.",
     dealDate: "Data que coloca a venda no mês correto e determina a posição no escalão mensal.",
     dealStatus: "Rascunho permite editar. Oficial congela a comissão. O administrador pode anular a venda para manter histórico ou eliminá-la definitivamente quando necessário.",
@@ -259,7 +260,7 @@
 
   async function loadRules() {
     const { data: ruleSets, error: rulesError } = await db.from("rule_sets")
-      .select("id,version,name,is_active,global_min_commission,global_max_commission,finance_cap_pct,created_at")
+      .select("id,version,name,is_active,global_min_commission,global_max_commission,finance_cap_pct,financed_capital_bonus_pct,created_at")
       .order("version", { ascending: false });
     if (rulesError) throw rulesError;
     ruleVersionById = Object.fromEntries((ruleSets || []).map(r => [r.id, r.version]));
@@ -283,6 +284,7 @@
       globalMinCommission: num(active.global_min_commission),
       globalMaxCommission: num(active.global_max_commission),
       financeCapPct: num(active.finance_cap_pct),
+      financedCapitalBonusPct: num(active.financed_capital_bonus_pct),
       volumeTiers: (tiersResult.data || []).map(t => ({
         id: t.tier_code,
         label: t.label,
@@ -343,6 +345,8 @@
         financeRevenue: r.finance_revenue === null ? null : num(r.finance_revenue),
         baseCommission: r.base_commission === null ? null : num(r.base_commission),
         marginFactor: r.margin_factor === null ? null : num(r.margin_factor),
+        financedCapitalBonusPct: r.financed_capital_bonus_pct === null ? 0 : num(r.financed_capital_bonus_pct),
+        financedCapitalBonusAmount: r.financed_capital_bonus_amount === null ? 0 : num(r.financed_capital_bonus_amount),
         resultBeforeCommission: r.result_before_commission === null ? null : num(r.result_before_commission),
         resultAfterCommission: r.result_after_commission === null ? null : num(r.result_after_commission)
       }
@@ -642,6 +646,7 @@
     q("globalMinCommission").value = state.config.globalMinCommission;
     q("globalMaxCommission").value = state.config.globalMaxCommission;
     q("financeCapPct").value = state.config.financeCapPct;
+    q("financedCapitalBonusPct").value = state.config.financedCapitalBonusPct;
     q("maxSellers").value = state.settings.maxSellers;
     q("referenceLenderRatePct").value = state.settings.referenceLenderRatePct;
 
@@ -803,6 +808,7 @@
       const c = E.calcDeal(existing, pos, state.config);
       q("dealPreviewMargin").textContent = fmtMoney(c.vehicleMargin);
       q("dealPreviewFinancePct").textContent = fmtPct(c.financePctApplied);
+      q("dealPreviewFinanceBonus").textContent = fmtMoney(c.financedCapitalBonus);
       q("dealPreviewCommission").textContent = fmtMoney(c.commission);
       q("dealPreviewNet").textContent = fmtMoney(c.resultAfterCommission);
       return;
@@ -814,6 +820,7 @@
     const c = E.calcDeal({ ...d, status: "draft", commissionSnapshot: null }, pos, state.config);
     q("dealPreviewMargin").textContent = fmtMoney(c.vehicleMargin);
     q("dealPreviewFinancePct").textContent = fmtPct(c.financePctRaw);
+    q("dealPreviewFinanceBonus").textContent = fmtMoney(c.financedCapitalBonus);
     q("dealPreviewCommission").textContent = fmtMoney(c.calculatedCommission);
     q("dealPreviewNet").textContent = fmtMoney(c.resultAfterCommission);
   }
@@ -924,13 +931,14 @@
     q("simMargin").textContent = fmtMoney(c.vehicleMargin);
     q("simFinancePct").textContent = fmtPct(c.financePctRaw);
     q("simFinanceRevenue").textContent = fmtMoney(c.financeRevenue);
+    q("simFinancedCapitalBonus").textContent = fmtMoney(c.financedCapitalBonus);
     q("simNet").textContent = fmtMoney(c.resultAfterCommission);
     q("simRule").textContent = "Escalão " + c.volumeTier.label + " · margem " + c.marginBand.label + " · fator " + c.marginBand.factor + "× · mínimo " + fmtMoney(state.config.globalMinCommission);
     const b = c.financeBracket;
     const bracketText = b.lowerPoint === b.upperPoint
       ? b.lowerPoint + "% = " + fmtMoney(b.lowerValue)
       : "entre " + b.lowerPoint + "% (" + fmtMoney(b.lowerValue) + ") e " + b.upperPoint + "% (" + fmtMoney(b.upperValue) + ")";
-    q("simExplain").innerHTML = "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a grelha dá uma comissão-base de <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong> (" + bracketText + "). A componente da venda parte de <strong>" + fmtMoney(c.noFinanceBase) + "</strong> e recebe o fator de margem <strong>" + c.marginBand.factor + "×</strong>. O financiamento acrescenta ainda um bónus próprio de <strong>" + fmtMoney(c.financeBonus) + "</strong>, que não desaparece por causa do fator de margem. Comissão final: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>, entre o mínimo de <strong>" + fmtMoney(state.config.globalMinCommission) + "</strong> e o máximo de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong>.";
+    q("simExplain").innerHTML = "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a grelha dá uma comissão-base de <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong> (" + bracketText + "). A comissão normal, depois da margem e dos limites, fica em <strong>" + fmtMoney(c.regularCommission) + "</strong>. Como há <strong>" + fmtMoney(c.financedAmount) + "</strong> de capital financiado, soma-se ainda <strong>" + fmtPct(c.financedCapitalBonusPct) + "</strong> = <strong>" + fmtMoney(c.financedCapitalBonus) + "</strong>. Comissão total: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>. O teto de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong> aplica-se à comissão normal; o bónus do capital financiado é somado por cima.";
   }
 
   function addSeller() {
@@ -971,6 +979,7 @@
     config.globalMinCommission = Math.max(0, num(q("globalMinCommission").value));
     config.globalMaxCommission = Math.max(config.globalMinCommission, num(q("globalMaxCommission").value));
     config.financeCapPct = Math.min(100, Math.max(1, num(q("financeCapPct").value)));
+    config.financedCapitalBonusPct = Math.min(20, Math.max(0, num(q("financedCapitalBonusPct").value)));
 
     qa("#volumeTiersBody input").forEach(input => {
       const i = Number(input.dataset.tier);
@@ -1103,6 +1112,7 @@
       p_global_min_commission: config.globalMinCommission,
       p_global_max_commission: config.globalMaxCommission,
       p_finance_cap_pct: config.financeCapPct,
+      p_financed_capital_bonus_pct: Math.max(0, Math.min(20, num(config.financedCapitalBonusPct))),
       p_max_sellers: Math.max(1, Math.min(25, Math.floor(num(settings.maxSellers) || 5))),
       p_reference_lender_rate_pct: Math.max(0, Math.min(20, num(settings.referenceLenderRatePct))),
       p_volume_tiers: payload.tiers,
@@ -1152,13 +1162,14 @@
   }
 
   function exportCSV() {
-    const rows = [["Data", "Vendedor", "Stock", "Matricula", "Viatura", "PVP", "Margem", "Capital financiado", "Percentagem financiada", "Receita financeira", "Comissao", "Resultado", "Estado", "Versao regra", "Oficializada em", "Oficializada por", "Anulada em", "Anulada por", "Motivo anulacao"]];
+    const rows = [["Data", "Vendedor", "Stock", "Matricula", "Viatura", "PVP", "Margem", "Capital financiado", "Percentagem financiada", "Receita financeira", "Bonus capital financiado", "Comissao total", "Resultado", "Estado", "Versao regra", "Oficializada em", "Oficializada por", "Anulada em", "Anulada por", "Motivo anulacao"]];
     reportSellers().forEach(s => {
       const m = E.calcSellerMonth(state.deals, s.id, state.month, state.config);
       m.rows.forEach(({ deal, calc }) => rows.push([
         deal.saleDate, s.name, deal.stock || "", deal.plate || "", deal.vehicle || "",
         calc.salePrice, calc.vehicleMargin, calc.financedAmount, calc.financePctRaw,
-        calc.financeRevenue, deal.status === "cancelled" ? "" : calc.commission,
+        calc.financeRevenue, deal.status === "cancelled" ? "" : calc.financedCapitalBonus,
+        deal.status === "cancelled" ? "" : calc.commission,
         deal.status === "cancelled" ? "" : calc.resultAfterCommission,
         statusLabel(deal.status), deal.commissionSnapshot?.ruleVersion || state.config.version,
         deal.closedAt || "", deal.closedByEmail || "", deal.cancelledAt || "", deal.cancelledByEmail || "", deal.cancellationReason || ""
