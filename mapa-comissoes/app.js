@@ -1011,13 +1011,8 @@
     }
 
     setSync("A guardar operação…", true);
-    const payload = dealPayload(d);
-    let result;
-    if (d.id) {
-      result = await db.from("deals").update(payload).eq("id", d.id);
-    } else {
-      result = await db.from("deals").insert(payload);
-    }
+    const payload = { ...dealPayload(d), id: d.id || null };
+    const result = await db.rpc("save_deal", { p_deal: payload });
 
     if (result.error) {
       console.error(result.error);
@@ -1378,10 +1373,7 @@
     if (!deal || deal.status !== "draft") return;
     if (!confirm("Confirmar esta operação como venda oficial? Vai passar a contar nas vendas, comissões, margem e resultado do mês.")) return;
     setSync("A tornar venda oficial…", true);
-    const { error } = await db.from("deals")
-      .update({ status: "closed" })
-      .eq("id", id)
-      .eq("status", "draft");
+    const { error } = await db.rpc("confirm_deal", { p_deal_id: id });
     if (error) {
       console.error(error);
       setSync("Erro ao confirmar", false);
@@ -1437,10 +1429,10 @@
     if (reason === null) return;
     if (!confirm("Anular esta venda oficial? Deixará de contar nos resultados e comissões, mas ficará guardada no histórico.")) return;
     setSync("A anular venda…", true);
-    const { error } = await db.from("deals")
-      .update({ status: "cancelled", cancellation_reason: reason.trim() || null })
-      .eq("id", id)
-      .eq("status", "closed");
+    const { error } = await db.rpc("cancel_deal", {
+      p_deal_id: id,
+      p_reason: reason.trim() || null
+    });
     if (error) {
       console.error(error);
       setSync("Erro ao anular", false);
