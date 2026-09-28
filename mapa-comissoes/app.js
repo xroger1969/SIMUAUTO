@@ -802,33 +802,114 @@
   }
 
   function readRulesFromDom() {
-    const config = E.normalizeConfig(state.config);
+    const config = E.clone(state.config);
     config.globalMinCommission = Math.max(0, num(q("globalMinCommission").value));
     config.globalMaxCommission = Math.max(config.globalMinCommission, num(q("globalMaxCommission").value));
     config.financeCapPct = Math.min(100, Math.max(1, num(q("financeCapPct").value)));
 
-    qa("#volumeTiersBody input[data-point]").forEach(input => {
+    qa("#volumeTiersBody input").forEach(input => {
       const i = Number(input.dataset.tier);
-      const point = String(input.dataset.point);
-      if (Number.isNaN(i) || !config.volumeTiers[i] || !E.FINANCE_POINTS.includes(Number(point))) return;
-      config.volumeTiers[i].financeGrid[point] = Math.max(0, num(input.value));
+      if (Number.isNaN(i) || !config.volumeTiers[i]) return;
+      if (input.dataset.point) {
+        const point = String(input.dataset.point);
+        if (E.FINANCE_POINTS.includes(Number(point))) {
+          config.volumeTiers[i].financeGrid[point] = Math.max(0, num(input.value));
+        }
+        return;
+      }
+      const key = input.dataset.key;
+      if (key === "from") config.volumeTiers[i].from = Math.max(0, Math.floor(num(input.value)));
+      if (key === "to") config.volumeTiers[i].to = input.value === "" ? null : Math.max(0, Math.floor(num(input.value)));
     });
 
     qa("#marginBandsBody input").forEach(input => {
       const i = Number(input.dataset.margin);
       const key = input.dataset.key;
-      if (Number.isNaN(i) || !key) return;
+      if (Number.isNaN(i) || !key || !config.marginBands[i]) return;
       config.marginBands[i][key] = input.value === "" ? null : num(input.value);
     });
 
+    config.volumeTiers.sort((a,b) => num(a.from) - num(b.from));
+    config.volumeTiers.forEach((t,i) => {
+      t.id = t.id || localId("tier");
+      t.label = t.to === null ? t.from + "+" : t.from + "–" + t.to;
+    });
+
     config.marginBands.forEach(b => {
+      b.id = b.id || localId("margin");
       b.factor = Math.max(0, num(b.factor));
-      if (b.min === null) b.label = "< " + fmtMoney((b.max || 0) + .01);
+      if (b.min === null && b.max === null) b.label = "Todas as margens";
+      else if (b.min === null) b.label = "< " + fmtMoney((b.max || 0) + .01);
       else if (b.max === null) b.label = "≥ " + fmtMoney(b.min);
       else b.label = fmtMoney(b.min) + "–" + fmtMoney(b.max);
     });
 
     return E.normalizeConfig(config);
+  }
+
+  function addVolumeTier() {
+    const config = readRulesFromDom();
+    const last = config.volumeTiers[config.volumeTiers.length - 1];
+    const from = last?.to === null ? num(last.from) + 2 : num(last?.to) + 1;
+    if (last && last.to === null) last.to = Math.max(last.from, from - 1);
+    config.volumeTiers.push({
+      id: localId("tier"),
+      label: from + "+",
+      from,
+      to: null,
+      financeGrid: E.clone(last?.financeGrid || {"0":120,"25":135,"50":150,"75":165,"100":180})
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
+    installInfoButtons();
+  }
+
+  function addMarginBand() {
+    const config = readRulesFromDom();
+    const last = config.marginBands[config.marginBands.length - 1];
+    const min = last?.max === null ? num(last?.min) + 500 : num(last?.max) + .01;
+    if (last && last.max === null) last.max = Math.max(num(last.min), min - .01);
+    config.marginBands.push({
+      id: localId("margin"),
+      label: "≥ " + fmtMoney(min),
+      min,
+      max: null,
+      factor: num(last?.factor) || 1
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
+    installInfoButtons();
+  }
+
+  function removeVolumeTier(index) {
+    const config = readRulesFromDom();
+    if (config.volumeTiers.length <= 1) return;
+    config.volumeTiers.splice(index,1);
+    config.volumeTiers.sort((a,b)=>num(a.from)-num(b.from));
+    config.volumeTiers.forEach((t,i)=>{
+      if (i === 0) t.from = Math.min(t.from, 1);
+      if (i < config.volumeTiers.length - 1) {
+        const next = config.volumeTiers[i+1];
+        t.to = Math.max(t.from, next.from - 1);
+      } else {
+        t.to = null;
+      }
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
+  }
+
+  function removeMarginBand(index) {
+    const config = readRulesFromDom();
+    if (config.marginBands.length <= 1) return;
+    config.marginBands.splice(index,1);
+    config.marginBands.forEach((b,i)=>{
+      if (i === 0) b.min = null;
+      if (i === config.marginBands.length - 1) b.max = null;
+      if (i > 0 && config.marginBands[i-1].max !== null) b.min = num(config.marginBands[i-1].max) + .01;
+    });
+    state.config = E.normalizeConfig(config);
+    renderRules();
   }
 
   function configToRpc(config) {
@@ -856,13 +937,16 @@
     };
   }
 
-  async function persistRules(config, companyName) {
+  async function persistRules(config, companyName, settingsOverride) {
     const payload = configToRpc(config);
-    const { data, error } = await db.rpc("save_rule_set", {
+    const settings = settingsOverride || state.settings;
+    const { data, error } = await db.rpc("save_configuration", {
       p_company_name: companyName,
       p_global_min_commission: config.globalMinCommission,
       p_global_max_commission: config.globalMaxCommission,
       p_finance_cap_pct: config.financeCapPct,
+      p_max_sellers: Math.max(1, Math.min(25, Math.floor(num(settings.maxSellers) || 5))),
+      p_reference_lender_rate_pct: Math.max(0, Math.min(20, num(settings.referenceLenderRatePct))),
       p_volume_tiers: payload.tiers,
       p_margin_bands: payload.bands
     });
@@ -874,9 +958,13 @@
     if (!isAdmin()) return;
     const companyName = q("companyName").value.trim() || "Mapa Comercial";
     const next = readRulesFromDom();
+    const settings = {
+      maxSellers: Math.max(1, Math.min(25, Math.floor(num(q("maxSellers").value) || 5))),
+      referenceLenderRatePct: Math.max(0, Math.min(20, num(q("referenceLenderRatePct").value)))
+    };
     try {
       setSync("A guardar nova versão…", true);
-      const version = await persistRules(next, companyName);
+      const version = await persistRules(next, companyName, settings);
       await refreshData("Regras v" + version + " guardadas");
       toast("Nova versão das regras guardada.");
     } catch (err) {
@@ -891,7 +979,11 @@
     if (!confirm("Repor os valores iniciais do modelo? As operações já fechadas mantêm a comissão congelada.")) return;
     try {
       setSync("A repor regras…", true);
-      const version = await persistRules(E.clone(E.DEFAULT_CONFIG), q("companyName").value.trim() || "Mapa Comercial");
+      const version = await persistRules(
+        E.clone(E.DEFAULT_CONFIG),
+        q("companyName").value.trim() || "Mapa Comercial",
+        { maxSellers: 5, referenceLenderRatePct: 3.5 }
+      );
       await refreshData("Regras v" + version + " guardadas");
       toast("Regras iniciais repostas.");
     } catch (err) {
