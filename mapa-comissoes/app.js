@@ -286,6 +286,27 @@
     });
   }
 
+  async function loadSellers() {
+    const { data, error } = await db.from("sellers")
+      .select("id,name,email,active,sort_order,created_at")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+
+    state.sellers = (data || []).map(r => ({
+      id: r.id,
+      name: r.name,
+      email: r.email || "",
+      active: r.active,
+      sortOrder: r.sort_order,
+      createdAt: r.created_at
+    }));
+
+    if (!state.sellers.some(s => s.id === currentSellerId)) {
+      currentSellerId = (activeSellers()[0] || state.sellers[0] || {}).id || "";
+    }
+  }
+
   function rowToDeal(r) {
     const sellerSafe = !isAdmin();
     if (sellerSafe) {
@@ -1623,7 +1644,7 @@
         enterSession(nextSession).catch(err => {
           console.error(err);
           showOnlyGate("auth");
-          setAuthMessage("Erro ao validar a sessão.", "error");
+          setAuthMessage("Erro ao carregar o mapa: " + (err?.message || "falha inesperada") + ".", "error");
         });
       }, 0);
     });
