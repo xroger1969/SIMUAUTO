@@ -460,7 +460,7 @@
       const cells = E.FINANCE_POINTS.map(point =>
         '<td><div class="commission-cell"><input type="number" min="0" step="1" data-tier="' + i + '" data-point="' + point + '" value="' + num(t.financeGrid[String(point)]) + '"><span>€</span></div></td>'
       ).join("");
-      return '<tr><td><strong>' + escapeHtml(t.label) + '</strong><small class="tier-hint">' + (t.id === "t0" ? "sem comissão inicial" : "vendas no mês") + '</small></td>' + cells + '</tr>';
+      return '<tr><td><strong>' + escapeHtml(t.label) + '</strong><small class="tier-hint">' + (t.id === "t0" ? "comissão desde a 1.ª venda" : "vendas no mês") + '</small></td>' + cells + '</tr>';
     }).join("");
     q("marginBandsBody").innerHTML = state.config.marginBands.map((b, i) =>
       '<tr><td><strong>' + escapeHtml(b.label) + '</strong></td>' +
