@@ -201,7 +201,7 @@
     const noFinanceBase=Math.max(0,num(volumeTier.financeGrid["0"]));
     const vehicleComponent=Math.max(0,noFinanceBase*num(marginBand.factor));
     const financeBonus=Math.max(0,volumeFinanceCommission-noFinanceBase);
-    const regularCommission=round2(
+    const calculatedRegularCommission=round2(
       eligible
         ? Math.min(
             Math.max(num(config.globalMinCommission),num(config.globalMaxCommission)),
@@ -217,6 +217,11 @@
       locked
         ? snapNum("financedCapitalBonusAmount",0)
         : (financedAmount>0 ? financedAmount*financedCapitalBonusPct/100 : 0)
+    );
+    const regularCommission=round2(
+      locked
+        ? Math.max(0,snapNum("amount",calculatedRegularCommission)-financedCapitalBonus)
+        : calculatedRegularCommission
     );
     const calculatedCommission=round2(regularCommission+financedCapitalBonus);
 
