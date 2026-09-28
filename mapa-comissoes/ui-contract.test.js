@@ -36,9 +36,9 @@ for (const marker of [
   assert.ok(app.includes(marker) || html.includes(marker), `missing UI contract: ${marker}`);
 }
 
-assert.ok(/\\.row-actions-menu\\{[^}]*position:fixed/.test(css),
+assert.ok(/\.row-actions-menu\s*\{[^}]*position\s*:\s*fixed/.test(css),
   "row action menu must be fixed so table overflow cannot clip Edit/Tornar oficial");
-assert.ok(/z-index:1000/.test(css), "row action menu must appear above the table");
+assert.ok(/z-index\s*:\s*1000/.test(css), "row action menu must appear above the table");
 
 for (const id of ["dealAcquisition", "dealPrep", "dealWarranty", "dealOther", "dealFinanced", "dealLenderRate"]) {
   assert.ok(new RegExp('id="' + id + '"[^>]*min="0"').test(html),
