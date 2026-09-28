@@ -396,6 +396,8 @@
     q("brandName").textContent = state.companyName;
     q("companyName").value = state.companyName;
     q("ruleVersion").textContent = "Versão " + state.config.version;
+    q("maxSellers").value = state.settings.maxSellers;
+    q("referenceLenderRatePct").value = state.settings.referenceLenderRatePct;
   }
 
   function renderSellerOptions() {
@@ -532,18 +534,33 @@
     q("globalMinCommission").value = state.config.globalMinCommission;
     q("globalMaxCommission").value = state.config.globalMaxCommission;
     q("financeCapPct").value = state.config.financeCapPct;
+    q("maxSellers").value = state.settings.maxSellers;
+    q("referenceLenderRatePct").value = state.settings.referenceLenderRatePct;
+
     q("volumeTiersBody").innerHTML = state.config.volumeTiers.map((t, i) => {
       const cells = E.FINANCE_POINTS.map(point =>
         '<td><div class="commission-cell"><input type="number" min="0" step="1" data-tier="' + i + '" data-point="' + point + '" value="' + num(t.financeGrid[String(point)]) + '"><span>€</span></div></td>'
       ).join("");
-      return '<tr><td><strong>' + escapeHtml(t.label) + '</strong><small class="tier-hint">' + (t.id === "t0" ? "comissão desde a 1.ª venda" : "vendas no mês") + '</small></td>' + cells + '</tr>';
+      const canRemove = state.config.volumeTiers.length > 1;
+      return '<tr>' +
+        '<td><strong class="tier-label">' + escapeHtml(t.label) + '</strong><small class="tier-hint">vendas no mês ' + infoMarkup("Define o intervalo de posições de venda que usa esta linha de comissões.") + '</small></td>' +
+        '<td><input class="small" type="number" min="0" step="1" data-tier="' + i + '" data-key="from" value="' + num(t.from) + '"></td>' +
+        '<td><input class="small" type="number" min="0" step="1" data-tier="' + i + '" data-key="to" value="' + (t.to ?? "") + '" placeholder="∞"></td>' +
+        cells +
+        '<td><button type="button" class="table-action danger" data-remove-tier="' + i + '" ' + (canRemove ? "" : "disabled") + '>×</button></td>' +
+        '</tr>';
     }).join("");
-    q("marginBandsBody").innerHTML = state.config.marginBands.map((b, i) =>
-      '<tr><td><strong>' + escapeHtml(b.label) + '</strong></td>' +
-      '<td><input type="number" data-margin="' + i + '" data-key="min" value="' + (b.min ?? "") + '" placeholder="−∞"></td>' +
-      '<td><input type="number" data-margin="' + i + '" data-key="max" value="' + (b.max ?? "") + '" placeholder="+∞"></td>' +
-      '<td><input type="number" step=".05" data-margin="' + i + '" data-key="factor" value="' + b.factor + '"> ×</td></tr>'
-    ).join("");
+
+    q("marginBandsBody").innerHTML = state.config.marginBands.map((b, i) => {
+      const canRemove = state.config.marginBands.length > 1;
+      return '<tr>' +
+        '<td><strong class="margin-label">' + escapeHtml(b.label) + '</strong> ' + infoMarkup("A faixa de margem determina o fator aplicado à comissão-base para proteger a rentabilidade.") + '</td>' +
+        '<td><input type="number" step=".01" data-margin="' + i + '" data-key="min" value="' + (b.min ?? "") + '" placeholder="−∞"></td>' +
+        '<td><input type="number" step=".01" data-margin="' + i + '" data-key="max" value="' + (b.max ?? "") + '" placeholder="+∞"></td>' +
+        '<td><input type="number" min="0" step=".05" data-margin="' + i + '" data-key="factor" value="' + b.factor + '"> ×</td>' +
+        '<td><button type="button" class="table-action danger" data-remove-margin="' + i + '" ' + (canRemove ? "" : "disabled") + '>×</button></td>' +
+        '</tr>';
+    }).join("");
   }
 
   function renderAll() {
@@ -559,6 +576,7 @@
     }
     renderSimulator();
     applyRoleUi();
+    installInfoButtons();
   }
 
   function switchView(name) {
@@ -569,7 +587,7 @@
     q("view-" + name).classList.add("active");
     const btn = document.querySelector('.nav-item[data-view="' + name + '"]');
     if (btn) btn.classList.add("active");
-    const titles = { dashboard: "Visão geral", sellers: "Vendedores", operations: "Operações", simulator: "Simulador", backoffice: "Backoffice" };
+    const titles = { dashboard: "Visão geral", sellers: "Vendedores", operations: "Operações", simulator: "Simulador", presentation: "Apresentação", backoffice: "Backoffice" };
     q("pageTitle").textContent = titles[name] || "Mapa Comercial";
     if (name === "sellers") renderSellerMap();
     if (name === "operations") renderOperations();
@@ -592,7 +610,7 @@
     q("dealOther").value = deal?.otherDirectCosts ?? 0;
     q("dealFinanced").value = deal?.financedAmount ?? 0;
     q("dealLender").value = deal?.lender || "";
-    q("dealLenderRate").value = deal?.lenderRatePct ?? 3.5;
+    q("dealLenderRate").value = deal?.lenderRatePct ?? state.settings.referenceLenderRatePct;
     q("dealNotes").value = deal?.notes || "";
 
     const locked = !!deal && deal.status !== "draft";
@@ -719,7 +737,7 @@
     q("simWarranty").value = 500;
     q("simOther").value = 500;
     q("simFinanced").value = 18750;
-    q("simLenderRate").value = 3.5;
+    q("simLenderRate").value = state.settings.referenceLenderRatePct;
     renderSimulator();
     toast("Cenário recomendado carregado.");
   }
@@ -752,8 +770,8 @@
 
   function addSeller() {
     if (!isAdmin()) return;
-    if (activeSellers().length >= 5) {
-      toast("O limite é 5 vendedores ativos.");
+    if (activeSellers().length >= state.settings.maxSellers) {
+      toast("O limite configurado é " + state.settings.maxSellers + " vendedores ativos.");
       return;
     }
     q("newSellerName").value = "";
@@ -907,8 +925,8 @@
     if (!isAdmin()) return;
     const s = state.sellers.find(x => x.id === id);
     if (!s) return;
-    if (s.active === false && activeSellers().length >= 5) {
-      toast("Limite de 5 vendedores ativos.");
+    if (s.active === false && activeSellers().length >= state.settings.maxSellers) {
+      toast("Limite configurado: " + state.settings.maxSellers + " vendedores ativos.");
       return;
     }
     const { error } = await db.from("sellers").update({ active: s.active === false }).eq("id", id);
