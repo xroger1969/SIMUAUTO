@@ -231,7 +231,7 @@
           <article class="benefit-card"><span>02</span><h3>Mais financiamento</h3><p>O sistema recompensa operações financiadas porque o crédito também gera receita para o stand.</p></article>
           <article class="benefit-card"><span>03</span><h3>Margem protegida</h3><p>A comissão é cruzada com a rentabilidade da viatura para evitar premiar da mesma forma negócios muito diferentes.</p></article>
           <article class="benefit-card"><span>04</span><h3>Resultado real</h3><p>Em cada venda vemos margem + receita financeira − comissão, para saber imediatamente quanto ficou para a empresa.</p></article>
-          <article class="benefit-card"><span>05</span><h3>Histórico seguro</h3><p>Quando um rascunho passa a oficial, a comissão fica congelada. Uma venda oficial pode ser anulada sem apagar o histórico.</p></article>
+          <article class="benefit-card"><span>05</span><h3>Histórico seguro</h3><p>Quando um rascunho passa a oficial, a comissão fica congelada. Uma venda oficial pode ser anulada para manter o histórico ou eliminada definitivamente pelo administrador quando for mesmo necessário.</p></article>
           <article class="benefit-card"><span>06</span><h3>100% ajustável</h3><p>Escalões, comissões, financiamento, margens, fatores e limites podem ser adaptados à política comercial do stand.</p></article>
         </div>
 
@@ -262,7 +262,7 @@
             </div>
             <div class="notice">
               <strong>Regra importante</strong>
-              <p>Quando um rascunho passa a venda oficial, a comissão fica congelada com a versão das regras desse momento. Uma venda oficial pode ser anulada, mas não apagada, preservando o histórico.</p>
+              <p>Quando um rascunho passa a venda oficial, a comissão fica congelada com a versão das regras desse momento. A venda pode ser anulada para preservar o histórico ou eliminada definitivamente por um administrador, com confirmação.</p>
             </div>
           </div>
 
@@ -365,6 +365,7 @@
         <div class="deal-audit-info" id="dealAuditInfo" hidden></div>
 
         <div class="modal-actions">
+          <button type="button" class="btn danger" id="dealDeleteButton" hidden>Eliminar definitivamente</button>
           <button type="button" class="btn secondary" data-close-modal>Cancelar</button>
           <button type="submit" class="btn primary" id="dealSaveButton">Guardar operação</button>
         </div>
