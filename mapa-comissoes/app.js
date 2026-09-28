@@ -68,7 +68,8 @@
     companyName: "Nome apresentado no Mapa Comercial. Pode ser o nome do stand ou o nome interno do projeto.",
     globalMinCommission: "Valor mínimo pago numa venda elegível. Evita que os fatores de margem reduzam a comissão abaixo deste valor.",
     globalMaxCommission: "Teto máximo da comissão normal calculada pela grelha. O bónus percentual sobre o capital financiado soma-se depois e pode fazer a comissão total ultrapassar este valor.",
-    financedCapitalBonusPct: "Percentagem do capital financiado que é somada diretamente à comissão normal do vendedor. Ex.: 18.000 € financiados a 1% = +180 €.",
+    financedCapitalBonusPct: "Percentagem do capital financiado que pode ser somada à comissão normal do vendedor. Ex.: 18.000 € financiados a 1% = +180 €.",
+    financedCapitalBonusStartSale: "Posição mínima da venda no mês a partir da qual o vendedor passa a ser elegível para o bónus de financiamento. Ex.: 4 significa que as vendas 1, 2 e 3 recebem apenas a comissão normal.",
     financeCapPct: "Percentagem máxima do PVP considerada para calcular a comissão ligada ao financiamento.",
     maxSellers: "Número máximo de vendedores que podem estar ativos ao mesmo tempo. Pode ser ajustado entre 1 e 25.",
     referenceLenderRatePct: "Percentagem paga pela financeira ao stand, usada como valor inicial nas novas operações. É receita do stand e não é o bónus do vendedor.",
@@ -86,6 +87,7 @@
     dealFinanced: "Capital efetivamente financiado ao cliente.",
     dealLender: "Entidade financeira usada na operação.",
     dealLenderRate: "Percentagem que a financeira paga ao stand sobre o capital financiado. Não é a taxa de juro do cliente.",
+    dealFinanceBonusEnabled: "Decisão da chefia para esta operação. Mesmo estando ativado, o bónus só é pago se a posição da venda atingir o mínimo definido no Backoffice.",
     dealNotes: "Observações internas sobre a operação.",
     simPosition: "Posição desta venda no mês do vendedor.",
     simSalePrice: "PVP usado apenas nesta simulação.",
@@ -726,19 +728,17 @@
     q("globalMaxCommission").value = state.config.globalMaxCommission;
     q("financeCapPct").value = state.config.financeCapPct;
     q("financedCapitalBonusPct").value = state.config.financedCapitalBonusPct;
+    q("financedCapitalBonusStartSale").value = state.config.financedCapitalBonusStartSale;
     q("maxSellers").value = state.settings.maxSellers;
     q("referenceLenderRatePct").value = state.settings.referenceLenderRatePct;
 
     q("volumeTiersBody").innerHTML = state.config.volumeTiers.map((t, i) => {
-      const cells = E.FINANCE_POINTS.map(point =>
-        '<td><div class="commission-cell"><input type="number" min="0" step="1" data-tier="' + i + '" data-point="' + point + '" value="' + num(t.financeGrid[String(point)]) + '"><span>€</span></div></td>'
-      ).join("");
       const canRemove = state.config.volumeTiers.length > 1;
       return '<tr>' +
-        '<td><strong class="tier-label">' + escapeHtml(t.label) + '</strong><small class="tier-hint">vendas no mês ' + infoMarkup("Define o intervalo de posições de venda que usa esta linha de comissões.") + '</small></td>' +
+        '<td><strong class="tier-label">' + escapeHtml(t.label) + '</strong><small class="tier-hint">vendas no mês ' + infoMarkup("Define o intervalo de posições de venda que usa esta comissão normal.") + '</small></td>' +
         '<td><input class="small" type="number" min="0" step="1" data-tier="' + i + '" data-key="from" value="' + num(t.from) + '"></td>' +
         '<td><input class="small" type="number" min="0" step="1" data-tier="' + i + '" data-key="to" value="' + (t.to ?? "") + '" placeholder="∞"></td>' +
-        cells +
+        '<td><div class="commission-cell"><input type="number" min="0" step="1" data-tier="' + i + '" data-point="0" value="' + num(t.financeGrid["0"]) + '"><span>€</span></div></td>' +
         '<td><button type="button" class="table-action danger" data-remove-tier="' + i + '" ' + (canRemove ? "" : "disabled") + '>×</button></td>' +
         '</tr>';
     }).join("");
@@ -805,6 +805,7 @@
     q("dealFinanced").value = deal?.financedAmount ?? 0;
     q("dealLender").value = deal?.lender || "";
     q("dealLenderRate").value = deal?.lenderRatePct ?? state.settings.referenceLenderRatePct;
+    q("dealFinanceBonusEnabled").checked = deal ? deal.financeBonusEnabled !== false : true;
     q("dealNotes").value = deal?.notes || "";
 
     const locked = !!deal && deal.status !== "draft";
@@ -868,6 +869,7 @@
       financedAmount: num(q("dealFinanced").value),
       lender: q("dealLender").value.trim(),
       lenderRatePct: num(q("dealLenderRate").value),
+      financeBonusEnabled: q("dealFinanceBonusEnabled").checked,
       notes: q("dealNotes").value.trim()
     };
   }
@@ -921,6 +923,7 @@
       financed_amount: d.financedAmount,
       lender: d.lender || null,
       lender_rate_pct: d.lenderRatePct,
+      finance_bonus_enabled: d.financeBonusEnabled !== false,
       notes: d.notes || null
     };
   }
@@ -1051,6 +1054,7 @@
       otherDirectCosts: num(q("simOther").value),
       financedAmount: num(q("simFinanced").value),
       lenderRatePct: num(q("simLenderRate").value),
+      financeBonusEnabled: true,
       status: "draft"
     };
 
@@ -1086,15 +1090,14 @@
     q("simFinancedCapitalBonus").textContent = fmtMoney(c.financedCapitalBonus);
     q("simNet").textContent = fmtMoney(c.resultAfterCommission);
     q("simRule").textContent = "Escalão " + c.volumeTier.label + " · margem " + c.marginBand.label + " · fator " + c.marginBand.factor + "× · mínimo " + fmtMoney(state.config.globalMinCommission);
-    const b = c.financeBracket;
-    const bracketText = b.lowerPoint === b.upperPoint
-      ? b.lowerPoint + "% = " + fmtMoney(b.lowerValue)
-      : "entre " + b.lowerPoint + "% (" + fmtMoney(b.lowerValue) + ") e " + b.upperPoint + "% (" + fmtMoney(b.upperValue) + ")";
     const sanityWarnings = dealSanityWarnings(deal);
     const warningHtml = sanityWarnings.length
       ? '<div class="sim-warning"><strong>⚠ Confirma:</strong> ' + sanityWarnings.map(escapeHtml).join(" ") + "</div>"
       : "";
-    q("simExplain").innerHTML = warningHtml + "Com <strong>" + fmtPct(c.financePctApplied) + "</strong> do PVP financiado, a grelha dá uma comissão-base de <strong>" + fmtMoney(c.volumeFinanceCommission) + "</strong> (" + bracketText + "). A comissão normal, depois da margem e dos limites, fica em <strong>" + fmtMoney(c.regularCommission) + "</strong>. Como há <strong>" + fmtMoney(c.financedAmount) + "</strong> de capital financiado, soma-se ainda <strong>" + fmtPct(c.financedCapitalBonusPct) + "</strong> = <strong>" + fmtMoney(c.financedCapitalBonus) + "</strong>. Comissão total: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>. O teto de <strong>" + fmtMoney(state.config.globalMaxCommission) + "</strong> aplica-se à comissão normal; o bónus do capital financiado é somado por cima.";
+    const bonusText = c.financeBonusEligible
+      ? " Nesta posição, o vendedor já é elegível para o bónus financeiro: <strong>" + fmtPct(c.financedCapitalBonusPct) + "</strong> de <strong>" + fmtMoney(c.financedAmount) + "</strong> = <strong>" + fmtMoney(c.financedCapitalBonus) + "</strong>."
+      : " Nesta posição, não há bónus financeiro. O bónus começa na venda n.º <strong>" + state.config.financedCapitalBonusStartSale + "</strong> e pode ainda ser desligado individualmente pela chefia.";
+    q("simExplain").innerHTML = warningHtml + "A comissão normal desta venda é <strong>" + fmtMoney(c.regularCommission) + "</strong>, calculada pelo volume de vendas e protegida pela margem." + bonusText + " Comissão total: <strong>" + fmtMoney(c.calculatedCommission) + "</strong>.";
   }
 
   function addSeller() {
@@ -1136,6 +1139,7 @@
     config.globalMaxCommission = Math.max(config.globalMinCommission, num(q("globalMaxCommission").value));
     config.financeCapPct = Math.min(100, Math.max(1, num(q("financeCapPct").value)));
     config.financedCapitalBonusPct = Math.min(20, Math.max(0, num(q("financedCapitalBonusPct").value)));
+    config.financedCapitalBonusStartSale = Math.max(1, Math.min(99, Math.floor(num(q("financedCapitalBonusStartSale").value) || 1)));
 
     qa("#volumeTiersBody input").forEach(input => {
       const i = Number(input.dataset.tier);
@@ -1184,7 +1188,7 @@
       label: from + "+",
       from,
       to: null,
-      financeGrid: E.clone(last?.financeGrid || {"0":120,"25":135,"50":150,"75":165,"100":180})
+      financeGrid: (() => { const v = num(last?.financeGrid?.["0"]) || 120; return {"0":v,"25":v,"50":v,"75":v,"100":v}; })()
     });
     state.config = E.normalizeConfig(config);
     renderRules();
@@ -1243,10 +1247,10 @@
         from_sales: t.from,
         to_sales: t.to,
         commission_0: num(t.financeGrid["0"]),
-        commission_25: num(t.financeGrid["25"]),
-        commission_50: num(t.financeGrid["50"]),
-        commission_75: num(t.financeGrid["75"]),
-        commission_100: num(t.financeGrid["100"]),
+        commission_25: num(t.financeGrid["0"]),
+        commission_50: num(t.financeGrid["0"]),
+        commission_75: num(t.financeGrid["0"]),
+        commission_100: num(t.financeGrid["0"]),
         sort_order: i
       })),
       bands: config.marginBands.map((b, i) => ({
@@ -1269,6 +1273,7 @@
       p_global_max_commission: config.globalMaxCommission,
       p_finance_cap_pct: config.financeCapPct,
       p_financed_capital_bonus_pct: Math.max(0, Math.min(20, num(config.financedCapitalBonusPct))),
+      p_financed_capital_bonus_start_sale: Math.max(1, Math.min(99, Math.floor(num(config.financedCapitalBonusStartSale) || 1))),
       p_max_sellers: Math.max(1, Math.min(25, Math.floor(num(settings.maxSellers) || 5))),
       p_reference_lender_rate_pct: Math.max(0, Math.min(20, num(settings.referenceLenderRatePct))),
       p_volume_tiers: payload.tiers,
