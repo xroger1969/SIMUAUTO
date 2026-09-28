@@ -455,15 +455,19 @@
 
   function renderDashboard() {
     const c = getCompanyMonth();
-    q("dashNet").textContent = fmtMoney(c.totalResult);
+    const preview = c.draftCount > 0;
+    const prefix = preview ? "~" : "";
+    q("dashNet").textContent = prefix + fmtMoney(preview ? c.projectedTotalResult : c.totalResult);
     q("dashSales").textContent = c.salesCount;
-    if (q("dashSalesHint")) q("dashSalesHint").textContent = c.draftCount + " rascunho" + (c.draftCount === 1 ? "" : "s") + " pendente" + (c.draftCount === 1 ? "" : "s");
-    q("dashPvp").textContent = fmtMoney(c.totalPvp);
-    q("dashFinanced").textContent = fmtMoney(c.totalFinanced);
-    q("dashFinancePct").textContent = fmtPct(c.financePenetrationPct) + " do PVP";
-    q("dashMargin").textContent = fmtMoney(c.totalMargin);
-    q("dashFinanceRevenue").textContent = fmtMoney(c.totalFinanceRevenue);
-    q("dashCommissions").textContent = fmtMoney(c.totalCommission);
+    if (q("dashSalesHint")) q("dashSalesHint").textContent =
+      c.draftCount + " rascunho" + (c.draftCount === 1 ? "" : "s") + " pendente" + (c.draftCount === 1 ? "" : "s") +
+      (preview ? " · valores em prévia" : "");
+    q("dashPvp").textContent = prefix + fmtMoney(preview ? c.projectedTotalPvp : c.totalPvp);
+    q("dashFinanced").textContent = prefix + fmtMoney(preview ? c.projectedTotalFinanced : c.totalFinanced);
+    q("dashFinancePct").textContent = fmtPct(preview ? c.projectedFinancePenetrationPct : c.financePenetrationPct) + " do PVP" + (preview ? " · prévia" : "");
+    q("dashMargin").textContent = prefix + fmtMoney(preview ? c.projectedTotalMargin : c.totalMargin);
+    q("dashFinanceRevenue").textContent = prefix + fmtMoney(preview ? c.projectedTotalFinanceRevenue : c.totalFinanceRevenue);
+    q("dashCommissions").textContent = prefix + fmtMoney(preview ? c.projectedTotalCommission : c.totalCommission);
 
     const box = q("sellerCards");
     const maps = c.sellerMaps;
@@ -472,11 +476,14 @@
       return;
     }
     box.innerHTML = maps.map(m => {
-      const financeWidth = Math.min(100, Math.max(0, m.financePenetrationPct));
-      const tier = E.getVolumeTier(m.salesCount, state.config);
+      const sellerPreview = m.draftCount > 0;
+      const financePctValue = sellerPreview ? m.projectedFinancePenetrationPct : m.financePenetrationPct;
+      const financeWidth = Math.min(100, Math.max(0, financePctValue));
+      const tier = E.getVolumeTier(sellerPreview ? m.projectedSalesCount : m.salesCount, state.config);
+      const sellerPrefix = sellerPreview ? "~" : "";
       return '<article class="seller-card" data-open-seller="' + m.seller.id + '">' +
-        '<div class="seller-card-head"><div style="display:flex;align-items:center;gap:10px"><div class="seller-avatar">' + escapeHtml(m.seller.name.slice(0, 2).toUpperCase()) + '</div><div><h3>' + escapeHtml(m.seller.name) + (m.seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</h3><small>' + m.salesCount + ' oficiais · ' + m.draftCount + ' rascunho' + (m.draftCount === 1 ? '' : 's') + ' · escalão ' + escapeHtml(tier.label) + '</small></div></div><strong>' + fmtMoney(m.totalResult) + '</strong></div>' +
-        '<div class="seller-card-kpis"><div><span>MARGEM</span><strong>' + fmtMoney(m.totalMargin) + '</strong></div><div><span>FINANCIADO</span><strong>' + fmtPct(m.financePenetrationPct) + '</strong></div><div><span>COMISSÕES</span><strong>' + fmtMoney(m.totalCommission) + '</strong></div></div>' +
+        '<div class="seller-card-head"><div style="display:flex;align-items:center;gap:10px"><div class="seller-avatar">' + escapeHtml(m.seller.name.slice(0, 2).toUpperCase()) + '</div><div><h3>' + escapeHtml(m.seller.name) + (m.seller.active === false ? ' <span class="badge cancelled">inativo</span>' : '') + '</h3><small>' + m.salesCount + ' oficiais · ' + m.draftCount + ' rascunho' + (m.draftCount === 1 ? '' : 's') + (sellerPreview ? ' · prévia' : '') + ' · escalão ' + escapeHtml(tier.label) + '</small></div></div><strong>' + sellerPrefix + fmtMoney(sellerPreview ? m.projectedTotalResult : m.totalResult) + '</strong></div>' +
+        '<div class="seller-card-kpis"><div><span>MARGEM</span><strong>' + sellerPrefix + fmtMoney(sellerPreview ? m.projectedTotalMargin : m.totalMargin) + '</strong></div><div><span>FINANCIADO</span><strong>' + fmtPct(financePctValue) + '</strong></div><div><span>COMISSÕES</span><strong>' + sellerPrefix + fmtMoney(sellerPreview ? m.projectedTotalCommission : m.totalCommission) + '</strong></div></div>' +
         '<div class="progress"><i style="width:' + financeWidth + '%"></i></div>' +
         '</article>';
     }).join("");
@@ -504,14 +511,17 @@
       return;
     }
     const m = getSellerMonth(seller.id);
-    const tier = E.getVolumeTier(m.salesCount, state.config);
-    q("sellerSales").textContent = m.salesCount;
-    q("sellerTier").textContent = m.salesCount + " oficiais · " + m.draftCount + " rascunho" + (m.draftCount === 1 ? "" : "s") + " · Escalão " + tier.label;
-    q("sellerFinanced").textContent = fmtMoney(m.totalFinanced);
-    q("sellerFinancePct").textContent = fmtPct(m.financePenetrationPct) + " do PVP";
-    q("sellerAvgMargin").textContent = fmtMoney(m.avgMarginPerCar);
-    q("sellerCommission").textContent = fmtMoney(m.totalCommission);
-    q("sellerNet").textContent = fmtMoney(m.totalResult);
+    const preview = m.draftCount > 0;
+    const salesForDisplay = preview ? m.projectedSalesCount : m.salesCount;
+    const tier = E.getVolumeTier(salesForDisplay, state.config);
+    const prefix = preview ? "~" : "";
+    q("sellerSales").textContent = salesForDisplay;
+    q("sellerTier").textContent = m.salesCount + " oficiais · " + m.draftCount + " rascunho" + (m.draftCount === 1 ? "" : "s") + (preview ? " · valores em prévia" : "") + " · Escalão " + tier.label;
+    q("sellerFinanced").textContent = prefix + fmtMoney(preview ? m.projectedTotalFinanced : m.totalFinanced);
+    q("sellerFinancePct").textContent = fmtPct(preview ? m.projectedFinancePenetrationPct : m.financePenetrationPct) + " do PVP" + (preview ? " · prévia" : "");
+    q("sellerAvgMargin").textContent = prefix + fmtMoney(preview ? m.projectedAvgMarginPerCar : m.avgMarginPerCar);
+    q("sellerCommission").textContent = prefix + fmtMoney(preview ? m.projectedTotalCommission : m.totalCommission);
+    q("sellerNet").textContent = prefix + fmtMoney(preview ? m.projectedTotalResult : m.totalResult);
     q("sellerMapTitle").textContent = "Operações de " + seller.name + (seller.active === false ? " · inativo" : "");
 
     const body = q("sellerMapBody");
