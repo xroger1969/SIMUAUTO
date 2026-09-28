@@ -59,6 +59,76 @@
     el.classList.toggle("busy", !!busy);
   }
 
+  function localId(prefix) {
+    if (globalThis.crypto && crypto.randomUUID) return prefix + "_" + crypto.randomUUID().slice(0, 8);
+    return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  const INFO_TEXT = {
+    companyName: "Nome apresentado no Mapa Comercial. Pode ser o nome do stand ou o nome interno do projeto.",
+    globalMinCommission: "Valor mínimo pago numa venda elegível. Evita que os fatores de margem reduzam a comissão abaixo deste valor.",
+    globalMaxCommission: "Teto máximo de comissão por viatura, independentemente do escalão ou financiamento.",
+    financeCapPct: "Percentagem máxima do PVP considerada para calcular a comissão ligada ao financiamento.",
+    maxSellers: "Número máximo de vendedores que podem estar ativos ao mesmo tempo. Pode ser ajustado entre 1 e 25.",
+    referenceLenderRatePct: "Percentagem de referência paga pela financeira ao stand. É usada como valor inicial em novas operações.",
+    dealSeller: "Vendedor responsável pela operação.",
+    dealDate: "Data que coloca a venda no mês correto e determina a posição no escalão mensal.",
+    dealStatus: "Rascunho permite editar. Oficial congela a comissão. Uma venda oficial só pode ser anulada, não apagada.",
+    dealStock: "Número interno de stock da viatura.",
+    dealPlate: "Matrícula da viatura, útil para pesquisa e controlo.",
+    dealVehicle: "Marca, modelo e versão da viatura.",
+    dealSalePrice: "Preço de venda ao cliente (PVP).",
+    dealAcquisition: "Valor pago pelo stand para adquirir a viatura.",
+    dealPrep: "Custos de preparação ou recondicionamento antes da venda.",
+    dealWarranty: "Custo imputado à garantia da viatura.",
+    dealOther: "Outros custos diretos ligados especificamente a esta operação.",
+    dealFinanced: "Capital efetivamente financiado ao cliente.",
+    dealLender: "Entidade financeira usada na operação.",
+    dealLenderRate: "Percentagem que a financeira paga ao stand sobre o capital financiado. Não é a taxa de juro do cliente.",
+    dealNotes: "Observações internas sobre a operação.",
+    simPosition: "Posição desta venda no mês do vendedor.",
+    simSalePrice: "PVP usado apenas nesta simulação.",
+    simAcquisition: "Custo de aquisição usado apenas nesta simulação.",
+    simPrep: "Preparação/recondicionamento usado apenas nesta simulação.",
+    simWarranty: "Custo de garantia usado apenas nesta simulação.",
+    simOther: "Outros custos diretos usados apenas nesta simulação.",
+    simFinanced: "Capital financiado usado apenas nesta simulação.",
+    simLenderRate: "Percentagem paga pela financeira ao stand, usada apenas nesta simulação."
+  };
+
+  function infoMarkup(text) {
+    return '<button type="button" class="info-btn" data-info="' + escapeHtml(text) + '" aria-label="Informação">i</button>';
+  }
+
+  function installInfoButtons() {
+    Object.entries(INFO_TEXT).forEach(([id, text]) => {
+      const field = q(id);
+      const label = field?.closest("label");
+      const title = label?.querySelector(":scope > span");
+      if (!title || title.querySelector(".info-btn")) return;
+      title.insertAdjacentHTML("beforeend", " " + infoMarkup(text));
+    });
+  }
+
+  function showInfo(button) {
+    const pop = q("infoPopover");
+    if (!pop) return;
+    pop.textContent = button.dataset.info || "";
+    const rect = button.getBoundingClientRect();
+    pop.classList.add("show");
+    const width = Math.min(310, window.innerWidth - 24);
+    pop.style.width = width + "px";
+    const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.left - width / 2 + rect.width / 2));
+    let top = rect.bottom + 9;
+    if (top + pop.offsetHeight > window.innerHeight - 12) top = Math.max(12, rect.top - pop.offsetHeight - 9);
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
+
+  function hideInfo() {
+    q("infoPopover")?.classList.remove("show");
+  }
+
   let session = null;
   let member = null;
   let ruleVersionById = {};
@@ -67,6 +137,10 @@
   let state = {
     companyName: "Mapa Comercial",
     month: currentMonth(),
+    settings: {
+      maxSellers: 5,
+      referenceLenderRatePct: 3.5
+    },
     config: E.clone(E.DEFAULT_CONFIG),
     sellers: [],
     deals: []
@@ -160,6 +234,8 @@
       .single();
     if (error) throw error;
     state.companyName = data.company_name || "Mapa Comercial";
+    state.settings.maxSellers = Math.max(1, Math.min(25, num(data.max_sellers) || 5));
+    state.settings.referenceLenderRatePct = Math.max(0, Math.min(20, num(data.reference_lender_rate_pct)));
   }
 
   async function loadSellers() {
