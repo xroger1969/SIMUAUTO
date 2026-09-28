@@ -1,0 +1,142 @@
+"use strict";
+
+const assert = require("assert");
+
+require("./engine.js");
+const E = globalThis.DealerOpsEngine;
+
+function almost(actual, expected, tolerance = 0.01) {
+  assert.ok(Math.abs(Number(actual) - Number(expected)) <= tolerance,
+    `expected ${actual} to be within ${tolerance} of ${expected}`);
+}
+
+const cfg = E.DEFAULT_CONFIG;
+
+const base = {
+  salePrice: 25000,
+  acquisitionCost: 21000,
+  preparationCost: 500,
+  warrantyCost: 500,
+  otherDirectCosts: 500,
+  lenderRatePct: 3.5,
+  status: "draft"
+};
+
+for (const pct of [0, 25, 50, 75, 100, 125]) {
+  const calc = E.calcDeal({ ...base, financedAmount: 25000 * pct / 100 }, 8, cfg);
+  assert.equal(calc.financePctApplied, Math.min(pct, 100));
+  assert.ok(calc.calculatedCommission >= cfg.globalMinCommission);
+  assert.ok(calc.calculatedCommission <= cfg.globalMaxCommission);
+}
+
+const negative = E.calcDeal({
+  ...base,
+  salePrice: 22000,
+  acquisitionCost: 23000,
+  financedAmount: 0
+}, 1, cfg);
+assert.ok(Number.isFinite(negative.vehicleMargin));
+assert.ok(Number.isFinite(negative.resultAfterCommission));
+
+const overFinance = E.calcDeal({ ...base, financedAmount: 40000 }, 8, cfg);
+almost(overFinance.financePctRaw, 160);
+almost(overFinance.financePctApplied, 100);
+
+const locked = E.calcDeal({
+  ...base,
+  status: "closed",
+  financedAmount: 18750,
+  commissionSnapshot: {
+    amount: 333,
+    salePosition: 4,
+    financePct: 75,
+    vehicleMargin: 2500,
+    financeRevenue: 656.25,
+    baseCommission: 240,
+    marginFactor: 1,
+    resultBeforeCommission: 3156.25,
+    resultAfterCommission: 2823.25
+  }
+}, 4, { ...cfg, globalMinCommission: 700, globalMaxCommission: 700 });
+
+almost(locked.commission, 333);
+almost(locked.vehicleMargin, 2500);
+almost(locked.resultAfterCommission, 2823.25);
+assert.equal(locked.isLocked, true);
+
+const deals = [
+  {
+    ...base,
+    id: "o1",
+    sellerId: "seller",
+    saleDate: "2026-09-01",
+    createdAt: "2026-09-01T10:00:00Z",
+    status: "closed",
+    financedAmount: 0,
+    commissionSnapshot: {
+      amount: 120,
+      salePosition: 1,
+      financePct: 0,
+      vehicleMargin: 2500,
+      financeRevenue: 0,
+      baseCommission: 120,
+      marginFactor: 1,
+      resultBeforeCommission: 2500,
+      resultAfterCommission: 2380
+    }
+  },
+  {
+    ...base,
+    id: "d1",
+    sellerId: "seller",
+    saleDate: "2026-09-02",
+    createdAt: "2026-09-02T10:00:00Z",
+    status: "draft",
+    financedAmount: 12500
+  },
+  {
+    ...base,
+    id: "d2",
+    sellerId: "seller",
+    saleDate: "2026-09-03",
+    createdAt: "2026-09-03T10:00:00Z",
+    status: "draft",
+    financedAmount: 18750
+  }
+];
+
+const month = E.calcSellerMonth(deals, "seller", "2026-09", cfg);
+assert.deepEqual(month.rows.map(row => row.calc.salePosition), [1, 2, 3]);
+assert.equal(month.salesCount, 1);
+assert.equal(month.draftCount, 2);
+assert.equal(month.projectedSalesCount, 3);
+
+const afterDelete = E.calcSellerMonth(deals.slice(1), "seller", "2026-09", cfg);
+assert.deepEqual(afterDelete.rows.map(row => row.calc.salePosition), [1, 2]);
+assert.equal(afterDelete.salesCount, 0);
+assert.equal(afterDelete.draftCount, 2);
+assert.equal(afterDelete.projectedSalesCount, 2);
+assert.equal(afterDelete.totalResult, 0);
+assert.ok(afterDelete.projectedTotalResult > 0);
+
+const tesla = E.calcSellerMonth([{
+  id: "tesla",
+  sellerId: "seller",
+  saleDate: "2026-09-28",
+  createdAt: "2026-09-28T10:30:26Z",
+  status: "draft",
+  salePrice: 21990,
+  acquisitionCost: 17550,
+  preparationCost: 560,
+  warrantyCost: 0,
+  otherDirectCosts: 0,
+  financedAmount: 11000,
+  lenderRatePct: 3.5
+}], "seller", "2026-09", cfg);
+
+almost(tesla.projectedTotalFinanced, 11000);
+almost(tesla.projectedTotalMargin, 3880);
+almost(tesla.projectedTotalCommission, 120);
+almost(tesla.projectedTotalResult, 4145);
+
+console.log("engine.test.js: OK");
