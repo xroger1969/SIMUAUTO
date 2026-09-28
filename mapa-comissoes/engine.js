@@ -9,6 +9,7 @@
     globalMaxCommission: 750,
     financeCapPct: 100,
     financedCapitalBonusPct: 1,
+    financedCapitalBonusStartSale: 1,
     volumeTiers: [
       { id:"t0", label:"0–1", from:0, to:1, financeGrid:{"0":120,"25":130,"50":140,"75":150,"100":160} },
       { id:"t1", label:"2–3", from:2, to:3, financeGrid:{"0":120,"25":135,"50":150,"75":165,"100":180} },
@@ -70,6 +71,7 @@
     if(Number.isFinite(Number(source.globalMaxCommission))) out.globalMaxCommission=Math.max(out.globalMinCommission,num(source.globalMaxCommission));
     if(Number.isFinite(Number(source.financeCapPct))) out.financeCapPct=clamp(num(source.financeCapPct),1,100);
     if(Number.isFinite(Number(source.financedCapitalBonusPct))) out.financedCapitalBonusPct=clamp(num(source.financedCapitalBonusPct),0,20);
+    if(Number.isFinite(Number(source.financedCapitalBonusStartSale))) out.financedCapitalBonusStartSale=Math.max(1,Math.min(99,Math.floor(num(source.financedCapitalBonusStartSale))));
 
     const tierSource=Array.isArray(source.volumeTiers) && source.volumeTiers.length ? source.volumeTiers : DEFAULT_CONFIG.volumeTiers;
     out.volumeTiers=tierSource.map((src,index)=>{
@@ -197,26 +199,30 @@
       ? Object.assign({},marginBandBase,{factor:snapNum("marginFactor",marginBandBase.factor)})
       : marginBandBase;
 
-    const eligible=salePosition>=1 && volumeFinanceCommission>0;
     const noFinanceBase=Math.max(0,num(volumeTier.financeGrid["0"]));
+    const eligible=salePosition>=1 && noFinanceBase>0;
     const vehicleComponent=Math.max(0,noFinanceBase*num(marginBand.factor));
-    const financeBonus=Math.max(0,volumeFinanceCommission-noFinanceBase);
+    const financeBonus=0;
     const calculatedRegularCommission=round2(
       eligible
         ? Math.min(
             Math.max(num(config.globalMinCommission),num(config.globalMaxCommission)),
-            Math.max(0,num(config.globalMinCommission),vehicleComponent)+financeBonus
+            Math.max(0,num(config.globalMinCommission),vehicleComponent)
           )
         : 0
     );
 
+    const financeBonusEnabled=deal.financeBonusEnabled!==false;
+    const financeBonusEligible=!locked
+      ? (financeBonusEnabled && financedAmount>0 && salePosition>=num(config.financedCapitalBonusStartSale) && num(config.financedCapitalBonusPct)>0)
+      : !!snapshot?.financeBonusApplied;
     const financedCapitalBonusPct=locked
       ? snapNum("financedCapitalBonusPct",0)
-      : Math.max(0,num(config.financedCapitalBonusPct));
+      : (financeBonusEligible ? Math.max(0,num(config.financedCapitalBonusPct)) : 0);
     const financedCapitalBonus=round2(
       locked
         ? snapNum("financedCapitalBonusAmount",0)
-        : (financedAmount>0 ? financedAmount*financedCapitalBonusPct/100 : 0)
+        : (financeBonusEligible ? financedAmount*financedCapitalBonusPct/100 : 0)
     );
     const regularCommission=round2(
       locked
@@ -255,6 +261,9 @@
       vehicleComponent:round2(vehicleComponent),
       financeBonus:round2(financeBonus),
       regularCommission,
+      financeBonusEnabled,
+      financeBonusEligible,
+      financedCapitalBonusStartSale:num(config.financedCapitalBonusStartSale),
       financedCapitalBonusPct:round2(financedCapitalBonusPct),
       financedCapitalBonus,
       calculatedCommission,
@@ -412,6 +421,7 @@
       financeBracket:clone(calc.financeBracket),
       financedCapitalBonusPct:calc.financedCapitalBonusPct,
       financedCapitalBonusAmount:calc.financedCapitalBonus,
+      financeBonusApplied:calc.financeBonusEligible,
       regularCommission:calc.regularCommission
     };
     next.status="closed";
