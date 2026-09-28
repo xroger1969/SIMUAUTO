@@ -96,7 +96,7 @@
         </div>
 
         <div class="kpi-grid six">
-          <div class="kpi"><span>Vendas</span><strong id="dashSales">0</strong><small>operações válidas</small></div>
+          <div class="kpi"><span>Vendas oficiais</span><strong id="dashSales">0</strong><small id="dashSalesHint">0 rascunhos pendentes</small></div>
           <div class="kpi"><span>PVP vendido</span><strong id="dashPvp">0 €</strong><small>volume comercial</small></div>
           <div class="kpi"><span>Capital financiado</span><strong id="dashFinanced">0 €</strong><small id="dashFinancePct">0% do PVP</small></div>
           <div class="kpi"><span>Margem viaturas</span><strong id="dashMargin">0 €</strong><small>antes da receita financeira</small></div>
@@ -231,7 +231,7 @@
             </div>
             <div class="notice">
               <strong>Regra importante</strong>
-              <p>Quando uma operação é fechada, a comissão fica congelada com a versão das regras desse momento. Alterações futuras no backoffice aplicam-se às novas operações e aos rascunhos, sem alterar o histórico.</p>
+              <p>Quando um rascunho passa a venda oficial, a comissão fica congelada com a versão das regras desse momento. Uma venda oficial pode ser anulada, mas não apagada, preservando o histórico.</p>
             </div>
           </div>
 
@@ -304,7 +304,7 @@
         <div class="form-grid three">
           <label><span>Vendedor</span><select id="dealSeller" required></select></label>
           <label><span>Data da venda</span><input id="dealDate" type="date" required></label>
-          <label><span>Estado</span><select id="dealStatus"><option value="draft">Rascunho</option><option value="closed">Fechada</option><option value="cancelled">Cancelada</option></select></label>
+          <label><span>Estado</span><select id="dealStatus"><option value="draft">Rascunho</option><option value="closed">Oficial</option></select></label>
           <label><span>N.º stock</span><input id="dealStock" placeholder="STK-001"></label>
           <label><span>Matrícula</span><input id="dealPlate" placeholder="AA-00-AA"></label>
           <label><span>Viatura</span><input id="dealVehicle" placeholder="Marca, modelo e versão" required></label>
@@ -325,6 +325,8 @@
           <div><span>Comissão estimada</span><strong id="dealPreviewCommission">0 €</strong></div>
           <div><span>Resultado</span><strong id="dealPreviewNet">0 €</strong></div>
         </div>
+
+        <div class="deal-audit-info" id="dealAuditInfo" hidden></div>
 
         <div class="modal-actions">
           <button type="button" class="btn secondary" data-close-modal>Cancelar</button>
