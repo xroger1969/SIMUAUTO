@@ -259,6 +259,7 @@
               <label><span>Comissão mínima por viatura elegível</span><div class="input-suffix"><input id="globalMinCommission" type="number" value="120"><em>€</em></div></label>
               <label><span>Comissão normal máxima por viatura</span><div class="input-suffix"><input id="globalMaxCommission" type="number" value="750"><em>€</em></div></label>
               <label><span>Bónus vendedor sobre capital financiado</span><div class="input-suffix"><input id="financedCapitalBonusPct" type="number" min="0" max="20" step=".1" value="1"><em>%</em></div></label>
+              <label><span>Bónus financeiro começa na venda n.º</span><input id="financedCapitalBonusStartSale" type="number" min="1" max="99" step="1" value="1"></label>
               <label><span>Financiamento considerado até</span><div class="input-suffix"><input id="financeCapPct" type="number" value="100"><em>% PVP</em></div></label>
               <label><span>Máximo de vendedores ativos</span><input id="maxSellers" type="number" min="1" max="25" step="1" value="5"></label>
               <label><span>Comissão da financeira ao stand (referência)</span><div class="input-suffix"><input id="referenceLenderRatePct" type="number" min="0" max="20" step=".1" value="3.5"><em>%</em></div></label>
@@ -281,16 +282,15 @@
         <div class="panel">
           <div class="panel-head">
             <div>
-              <span class="eyebrow">Comissão base + financiamento</span>
-              <h3>Comissão por volume e percentagem financiada</h3>
+              <span class="eyebrow">Comissão normal de vendas</span>
+              <h3>Comissão por volume mensal</h3>
             </div>
             <button class="btn secondary small" id="btnAddTier" type="button">+ Escalão</button>
           </div>
           <div class="commission-guide">
             <strong>Leitura simples:</strong>
-            <span>escolhe o escalão de vendas do mês e cruza com a percentagem do PVP financiada.</span>
-            <span>Os valores 0%, 25%, 50%, 75% e 100% são editáveis; percentagens intermédias são calculadas automaticamente.</span>
-            <span>Ao valor normal soma-se ainda o bónus sobre o capital financiado (por defeito 1%), configurável acima.</span>
+            <span>a comissão normal depende do número de vendas do vendedor no mês.</span>
+            <span>O financiamento é tratado separadamente: a chefia define a percentagem do bónus, a venda mínima a partir da qual começa e pode desligá-lo em cada operação.</span>
           </div>
           <div class="table-wrap">
             <table class="settings-table finance-grid-table">
@@ -299,18 +299,14 @@
                   <th>Escalão</th>
                   <th>De</th>
                   <th>Até</th>
-                  <th>0% financiado <button type="button" class="info-btn" data-info="Comissão-base quando não existe financiamento.">i</button></th>
-                  <th>25% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 25% do PVP é financiado. Percentagens intermédias são interpoladas.">i</button></th>
-                  <th>50% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 50% do PVP é financiado.">i</button></th>
-                  <th>75% financiado <button type="button" class="info-btn" data-info="Comissão-base quando 75% do PVP é financiado.">i</button></th>
-                  <th>100% financiado <button type="button" class="info-btn" data-info="Comissão-base quando o financiamento atinge 100% do PVP considerado.">i</button></th>
+                  <th>Comissão normal <button type="button" class="info-btn" data-info="Comissão da venda antes de qualquer bónus de financiamento.">i</button></th>
                   <th></th>
                 </tr>
               </thead>
               <tbody id="volumeTiersBody"></tbody>
             </table>
           </div>
-          <p class="table-note">Exemplo: se num escalão a comissão for 375 € a 50% e 413 € a 75%, uma operação com 60% financiado é calculada proporcionalmente entre esses dois valores.</p>
+          <p class="table-note">Exemplo: se a comissão normal do escalão for 300 €, esse é o ponto de partida. O bónus financeiro, quando elegível e ativado pela chefia, é somado separadamente.</p>
         </div>
 
         <div class="panel">
@@ -356,6 +352,7 @@
           <label><span>Capital financiado</span><input id="dealFinanced" type="number" min="0" step="0.01" value="0"></label>
           <label><span>Financeira</span><input id="dealLender" placeholder="Ex.: Cetelem"></label>
           <label><span>Comissão da financeira ao stand</span><div class="input-suffix"><input id="dealLenderRate" type="number" min="0" max="20" step=".1" value="3.5"><em>%</em></div></label>
+          <label class="span-3 checkbox-field"><input id="dealFinanceBonusEnabled" type="checkbox" checked><span>Aplicar bónus de financiamento ao vendedor nesta operação</span></label>
           <label class="span-3"><span>Notas</span><textarea id="dealNotes" rows="3" placeholder="Observações internas..."></textarea></label>
         </div>
 
