@@ -808,11 +808,29 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   }
 });
 
-function showRefineDialog(state,message,tone="loading"){
+function scrollRefineDialog(){
+  const box=q("refineDialogMessages");
+  if(!box)return;
+  requestAnimationFrame(()=>{box.scrollTop=box.scrollHeight});
+}
+function appendRefineDialogMessage(role,message){
+  if(!message)return;
+  const box=q("refineDialogMessages");
+  if(!box)return;
+  const el=document.createElement("div");
+  el.className="refine-dialog-message "+(role||"assistant");
+  el.textContent=message;
+  box.appendChild(el);
+  scrollRefineDialog();
+}
+function showRefineDialog(state,message,tone="loading",reset=false){
   q("refineDialogState").textContent=state;
   q("refineDialogState").className="refine-dialog-state"+(tone==="success"?" success":tone==="error"?" error":"");
-  q("refineDialogText").textContent=message;
+  const box=q("refineDialogMessages");
+  if(reset&&box)box.innerHTML="";
   q("refineDialog").classList.remove("hidden");
+  if(message)appendRefineDialogMessage(tone==="error"?"error":"assistant",message);
+  scrollRefineDialog();
 }
 function closeRefineDialog(){q("refineDialog").classList.add("hidden")}
 q("refineDialogClose").addEventListener("click",closeRefineDialog);
@@ -834,7 +852,9 @@ q("refineForm").addEventListener("submit",async ev=>{
   button.textContent="A analisar…";
   q("refineInlineStatus").textContent="A IA está a refazer a análise…";
   q("refineInlineStatus").classList.remove("hidden");
-  showRefineDialog("A analisar…","A cruzar a tua indicação com esta viatura e com a concorrência profissional.","loading");
+  showRefineDialog("A analisar…","", "loading", true);
+  appendRefineDialogMessage("user",text);
+  appendRefineDialogMessage("assistant","A cruzar a tua indicação com esta viatura e com a concorrência profissional.");
   addMsg("user","Refinar análise: "+text);
   await storeMessage("user","Refinar análise: "+text);
 
@@ -848,6 +868,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       previous_subject:currentVehicle||null
     };
     const market=await runMarketAnalysis(payload);
+    appendRefineDialogMessage("assistant","Pesquisa de mercado atualizada. A recalcular comparáveis, margem e teto de compra…");
 
     const subject={...(currentVehicle||{})};
     for(const [key,value] of Object.entries(market.subject||{})){
@@ -871,6 +892,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
+    appendRefineDialogMessage("assistant","Cálculo atualizado. A preparar a resposta final da IA…");
 
     const entry=lastAnalysisContext.entry;
     const reader=lastAnalysisContext.reader;
