@@ -45,7 +45,6 @@
     <section class="hero">
       <span class="eyebrow">Motor de decisão de compra</span>
       <h1>Cola o link, indica a matrícula ou descreve a viatura.</h1>
-      <p>O objetivo é chegar ao número que interessa: quanto podemos pagar para ainda fazer um bom negócio.</p>
 
       <form id="analyzeForm" class="analyze-bar">
         <div class="vehicle-input-shell">
@@ -70,7 +69,6 @@
         <button type="button" id="removeImage">Remover</button>
       </div>
       <div class="hint"><a href="https://apps.apple.com/pt/app/spottd/id1516876698" target="_blank" rel="noopener noreferrer">Consultar Spottd ↗</a> · Também podes ditar ou anexar uma fotografia para a IA ler.</div>
-      <div class="hint" id="analyzeHint">Compara anúncios em Portugal e calcula a compra com custos, margem e reserva de risco. Valores anunciados são referências, não vendas confirmadas.</div>
     </section>
 
     <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
@@ -129,6 +127,12 @@
         </article>
       </div>
 
+      <form id="refineForm" class="refine-bar">
+        <span class="refine-mark">IA · Refinar</span>
+        <input id="refineInput" autocomplete="off" maxlength="1200" placeholder="Ex.: é Long Range / esta versão vende-se mal / confirmar bateria">
+        <button class="btn ghost small" type="submit" id="refineBtn">Refazer</button>
+      </form>
+
       <details class="panel ai-panel"><summary>Conversa e ensina o sistema <span class="memory-badge" id="memoryCount">0 regras</span></summary>
         <div class="panel-head">
           <div>
@@ -145,10 +149,9 @@
       </details>
     </section>
 
-    <section class="empty-state" id="emptyState">
-      <div class="empty-icon">↗</div>
-      <h2>Pronto para o primeiro negócio</h2>
-      <p>Cola um anúncio ou escreve marca, modelo e ano. Se souberes, acrescenta quilómetros, versão e preço.</p>
+    <section class="empty-state hidden" id="emptyState">
+      <h2></h2>
+      <p></p>
     </section>
   </main>
 
