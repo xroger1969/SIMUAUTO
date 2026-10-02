@@ -500,3 +500,108 @@ button{cursor:pointer}
   }
 }
 
+
+
+/* Mobile presentation: full-screen weather palette, no cropped-card effect */
+@media(max-width:560px){
+  html,body{
+    min-height:100dvh;
+    background:#232a39!important;
+  }
+  body{
+    background:
+      radial-gradient(110% 42% at 50% -2%,rgba(135,151,182,.18),transparent 66%),
+      radial-gradient(78% 34% at 100% 18%,rgba(83,100,132,.14),transparent 74%),
+      linear-gradient(180deg,#232a39 0%,#293140 48%,#232a39 100%)!important;
+  }
+  .app{
+    min-height:100dvh;
+    padding:max(46px,env(safe-area-inset-top)) 14px max(22px,env(safe-area-inset-bottom));
+  }
+  .topbar{
+    padding:0 0 14px;
+  }
+  .brand strong{
+    font-size:15px;
+  }
+  .brand small{
+    font-size:9px;
+    opacity:.82;
+  }
+  .logo{
+    width:38px;
+    height:38px;
+  }
+  .hero,
+  .app:has(#result.hidden):has(#progressPanel.hidden) .hero{
+    min-height:auto!important;
+    flex:0 0 auto!important;
+    justify-content:flex-start!important;
+    padding:22px 8px 18px!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    overflow:visible!important;
+  }
+  .hero:after{
+    display:none!important;
+  }
+  .eyebrow{
+    font-size:7.5px;
+    letter-spacing:.16em;
+    opacity:.82;
+  }
+  .hero h1{
+    max-width:38ch;
+    margin:8px 0 14px;
+    font-size:17px!important;
+    line-height:1.34;
+    font-weight:620;
+    letter-spacing:-.012em;
+    color:#e6eaf1;
+  }
+  .analyze-bar{
+    margin-top:4px;
+    gap:10px;
+  }
+  .analyze-bar .vehicle-input-shell>input{
+    min-height:68px;
+    border-radius:18px;
+    padding:16px 142px 16px 16px;
+    font-size:14px;
+  }
+  .analyze-bar .btn.primary{
+    min-height:54px;
+    border-radius:18px;
+    font-size:15px;
+  }
+  .hint{
+    margin-top:11px;
+    font-size:8.5px;
+    line-height:1.4;
+    opacity:.8;
+  }
+
+  .refine-dialog{
+    align-items:end;
+    padding:8px;
+  }
+  .refine-dialog-card{
+    width:100%;
+    height:min(76dvh,720px);
+    max-height:76dvh;
+    border-radius:22px 22px 14px 14px;
+    padding:18px 16px 14px;
+  }
+  .refine-dialog-messages{
+    flex:1 1 auto;
+    max-height:none;
+    min-height:0;
+    overflow-y:auto;
+    scroll-behavior:smooth;
+    padding-bottom:max(8px,env(safe-area-inset-bottom));
+  }
+}
