@@ -330,6 +330,47 @@ function auto1ScreenshotReader(url,description){
     }
   };
 }
+function parsePtNumber(raw){
+  const normalized=String(raw||"").replace(/\s+/g,"").replace(/\.(?=\d{3}(?:\D|$))/g,"").replace(",",".").replace(/[^\d.]/g,"");
+  const value=Number(normalized);
+  return Number.isFinite(value)?value:null;
+}
+function auto1AuthenticatedFacts(reader){
+  if(reader?.source_kind!=="authenticated_browser")return {};
+  const full=String(reader.page?.text_sample||"");
+  const main=full.split(/Carros semelhantes que podem interessar-lhe:/i)[0];
+  const priceMatch=main.match(/Licita(?:ç|c)[aã]o\s+m[ií]nima\s*:\s*€?\s*([\d.\s]+(?:,\d{1,2})?)/i)
+    ||main.match(/Preço\s+Auto1\s*:\s*€?\s*([\d.\s]+(?:,\d{1,2})?)/i);
+  const mileageMatch=main.match(/Leitura\s+conta-quil[oó]metros\s*:\s*([\d.\s]+)\s*km/i);
+  const yearMatch=main.match(/Ano\s+de\s+fabrica[cç][aã]o\s*:\s*(20\d{2}|19\d{2})/i);
+  const registrationMatch=main.match(/1ª\s*Matricula[cç][aã]o\s*:\s*(\d{1,2})\/(20\d{2}|19\d{2})/i);
+  const powerMatch=main.match(/Pot[eê]ncia\s+em\s+cavalos\s*:\s*[\d.,]+\s*kW\s*\/\s*([\d.,]+)\s*CV/i);
+  const fuelMatch=main.match(/Combust[ií]vel\s*:\s*([^:]{2,30}?)(?=Pot[eê]ncia|Cilindrada|Caixa|Data|Carro[cç]aria|N[uú]mero|Chaves|Danos|Pa[ií]s|Classe|COC|Bancos|Cor|Estofos|$)/i);
+  const transmissionMatch=main.match(/Caixa\s+de\s+velocidades\s*:\s*([^:]{2,30}?)(?=Data|Carro[cç]aria|N[uú]mero|Chaves|Danos|Pa[ií]s|Classe|COC|Bancos|Cor|Estofos|$)/i);
+  const bodyMatch=main.match(/Carro[cç]aria\s*:\s*([^:]{2,30}?)(?=N[uú]mero|Chaves|Danos|Pa[ií]s|Classe|COC|Bancos|Cor|Estofos|$)/i);
+  const originMatch=main.match(/Pa[ií]s\s+de\s+origem\s*:\s*([A-Z]{2})\b/i);
+  const month=registrationMatch?String(registrationMatch[1]).padStart(2,"0"):null;
+  const year=registrationMatch?Number(registrationMatch[2]):(yearMatch?Number(yearMatch[1]):null);
+  return {
+    price:priceMatch?parsePtNumber(priceMatch[1]):null,
+    mileage_km:mileageMatch?Math.round(parsePtNumber(mileageMatch[1])):null,
+    year:yearMatch?Number(yearMatch[1]):year,
+    first_registration:registrationMatch?registrationMatch[2]+"-"+month:null,
+    power_cv:powerMatch?Math.round(parsePtNumber(powerMatch[1])):null,
+    fuel:fuelMatch?fuelMatch[1].trim():null,
+    transmission:transmissionMatch?transmissionMatch[1].trim():null,
+    body_type:bodyMatch?bodyMatch[1].trim():null,
+    origin:originMatch?(originMatch[1].toUpperCase()==="PT"?"national":"imported"):null
+  };
+}
+function mergeAuto1AuthenticatedFacts(subject,reader){
+  const facts=auto1AuthenticatedFacts(reader);
+  if(Number.isFinite(facts.price)&&facts.price>0)subject.price=facts.price;
+  for(const key of ["mileage_km","year","first_registration","power_cv","fuel","transmission","body_type","origin"]){
+    if((subject[key]===null||subject[key]===undefined||subject[key]===""||subject[key]==="unknown")&&facts[key]!==null&&facts[key]!==undefined&&facts[key]!=="")subject[key]=facts[key];
+  }
+  return subject;
+}
 function setImageStatus(name){
   selectedImageName=name||"";
   if(selectedImageData){
@@ -687,7 +728,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload};
     const market=await runMarketAnalysis(marketPayload);
 
-    const subject=market.subject||{};
+    const subject=mergeAuto1AuthenticatedFacts(market.subject||{},reader);
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
     if(!subject.make||!subject.model||(entry.mode!=="manual"&&!(typeof subject.price==="number"&&subject.price>0))){
       renderReaderOnly(reader,url?.toString()||null);
