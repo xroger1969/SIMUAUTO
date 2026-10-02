@@ -125,6 +125,7 @@
         <input id="refineInput" autocomplete="off" maxlength="1200" placeholder="Ex.: é Long Range / esta versão vende-se mal / confirmar bateria">
         <button class="btn ghost small" type="submit" id="refineBtn">Enviar</button>
       </form>
+      <div class="refine-inline-status hidden" id="refineInlineStatus" role="status" aria-live="polite"></div>
 
       <div id="chat" hidden aria-hidden="true"></div>
       <span id="memoryCount" hidden aria-hidden="true">0 regras</span>
@@ -141,6 +142,19 @@
   </main>
 
   <div id="auto1Connection" class="panel hidden" style="max-width:760px;margin:20px auto" role="status"><h3>AUTO1 — sem serviços pagos</h3><p>O link AUTO1 é reconhecido pelo código da oferta e o sistema tenta identificar a viatura com a pesquisa já existente.</p><p>Se a ficha privada não puder ser confirmada só pelo link, cola uma captura do anúncio com ⌘V ou usa o clipe. O Comparador junta o link + a imagem e continua a análise sem qualquer API externa paga.</p></div>
+  <div class="refine-dialog hidden" id="refineDialog" role="dialog" aria-modal="true" aria-labelledby="refineDialogTitle">
+    <div class="refine-dialog-card">
+      <div class="refine-dialog-head">
+        <div>
+          <span class="eyebrow">Comprador IA</span>
+          <strong id="refineDialogTitle">Mais informações</strong>
+        </div>
+        <button class="refine-dialog-close" type="button" id="refineDialogClose" aria-label="Fechar">×</button>
+      </div>
+      <div class="refine-dialog-state" id="refineDialogState">A analisar…</div>
+      <p id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</p>
+    </div>
+  </div>
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
