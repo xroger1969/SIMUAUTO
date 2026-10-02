@@ -140,6 +140,59 @@ async function refreshMemoryCount(){
   q("memoryCount").textContent=(count||0)+" "+((count||0)===1?"regra":"regras");
 }
 
+async function learnFromRefinement(text){
+  if(!text||!session||!currentAnalysisId)return false;
+  try{
+    const memories=relevantMemories(await loadMemories(),currentVehicle||{});
+    const response=await fetch("/api/comparador-ai",{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "authorization":"Bearer "+session.access_token
+      },
+      body:JSON.stringify({
+        message:text,
+        analysis_id:currentAnalysisId,
+        context:{
+          vehicle:currentVehicle||null,
+          valuation:currentResult?{
+            market:currentResult.market,
+            purchase:currentResult.purchase,
+            tax:currentResult.tax,
+            warnings:currentResult.warnings
+          }:null,
+          dealer_memories:memories||[],
+          conversation:conversation.slice(-8)
+        }
+      })
+    });
+
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)return false;
+
+    const memory=data.memory_rule;
+    if(!(data.should_save_memory&&memory&&memory.rule_type&&memory.rule_type!=="none"))return false;
+
+    const scope=memory.scope||{};
+    const {error}=await db.from("cap_memory_rules").insert({
+      user_id:session.user.id,
+      analysis_id:currentAnalysisId,
+      rule_type:memory.rule_type,
+      statement:memory.statement||text,
+      scope,
+      effect:memory.effect||{mode:"advisory"},
+      evidence_level:"observation",
+      confidence:Number.isFinite(Number(memory.confidence))?Number(memory.confidence):.6
+    });
+    if(error)throw error;
+    await refreshMemoryCount();
+    return true;
+  }catch(error){
+    console.warn("Aprendizagem do refinamento:",error);
+    return false;
+  }
+}
+
 const originLabel=v=>v==="national"?"Nacional":v==="imported"?"Importado":"Origem por confirmar";
 const sellerLabel=v=>v==="professional"?"Profissional":v==="private"?"Particular":"Vendedor por confirmar";
 function vehicleMeta(v){
@@ -774,14 +827,16 @@ q("refineForm").addEventListener("submit",async ev=>{
       reader
     });
 
+    const learned=await learnFromRefinement(text);
     q("refineInput").value="";
-    const reply=missing.length
+    const reply=(missing.length
       ?"Análise refeita com a tua indicação. Ainda falta confirmar "+missing.join(", ")+"."
-      :"Análise refeita com a tua indicação e nova pesquisa de mercado.";
+      :"Análise refeita com a tua indicação e nova pesquisa de mercado.")
+      +(learned?" A orientação também ficou guardada para análises futuras a que se aplique.":"");
     addMsg("assistant",reply);
     await storeMessage("assistant",reply);
     q("saveStatus").textContent="IA ativa";
-    toast("Análise refeita.");
+    toast(learned?"Análise refeita e orientação guardada.":"Análise refeita.");
   }catch(err){
     const message=String(err?.message||err);
     addMsg("assistant","Não consegui refazer a análise: "+message);
