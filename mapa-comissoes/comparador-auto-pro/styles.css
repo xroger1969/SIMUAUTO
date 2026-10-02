@@ -614,12 +614,12 @@ button{cursor:pointer}
 }
 
 
-/* Automotive silhouette background — mobile landing screen */
+/* Realistic automotive background — mobile landing screen */
 @media(max-width:560px){
   body{
     background:
-      linear-gradient(180deg,rgba(30,37,51,.10) 0%,rgba(29,35,48,.18) 46%,rgba(24,31,43,.58) 100%),
-      url("./mobile-car-bg.svg") center top / cover no-repeat,
+      linear-gradient(180deg,rgba(24,31,43,.12) 0%,rgba(23,30,42,.20) 42%,rgba(20,27,39,.68) 100%),
+      url("https://images.unsplash.com/photo-1764605206502-05e48ab08d82?auto=format&fit=crop&fm=jpg&q=72&w=1600") 58% 42% / cover no-repeat fixed,
       linear-gradient(180deg,#232a39 0%,#293140 48%,#232a39 100%)!important;
   }
 
@@ -630,11 +630,11 @@ button{cursor:pointer}
   }
 
   .app:has(#result.hidden):has(#progressPanel.hidden) .hero{
-    text-shadow:0 1px 18px rgba(3,9,17,.24);
+    text-shadow:0 1px 18px rgba(3,9,17,.26);
   }
 
   .app:has(#result.hidden):has(#progressPanel.hidden) .vehicle-input-shell>input{
-    background:rgba(7,14,24,.90);
+    background:rgba(7,14,24,.92);
     backdrop-filter:blur(7px);
     -webkit-backdrop-filter:blur(7px);
   }
