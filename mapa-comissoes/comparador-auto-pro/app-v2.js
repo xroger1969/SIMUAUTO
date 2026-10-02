@@ -288,32 +288,76 @@ function loadImageElement(file){
   return new Promise((resolve,reject)=>{
     const url=URL.createObjectURL(file),img=new Image();
     img.onload=()=>{URL.revokeObjectURL(url);resolve(img)};
-    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Não consegui abrir esta fotografia."))};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Não consegui abrir este formato de imagem neste navegador."))};
     img.src=url;
   });
 }
-async function prepareImage(file){
-  if(!file||!file.type.startsWith("image/"))throw new Error("Escolhe uma fotografia.");
-  if(file.size>18*1024*1024)throw new Error("A fotografia é demasiado grande.");
-  const img=await loadImageElement(file);
-  const maxSide=1600;
-  const scale=Math.min(1,maxSide/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
-  const canvas=document.createElement("canvas");
-  canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
-  canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
-  const ctx=canvas.getContext("2d",{alpha:false});
-  ctx.fillStyle="#fff";ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(img,0,0,canvas.width,canvas.height);
-  let data=canvas.toDataURL("image/jpeg",.8);
-  if(data.length>2300000){
-    const max2=1200,scale2=Math.min(1,max2/Math.max(canvas.width,canvas.height));
-    const c2=document.createElement("canvas");
-    c2.width=Math.max(1,Math.round(canvas.width*scale2));c2.height=Math.max(1,Math.round(canvas.height*scale2));
-    const c2x=c2.getContext("2d",{alpha:false});c2x.fillStyle="#fff";c2x.fillRect(0,0,c2.width,c2.height);c2x.drawImage(canvas,0,0,c2.width,c2.height);
-    data=c2.toDataURL("image/jpeg",.72);
+async function decodeImage(file){
+  if(globalThis.createImageBitmap){
+    try{
+      const bitmap=await createImageBitmap(file,{imageOrientation:"from-image"});
+      return {source:bitmap,width:bitmap.width,height:bitmap.height,cleanup:()=>bitmap.close?.()};
+    }catch{}
   }
-  if(data.length>2600000)throw new Error("Não consegui reduzir a fotografia o suficiente.");
-  return data;
+  const img=await loadImageElement(file);
+  return {
+    source:img,
+    width:img.naturalWidth||img.width,
+    height:img.naturalHeight||img.height,
+    cleanup:()=>{}
+  };
+}
+function imageToJpegData(decoded,maxSide,quality){
+  const scale=Math.min(1,maxSide/Math.max(decoded.width,decoded.height));
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(decoded.width*scale));
+  canvas.height=Math.max(1,Math.round(decoded.height*scale));
+  const ctx=canvas.getContext("2d",{alpha:false});
+  if(!ctx)throw new Error("Não consegui preparar a fotografia.");
+  ctx.fillStyle="#fff";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(decoded.source,0,0,canvas.width,canvas.height);
+  return canvas.toDataURL("image/jpeg",quality);
+}
+async function prepareImage(file){
+  if(!file||!String(file.type||"").startsWith("image/"))throw new Error("Escolhe uma fotografia.");
+  if(file.size>100*1024*1024)throw new Error("A fotografia é excecionalmente grande. Usa uma imagem com menos de 100 MB.");
+  const decoded=await decodeImage(file);
+  try{
+    if(!decoded.width||!decoded.height)throw new Error("Não consegui determinar o tamanho da fotografia.");
+    const attempts=[
+      [1800,.82],
+      [1500,.78],
+      [1200,.72],
+      [1000,.68],
+      [800,.62]
+    ];
+    for(const [maxSide,quality] of attempts){
+      const data=imageToJpegData(decoded,maxSide,quality);
+      if(data.length<=2100000)return data;
+    }
+    throw new Error("Não consegui reduzir a fotografia o suficiente.");
+  }finally{
+    decoded.cleanup();
+  }
+}
+async function attachImageFile(file,label){
+  toast("A preparar a fotografia…");
+  selectedImageData=await prepareImage(file);
+  selectedImageName=label||file.name||"Fotografia";
+  setImageStatus(selectedImageName);
+  toast("Fotografia pronta para a IA.");
+}
+function imageFromClipboard(event){
+  const items=Array.from(event.clipboardData?.items||[]);
+  for(const item of items){
+    if(item.kind==="file"&&String(item.type||"").startsWith("image/")){
+      const file=item.getAsFile();
+      if(file)return file;
+    }
+  }
+  const files=Array.from(event.clipboardData?.files||[]);
+  return files.find(file=>String(file.type||"").startsWith("image/"))||null;
 }
 function appendDictation(text){
   const input=q("vehicleUrl");
@@ -392,12 +436,19 @@ q("vehiclePhoto").addEventListener("change",async ev=>{
   const file=ev.target.files?.[0];
   if(!file)return;
   try{
-    toast("A preparar a fotografia…");
-    selectedImageData=await prepareImage(file);
-    setImageStatus(file.name||"Fotografia");
-    toast("Fotografia pronta para a IA.");
+    await attachImageFile(file,file.name||"Fotografia");
   }catch(error){
-    selectedImageData=null;setImageStatus("");ev.target.value="";toast(error.message);
+    selectedImageData=null;selectedImageName="";setImageStatus("");ev.target.value="";toast(error.message);
+  }
+});
+q("vehicleUrl").addEventListener("paste",async ev=>{
+  const file=imageFromClipboard(ev);
+  if(!file)return;
+  ev.preventDefault();
+  try{
+    await attachImageFile(file,"Imagem colada");
+  }catch(error){
+    selectedImageData=null;selectedImageName="";setImageStatus("");toast(error.message);
   }
 });
 q("removeImage").addEventListener("click",()=>{
