@@ -19,6 +19,7 @@ let session=null;
 let member=null;
 let currentAnalysisId=null;
 let currentVehicle=null;
+let currentResult=null;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
@@ -144,6 +145,7 @@ function renderComparables(rows){
   });
 }
 function renderResult(result,sourceHost,riskFlags=[]){
+  currentResult=result||null;
   currentVehicle=result.subject||{};
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
   q("sourceLabel").textContent=sourceName(sourceHost);
@@ -169,6 +171,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
     "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong>";
 }
 function renderReaderOnly(reader,url){
+  currentResult=null;
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
   const host=new URL(url).hostname;
@@ -203,7 +206,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   let url;
   try{url=new URL(q("vehicleUrl").value.trim())}catch{toast("Cola um link válido.");return}
   q("analyzeBtn").disabled=true;q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
-  currentAnalysisId=null;currentVehicle=null;q("chat").innerHTML="";
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;q("chat").innerHTML="";
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
     await createAnalysis(url.toString(),url.hostname);
@@ -250,28 +253,90 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 });
 
 q("chatForm").addEventListener("submit",async ev=>{
-  ev.preventDefault();const text=q("chatInput").value.trim();if(!text)return;
-  q("chatInput").value="";addMsg("user",text);await storeMessage("user",text);
-  const type=ruleType(text);
-  const scope=currentVehicle?{
-    make:currentVehicle.make||null,model:currentVehicle.model||null,trim:currentVehicle.trim||null,
-    year_min:currentVehicle.year||null,year_max:currentVehicle.year||null
-  }:{};
-  const effect=ruleEffect(text,type);
-  const rule={
-    rule_type:type,
-    statement:text,
-    scope,
-    effect,
-    evidence_level:"observation",
-    confidence:.6,
-    analysis_id:currentAnalysisId,
-    user_id:session.user.id
-  };
-  const {error}=await db.from("cap_memory_rules").insert(rule);
-  if(error){addMsg("assistant","Não consegui guardar esta observação: "+error.message);return}
-  const reply=ruleReply(type);addMsg("assistant",reply);await storeMessage("assistant",reply,[{rule_type:type,statement:text,scope,effect}]);
-  refreshMemoryCount();
+  ev.preventDefault();
+  const text=q("chatInput").value.trim();
+  if(!text||!session)return;
+
+  const button=ev.currentTarget.querySelector("button[type=submit]");
+  q("chatInput").value="";
+  button.disabled=true;
+  addMsg("user",text);
+  await storeMessage("user",text);
+
+  try{
+    const {data:memories}=await db.from("cap_memory_rules")
+      .select("rule_type,statement,scope,effect,evidence_level,confidence,created_at")
+      .eq("active",true)
+      .order("created_at",{ascending:false})
+      .limit(20);
+
+    const response=await fetch("/api/comparador-ai",{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "authorization":"Bearer "+session.access_token
+      },
+      body:JSON.stringify({
+        message:text,
+        analysis_id:currentAnalysisId,
+        context:{
+          vehicle:currentVehicle||null,
+          valuation:currentResult?{
+            market:currentResult.market,
+            purchase:currentResult.purchase,
+            tax:currentResult.tax,
+            warnings:currentResult.warnings
+          }:null,
+          dealer_memories:memories||[]
+        }
+      })
+    });
+
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.message||data.error||"A IA não respondeu.");
+
+    const reply=data.reply||"Recebi a tua mensagem.";
+    addMsg("assistant",reply);
+
+    let savedRules=[];
+    const memory=data.memory_rule;
+    if(data.should_save_memory&&memory&&memory.rule_type&&memory.rule_type!=="none"){
+      const scope=memory.scope||{};
+      const {error}=await db.from("cap_memory_rules").insert({
+        user_id:session.user.id,
+        analysis_id:currentAnalysisId,
+        rule_type:memory.rule_type,
+        statement:memory.statement||text,
+        scope,
+        effect:memory.effect||{mode:"advisory"},
+        evidence_level:"observation",
+        confidence:Number.isFinite(Number(memory.confidence))?Number(memory.confidence):.6
+      });
+      if(error)throw error;
+      savedRules=[memory];
+      refreshMemoryCount();
+    }
+
+    await storeMessage("assistant",reply,savedRules);
+    q("saveStatus").textContent="IA ativa";
+  }catch(err){
+    const type=ruleType(text);
+    const scope=currentVehicle?{
+      make:currentVehicle.make||null,
+      model:currentVehicle.model||null,
+      trim:currentVehicle.trim||null,
+      year_min:currentVehicle.year||null,
+      year_max:currentVehicle.year||null
+    }:{};
+    const effect=ruleEffect(text,type);
+    const fallback=ruleReply(type)+" A ligação à API ainda não está disponível nesta execução.";
+    addMsg("assistant",fallback);
+    await storeMessage("assistant",fallback,[]);
+    q("saveStatus").textContent="IA pendente";
+    console.warn("Comparador IA:",err);
+  }finally{
+    button.disabled=false;
+  }
 });
 
 db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data)showAuth()});
