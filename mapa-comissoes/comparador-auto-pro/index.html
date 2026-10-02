@@ -128,21 +128,20 @@
       </div>
 
       <form id="refineForm" class="refine-bar">
-        <span class="refine-mark">IA · Refinar</span>
+        <span class="refine-mark">Mais informações</span>
         <input id="refineInput" autocomplete="off" maxlength="1200" placeholder="Ex.: é Long Range / esta versão vende-se mal / confirmar bateria">
-        <button class="btn ghost small" type="submit" id="refineBtn">Refazer</button>
+        <button class="btn ghost small" type="submit" id="refineBtn">Enviar</button>
       </form>
 
-      <details class="panel ai-panel"><summary>Mais informações <span class="memory-badge" id="memoryCount">0 regras</span></summary>
+      <details class="panel ai-panel"><summary>Histórico e orientações <span class="memory-badge" id="memoryCount">0 regras</span></summary>
         <div class="panel-head">
           <div>
             <span class="eyebrow">Comprador IA</span>
             <h3>As tuas orientações</h3><p>As orientações guardadas são recuperadas nas próximas análises das viaturas a que se aplicam.</p>
           </div>
-
         </div>
         <div class="chat" id="chat"></div>
-        <form id="chatForm" class="chat-form">
+        <form id="chatForm" class="chat-form" hidden aria-hidden="true">
           <input id="chatInput" autocomplete="off" placeholder="Ex.: este modelo está a vender muito bem / este motor dá problemas…">
           <button class="btn primary" type="submit">Enviar</button>
         </form>
