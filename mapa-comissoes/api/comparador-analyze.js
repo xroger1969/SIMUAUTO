@@ -93,6 +93,9 @@ module.exports = async function handler(req, res) {
     const host = target.hostname.toLowerCase();
     if (host === "localhost" || host.endsWith(".local")) return res.status(400).json({ error: "private_host_not_allowed" });
 
+    if((host==="auto1.com"||host.endsWith(".auto1.com"))&&target.pathname.includes("/app/merchant/")){
+      return res.status(200).json({ok:true,status:"needs_auth",source_domain:host,message:"Este anúncio de comerciante AUTO1 exige acesso autenticado. Cola os dados da viatura para continuar."});
+    }
     const resolved = await dns.lookup(host, { all: true });
     if (!resolved.length || resolved.some(x => privateIp(x.address))) {
       return res.status(400).json({ error: "private_network_not_allowed" });

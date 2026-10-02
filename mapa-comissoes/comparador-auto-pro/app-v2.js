@@ -155,7 +155,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   currentResult=result||null;
   currentVehicle=result.subject||{};
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
-  q("sourceLabel").textContent=sourceName(sourceHost);
+  q("sourceLabel").textContent=sourceName(sourceHost)+(q("manualListing").value.trim()?" · Dados fornecidos por ti":"");
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   q("confidencePill").textContent="Confiança "+(result.market?.confidencePct??0)+"%";
@@ -218,25 +218,24 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
     await createAnalysis(url.toString(),url.hostname);
 
-    progress("A ler a página pública…","Sem navegador pago: primeiro tentamos leitura direta e segura.");
-    const resp=await fetch("/api/comparador-analyze",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:url.toString()})});
-    const reader=await resp.json();
-    if(reader.status==="needs_auth"){
-      await updateAnalysis({status:"needs_auth",reader,error_message:reader.message});
-      q("emptyState").classList.remove("hidden");
-      q("emptyState").querySelector("h2").textContent="Esta fonte exige sessão";
-      q("emptyState").querySelector("p").textContent="O leitor público não inventa dados. A camada autenticada será ligada separadamente para esta plataforma.";
-      toast("A origem exige autenticação.");
-      return;
-    }
-    if(reader.status!=="ok"){
-      await updateAnalysis({
-        status:"failed",
-        reader,
-        error_message:reader.message||reader.error||"Falha de leitura",
-        source_available:[404,410].includes(Number(reader.http_status))?false:null
-      });
-      throw new Error(reader.message||"Não foi possível ler o anúncio.");
+    const manual=q("manualListing").value.trim();
+    let reader;
+    if(manual){
+      if(manual.length<40)throw new Error("Acrescenta marca, modelo, ano, quilómetros e preço nos dados do anúncio.");
+      reader={ok:true,status:"ok",source_kind:"dealer_provided",page:{title:"Dados fornecidos pelo comerciante",description:"Leitura manual; anúncio privado não verificado diretamente.",text_sample:manual,json_ld:[]}};
+    }else{
+      progress("A ler a página pública…","A tentar obter os dados do anúncio.");
+      const resp=await fetch("/api/comparador-analyze",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:url.toString()})});
+      reader=await resp.json();
+      if(reader.status!=="ok"){
+        await updateAnalysis({status:reader.status==="needs_auth"?"needs_auth":"failed",reader,error_message:reader.message||"Leitura indisponível"});
+        q("manualDetails").open=true;
+        q("emptyState").classList.remove("hidden");
+        q("emptyState").querySelector("h2").textContent=reader.status==="needs_auth"?"Este anúncio exige a tua sessão":"Não foi possível ler este anúncio diretamente";
+        q("emptyState").querySelector("p").textContent="Abre o anúncio na tua conta, cola os dados da viatura na caixa acima e carrega novamente em Analisar compra.";
+        q("manualListing").focus();
+        return;
+      }
     }
     await updateAnalysis({
       status:"searching",
@@ -244,7 +243,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       vehicle:{page_title:reader.page?.title||""},
       source_snapshot:reader.page||{},
       source_last_seen_at:new Date().toISOString(),
-      source_available:true
+      source_available:manual?null:true
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
@@ -283,6 +282,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
+    if(manual)result.warnings.push("Dados da viatura fornecidos pelo comerciante; anúncio privado não verificado diretamente.");
     renderResult(result,url.hostname,market.risk_flags||[]);
 
     await updateAnalysis({

@@ -61,3 +61,5 @@ button{cursor:pointer}
 
 #dealForm label{display:grid;gap:8px;font-size:14px;color:var(--muted,#aab8ca)}
 #dealForm input{width:100%;padding:12px;border-radius:10px;border:1px solid #29415d;background:#08111d;color:#fff;font:inherit} details summary{cursor:pointer;font-weight:700} .comp a{display:block;margin-top:8px;color:#81b6ff;font-size:13px}
+
+.manual-details{margin-top:18px;color:#aab8ca}.manual-details summary{color:#81b6ff}.manual-details textarea{box-sizing:border-box;width:100%;padding:14px;border:1px solid #29415d;border-radius:12px;background:#08111d;color:#fff;font:inherit;resize:vertical}.manual-details p{font-size:14px;line-height:1.5}
