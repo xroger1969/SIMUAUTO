@@ -677,25 +677,28 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     if(entry.mode==="manual"){
       reader={ok:true,status:"ok",source_kind:selectedImageData?"photo":"manual",page:{title:selectedImageData?(entry.description==="Fotografia anexada para identificação da viatura."?"Fotografia para leitura por IA":entry.description):entry.description,description:selectedImageData?"Fotografia fornecida pelo comerciante; a IA deve ler apenas o que estiver visível.":"Descrição fornecida pelo comerciante; campos omissos não confirmados.",text_sample:entry.description,json_ld:[]}};
     }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
-      if(selectedImageData){
-        progress("A ler a AUTO1…","A usar o link e a fotografia em conjunto.");
-        reader=auto1ScreenshotReader(url.toString(),entry.description);
-      }else{
-        const privateReaderAvailable=await checkAuto1();
-        if(privateReaderAvailable){
-          progress("A ler a AUTO1…","A usar a sessão AUTO1 já iniciada no Chrome.");
-          try{
-            const privateRead=await auto1Request("read",url.toString());
-            reader=privateRead.reader;
-          }catch(error){
-            console.warn("Leitura privada AUTO1 indisponível; a continuar sem custos:",error);
+      const privateReaderAvailable=await checkAuto1();
+      if(privateReaderAvailable){
+        progress("A ler a AUTO1…","A usar a sessão AUTO1 já iniciada no Chrome.");
+        try{
+          const privateRead=await auto1Request("read",url.toString());
+          reader=privateRead.reader;
+        }catch(error){
+          console.warn("Leitura privada AUTO1 indisponível; a usar fallback:",error);
+          if(selectedImageData){
+            progress("A ler a AUTO1…","A ligação privada não respondeu; vou usar a fotografia anexada.");
+            reader=auto1ScreenshotReader(url.toString(),entry.description);
+          }else{
             progress("A identificar a AUTO1…","A ligação privada não respondeu; vou continuar pelo código da oferta.");
             reader=auto1LinkReader(url.toString());
           }
-        }else{
-          progress("A identificar a AUTO1…","A usar o código da oferta e a pesquisa disponível, sem serviços pagos.");
-          reader=auto1LinkReader(url.toString());
         }
+      }else if(selectedImageData){
+        progress("A ler a AUTO1…","A usar o link e a fotografia em conjunto.");
+        reader=auto1ScreenshotReader(url.toString(),entry.description);
+      }else{
+        progress("A identificar a AUTO1…","A usar o código da oferta e a pesquisa disponível, sem serviços pagos.");
+        reader=auto1LinkReader(url.toString());
       }
 
       if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("Não consegui preparar o link AUTO1 para análise.");
@@ -723,8 +726,9 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
-    const marketPayload={url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_url:selectedImageData||null};
-    const sourceHost=entry.registration?"Matrícula.co.pt":selectedImageData?"photo":entry.mode==="manual"?"manual":url.hostname;
+    const imageForAnalysis=reader?.source_kind==="authenticated_browser"?null:(selectedImageData||null);
+    const marketPayload={url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_url:imageForAnalysis};
+    const sourceHost=entry.registration?"Matrícula.co.pt":reader?.source_kind==="authenticated_browser"?url.hostname:imageForAnalysis?"photo":entry.mode==="manual"?"manual":url.hostname;
     lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload};
     const market=await runMarketAnalysis(marketPayload);
 
