@@ -25,6 +25,10 @@ let currentResult=null;
 let lastAnalysisContext=null;
 let conversation=[];
 let selectedImageData=null;
+let selectedImages=[];
+let preparingImages=false;
+let imageGeneration=0;
+const MAX_IMAGES=6;
 let selectedImageName="";
 let speechRecognition=null;
 let mediaRecorder=null;
@@ -377,7 +381,16 @@ function mergeAuto1AuthenticatedFacts(subject,reader){
 function setImageStatus(name){
   selectedImageName=name||"";
   if(selectedImageData){
-    q("attachmentName").textContent=(selectedImageName||"Fotografia")+" · pronta para a IA";
+    q("attachmentName").textContent=selectedImages.length+"/"+MAX_IMAGES+" fotografias prontas para a IA · usa o clipe para acrescentar";
+    const list=q("attachmentList");list.replaceChildren();
+    selectedImages.forEach((image,index)=>{
+      const row=document.createElement("div");
+      const label=document.createElement("span");label.textContent=image.name+" ";
+      const button=document.createElement("button");button.type="button";button.textContent="Remover";
+      button.setAttribute("aria-label","Remover "+image.name);
+      button.onclick=()=>{imageGeneration++;selectedImages.splice(index,1);selectedImageData=selectedImages[0]?.data||null;setImageStatus("")};
+      row.append(label,button);list.append(row);
+    });
     q("attachmentStatus").classList.remove("hidden");
   }else{
     q("attachmentStatus").classList.add("hidden");
@@ -386,6 +399,7 @@ function setImageStatus(name){
 function resetSearchInput(){
   const input=q("vehicleUrl");
   input.value="";
+  imageGeneration++;selectedImages=[];
   selectedImageData=null;
   selectedImageName="";
   q("vehiclePhoto").value="";
@@ -468,19 +482,34 @@ async function prepareImage(file){
     ];
     for(const [maxSide,quality] of attempts){
       const data=imageToJpegData(decoded,maxSide,quality);
-      if(data.length<=2100000)return data;
+      if(data.length<=550000)return data;
     }
     throw new Error("Não consegui reduzir a fotografia o suficiente.");
   }finally{
     decoded.cleanup();
   }
 }
-async function attachImageFile(file,label){
-  toast("A preparar a fotografia…");
-  selectedImageData=await prepareImage(file);
-  selectedImageName=label||file.name||"Fotografia";
-  setImageStatus(selectedImageName);
-  toast("Fotografia pronta para a IA.");
+async function attachImageFiles(files){
+  if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
+  const batch=Array.from(files||[]);
+  if(!batch.length)return;
+  if(selectedImages.length+batch.length>MAX_IMAGES){toast("Podes anexar até 6 fotografias. Remove uma ou seleciona menos.");return}
+  preparingImages=true;
+  const generation=imageGeneration;
+  const prepared=[];
+  try{
+    for(const file of batch){
+      toast("A preparar fotografia "+(prepared.length+1)+" de "+batch.length+"…");
+      const data=await prepareImage(file);
+      if(generation!==imageGeneration)return;
+      prepared.push({data,name:file.name||"Fotografia"});
+    }
+    selectedImages.push(...prepared);
+    selectedImageData=selectedImages[0]?.data||null;
+    setImageStatus("");
+    toast(selectedImages.length+" fotografias prontas para a IA.");
+  }catch(error){toast(error.message)}
+  finally{preparingImages=false;q("vehiclePhoto").value=""}
 }
 function imageFromClipboard(event){
   const items=Array.from(event.clipboardData?.items||[]);
@@ -566,27 +595,15 @@ async function startVoiceInput(){
   await startRecorder();
 }
 
-q("vehiclePhoto").addEventListener("change",async ev=>{
-  const file=ev.target.files?.[0];
-  if(!file)return;
-  try{
-    await attachImageFile(file,file.name||"Fotografia");
-  }catch(error){
-    selectedImageData=null;selectedImageName="";setImageStatus("");ev.target.value="";toast(error.message);
-  }
-});
-q("vehicleUrl").addEventListener("paste",async ev=>{
-  const file=imageFromClipboard(ev);
-  if(!file)return;
-  ev.preventDefault();
-  try{
-    await attachImageFile(file,"Imagem colada");
-  }catch(error){
-    selectedImageData=null;selectedImageName="";setImageStatus("");toast(error.message);
-  }
+q("vehiclePhoto").addEventListener("change",ev=>attachImageFiles(ev.target.files));
+q("vehicleUrl").addEventListener("paste",ev=>{
+  const files=Array.from(ev.clipboardData?.files||[]).filter(file=>String(file.type||"").startsWith("image/"));
+  if(!files.length){const file=imageFromClipboard(ev);if(file)files.push(file)}
+  if(!files.length)return;
+  ev.preventDefault();attachImageFiles(files);
 });
 q("removeImage").addEventListener("click",()=>{
-  selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
+  imageGeneration++;selectedImages=[];selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
 });
 q("resetSearchBtn").addEventListener("click",resetSearchInput);
 q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
@@ -662,6 +679,7 @@ async function runMarketAnalysis(payload){
 
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
+  if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
   let entry;
   const rawInput=q("vehicleUrl").value.trim();
   if(!rawInput&&!selectedImageData){toast("Escreve uma matrícula, cola um link, dita ou anexa uma fotografia.");return}
@@ -729,9 +747,9 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
-    const imageForAnalysis=reader?.source_kind==="authenticated_browser"?null:(selectedImageData||null);
-    const marketPayload={url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_url:imageForAnalysis};
-    const sourceHost=entry.registration?"Matrícula.co.pt":reader?.source_kind==="authenticated_browser"?url.hostname:imageForAnalysis?"photo":entry.mode==="manual"?"manual":url.hostname;
+    const imagesForAnalysis=selectedImages.map(image=>image.data);
+    const marketPayload={url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_urls:imagesForAnalysis};
+    const sourceHost=entry.registration?"Matrícula.co.pt":reader?.source_kind==="authenticated_browser"?url.hostname:imagesForAnalysis.length?"photo":entry.mode==="manual"?"manual":url.hostname;
     lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload};
     const market=await runMarketAnalysis(marketPayload);
 
@@ -1036,3 +1054,4 @@ q("chatForm").addEventListener("submit",async ev=>{
 
 db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data)showAuth()});
 boot();
+

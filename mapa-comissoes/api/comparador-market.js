@@ -104,10 +104,13 @@ module.exports = async function handler(req, res) {
   const description=String(req.body?.description||"").trim();
   const refinement=String(req.body?.refinement||"").trim();
   const previousSubject=req.body?.previous_subject&&typeof req.body.previous_subject==="object"?req.body.previous_subject:null;
-  const imageDataUrl=String(req.body?.image_data_url||"").trim();
+  const imageDataUrls=req.body?.image_data_urls ?? (req.body?.image_data_url ? [req.body.image_data_url] : []);
+  if(!Array.isArray(imageDataUrls)||imageDataUrls.length>6)return res.status(400).json({error:"invalid_images",message:"Anexa até 6 fotografias."});
+  if(imageDataUrls.some(image=>typeof image!=="string"))return res.status(400).json({error:"invalid_image"});
+  if(imageDataUrls.reduce((total,image)=>total+image.length,0)>3500000)return res.status(413).json({error:"images_too_large",message:"As fotografias são demasiado grandes. Reduz o número de imagens."});
   if(refinement.length>1600)return res.status(400).json({error:"refinement_too_long"});
   if(manual?(description.length<3||description.length>4000):!url)return res.status(400).json({error:"invalid_vehicle_input"});
-  if(imageDataUrl){
+  for(const imageDataUrl of imageDataUrls){
     if(!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageDataUrl))return res.status(400).json({error:"invalid_image"});
     if(imageDataUrl.length>2800000)return res.status(413).json({error:"image_too_large",message:"A fotografia ficou demasiado grande. Tenta outra imagem."});
   }
@@ -222,7 +225,8 @@ module.exports = async function handler(req, res) {
     registration_data:registrationData,
     previous_subject:previousSubject,
     refinement_from_dealer:refinement||null,
-    image_attached:Boolean(imageDataUrl)
+    image_attached:imageDataUrls.length>0,
+    image_count:imageDataUrls.length
   }).slice(0, 18000);
 
   const instructions = [
@@ -275,11 +279,11 @@ module.exports = async function handler(req, res) {
         store: false,
         metadata: responseMetadata,
         instructions,
-        input: imageDataUrl ? [{
+        input: imageDataUrls.length ? [{
           role:"user",
           content:[
-            {type:"input_text",text:"ANÚNCIO A ANALISAR:\n"+pageContext+"\n\nLê também a fotografia anexada, cruza apenas os dados visíveis com o contexto e pesquisa o mercado português. Devolve a ficha normalizada e comparáveis atuais."},
-            {type:"input_image",image_url:imageDataUrl,detail:"high"}
+            {type:"input_text",text:"ANÚNCIO A ANALISAR:\n"+pageContext+"\n\nLê todas as fotografias anexadas da mesma viatura em conjunto, cruza apenas os dados visíveis com o contexto e pesquisa o mercado português. Devolve a ficha normalizada e comparáveis atuais."},
+            ...imageDataUrls.map(image_url=>({type:"input_image",image_url,detail:"high"}))
           ]
         }] : "ANÚNCIO A ANALISAR:\n" + pageContext + "\n\nPesquisa o mercado português e devolve a ficha normalizada e comparáveis atuais.",
         tools: [{ type: "web_search" }],
@@ -316,3 +320,4 @@ module.exports = async function handler(req, res) {
     });
   }
 };
+
