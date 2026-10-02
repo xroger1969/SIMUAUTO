@@ -291,7 +291,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
         "content-type":"application/json",
         "authorization":"Bearer "+session.access_token
       },
-      body:JSON.stringify({url:url?.toString()||null,description:entry.description,mode:entry.mode,page:reader.page||{}})
+      body:JSON.stringify({url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{}})
     });
     const market=await marketResp.json().catch(()=>({}));
     if(!marketResp.ok)throw new Error(market.message||market.error||"Falha no radar de mercado.");
@@ -322,7 +322,8 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     });
     result.market.comment=market.market_comment||"";
     const missing=entry.mode==="manual"?manualMissing(subject):[];
-    if(entry.mode==="manual")result.warnings.push("Dados fornecidos por ti. A pesquisa confirma comparáveis, não os dados da tua viatura.");
+    if(entry.registration)result.warnings.push("Identificação por matrícula: Matrícula.co.pt. Confirma a versão e os quilómetros antes de decidir a compra.");
+    if(entry.mode==="manual"&&!entry.registration)result.warnings.push("Dados fornecidos por ti. A pesquisa confirma comparáveis, não os dados da tua viatura.");
     if(missing.length){
       result.purchase.maxPurchase=NaN;result.purchase.absoluteMax=NaN;result.purchase.expectedMargin=NaN;
       result.purchase.decision="Referência inicial — falta confirmar "+missing.join(", ");
@@ -334,7 +335,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
 
-    renderResult(result,entry.mode==="manual"?"Descrição manual":url.hostname,market.risk_flags||[]);
+    renderResult(result,entry.registration?"Matrícula.co.pt":entry.mode==="manual"?"Descrição manual":url.hostname,market.risk_flags||[]);
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
 
     await updateAnalysis({

@@ -1,3 +1,4 @@
+const { lookupRegistration } = require("../lib/registration");
 const { structuredResult } = require("../lib/structured-result");
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -47,6 +48,12 @@ module.exports = async function handler(req, res) {
   const manual=req.body?.mode==="manual";
   const description=String(req.body?.description||"").trim();
   if(manual?(description.length<3||description.length>4000):!url)return res.status(400).json({error:"invalid_vehicle_input"});
+
+  let registrationData=null;
+  if(req.body?.registration){
+    try { registrationData=await lookupRegistration(req.body.registration); }
+    catch(error){ return res.status(error.status||502).json({error:"registration_lookup_failed",message:error.message}); }
+  }
 
   const schema = {
     type: "object",
@@ -146,11 +153,13 @@ module.exports = async function handler(req, res) {
     text_sample: String(page.text_sample || "").slice(0, 14000),
     original_url: url||null,
     manual_description: manual?description:null,
-    input_mode: manual?"manual":"url"
+    input_mode: manual?"manual":"url",
+    registration_data:registrationData
   }).slice(0, 18000);
 
   const instructions = [
     "És o radar de mercado do Comparador Auto Pro para comerciantes profissionais de automóveis usados em Portugal.",
+    "Se registration_data estiver presente, usa esses dados como identificação da viatura. Nunca inventes quilómetros, preço, origem ou versão ausentes. Não uses o valor indicativo do fornecedor como preço de anúncio.",
     "Se input_mode=manual, normaliza apenas a descrição fornecida. Não preenchas dados da viatura analisada com informação de comparáveis. Preço, quilómetros, IVA e origem devem ser null/unknown se não fornecidos. Dual Motor não confirma automaticamente Long Range ou Performance. Mantém trim=null se a versão exata for ambígua. Ainda assim pesquisa comparáveis como referência inicial.",
     "Primeiro identifica com rigor a viatura do anúncio fornecido. Não inventes versão, potência, combustível, IVA ou equipamento se não houver evidência.",
     "Depois usa pesquisa web para encontrar anúncios atuais em Portugal de viaturas comparáveis, dando prioridade a Standvirtual, PiscaPisca, OLX, sites de stands e agregadores reputados.",
@@ -206,6 +215,9 @@ module.exports = async function handler(req, res) {
 
     const parsed = structuredResult(data);
     if (!parsed.subject || !Array.isArray(parsed.comparables)) throw new Error("Resposta de mercado sem ficha válida.");
+    if(registrationData){
+      Object.assign(parsed.subject,{make:registrationData.make,model:registrationData.model,trim:registrationData.trim,year:registrationData.year,mileage_km:null,price:null,origin:registrationData.origin});
+    }
     parsed.comparables = parsed.comparables.filter(c => {
       try { const u = new URL(c.url); return ["https:", "http:"].includes(u.protocol) && typeof c.price === "number" && c.price > 0 && (!url || u.toString() !== new URL(url).toString()); } catch { return false; }
     });
