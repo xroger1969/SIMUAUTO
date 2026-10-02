@@ -1,5 +1,6 @@
 import { evaluatePurchase } from "./valuation.js";
 import { relevantMemories } from "./memory.js";
+import { parseVehicleInput,manualMissing } from "./input.js";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -187,7 +188,7 @@ function renderReaderOnly(reader,url){
   currentResult=null;
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
-  const host=new URL(url).hostname;
+  const host=url?new URL(url).hostname:"Descrição manual";
   q("sourceLabel").textContent=sourceName(host);
   q("vehicleTitle").textContent=reader.page?.title||"Anúncio lido";
   q("vehicleMeta").textContent=reader.page?.description||"Leitura concluída; falta normalizar a viatura.";
@@ -238,17 +239,20 @@ async function loadMemories(){
 
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
-  let url;
-  try{url=new URL(q("vehicleUrl").value.trim());if(!["https:","http:"].includes(url.protocol)||url.username||url.password)throw new Error();if(url.hostname==="auto1.com")url.hostname="www.auto1.com"}catch{toast("Cola um link válido.");return}
+  let entry;
+  try{entry=parseVehicleInput(q("vehicleUrl").value)}catch(error){toast(error.message);return}
+  const url=entry.url;
   q("auto1Connection").classList.add("hidden");
   q("analyzeBtn").disabled=true;q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
   currentAnalysisId=null;currentVehicle=null;currentResult=null;q("chat").innerHTML="";conversation=[];
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
-    await createAnalysis(url.toString(),url.hostname);
+    await createAnalysis(entry.sourceUrl,entry.sourceDomain);
 
     let reader;
-    if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
+    if(entry.mode==="manual"){
+      reader={ok:true,status:"ok",source_kind:"manual",page:{title:entry.description,description:"Descrição fornecida pelo comerciante; campos omissos não confirmados.",text_sample:entry.description,json_ld:[]}};
+    }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
       if(!await checkAuto1()){
         q("auto1Connection").classList.remove("hidden");
         throw new Error("Para ler a AUTO1, ativa a ligação indicada abaixo e mantém a sessão iniciada.");
@@ -277,7 +281,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       vehicle:{page_title:reader.page?.title||""},
       source_snapshot:reader.page||{},
       source_last_seen_at:new Date().toISOString(),
-      source_available:true
+      source_available:entry.mode==="manual"?null:true
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
@@ -287,15 +291,17 @@ q("analyzeForm").addEventListener("submit",async ev=>{
         "content-type":"application/json",
         "authorization":"Bearer "+session.access_token
       },
-      body:JSON.stringify({url:url.toString(),page:reader.page||{}})
+      body:JSON.stringify({url:url?.toString()||null,description:entry.description,mode:entry.mode,page:reader.page||{}})
     });
     const market=await marketResp.json().catch(()=>({}));
     if(!marketResp.ok)throw new Error(market.message||market.error||"Falha no radar de mercado.");
 
     const subject=market.subject||{};
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
-    if(!subject.make||!subject.model||!(typeof subject.price==="number"&&subject.price>0)){
-      renderReaderOnly(reader,url.toString());
+    if(!subject.make||!subject.model||(entry.mode!=="manual"&&!(typeof subject.price==="number"&&subject.price>0))){
+      renderReaderOnly(reader,url?.toString()||null);
+      currentVehicle=subject;
+      addMsg("assistant","Acrescenta a marca, o modelo e a versão na descrição acima para identificar a viatura.");
       renderRisks([{label:"Dados insuficientes para calcular com segurança.",severity:"high"}],[]);
       await updateAnalysis({status:"failed",vehicle:subject,reader,error_message:"Dados insuficientes após normalização"});
       return;
@@ -307,7 +313,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     const result=evaluatePurchase({
       subject,
       comparables,
-      current_purchase_price:Number(subject.price),
+      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       costs:DEAL.costs,
       risk_flags:market.risk_flags||[],
@@ -315,11 +321,20 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
+    const missing=entry.mode==="manual"?manualMissing(subject):[];
+    if(entry.mode==="manual")result.warnings.push("Dados fornecidos por ti. A pesquisa confirma comparáveis, não os dados da tua viatura.");
+    if(missing.length){
+      result.purchase.maxPurchase=NaN;result.purchase.absoluteMax=NaN;result.purchase.expectedMargin=NaN;
+      result.purchase.decision="Referência inicial — falta confirmar "+missing.join(", ");
+      result.warnings.push("Completa a descrição com "+missing.join(", ")+" e volta a analisar para obter o teto de compra.");
+      result.market.confidencePct=Math.min(result.market.confidencePct,40);
+    }
+
     if(memoryWarning)result.warnings.push(memoryWarning);
     result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
 
-    renderResult(result,url.hostname,market.risk_flags||[]);
+    renderResult(result,entry.mode==="manual"?"Descrição manual":url.hostname,market.risk_flags||[]);
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
 
     await updateAnalysis({
@@ -331,8 +346,9 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       reader
     });
 
-    addMsg("assistant","Análise concluída. Já tens comparáveis, mercado e teto de compra. Podes perguntar ou ensinar-me algo sobre este carro.");
-    await storeMessage("assistant","Análise concluída. Já tens comparáveis, mercado e teto de compra. Podes perguntar ou ensinar-me algo sobre este carro.");
+    const completion=missing.length?"Pesquisei o mercado. Falta confirmar "+missing.join(", ")+". Acrescenta esses dados no campo acima e volta a analisar.":"Análise concluída. Podes perguntar ou ensinar-me algo sobre esta viatura.";
+    addMsg("assistant",completion);
+    await storeMessage("assistant",completion);
   }catch(err){
     q("emptyState").classList.remove("hidden");
     q("emptyState").querySelector("h2").textContent="Não consegui concluir esta leitura";

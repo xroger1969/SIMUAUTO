@@ -44,7 +44,9 @@ module.exports = async function handler(req, res) {
 
   const url = String(req.body?.url || "").trim();
   const page = req.body?.page || {};
-  if (!url) return res.status(400).json({ error: "missing_url" });
+  const manual=req.body?.mode==="manual";
+  const description=String(req.body?.description||"").trim();
+  if(manual?(description.length<3||description.length>4000):!url)return res.status(400).json({error:"invalid_vehicle_input"});
 
   const schema = {
     type: "object",
@@ -142,11 +144,14 @@ module.exports = async function handler(req, res) {
     json_ld: page.json_ld || [],
     origin_evidence: page.origin_evidence || null,
     text_sample: String(page.text_sample || "").slice(0, 14000),
-    original_url: url
+    original_url: url||null,
+    manual_description: manual?description:null,
+    input_mode: manual?"manual":"url"
   }).slice(0, 18000);
 
   const instructions = [
     "És o radar de mercado do Comparador Auto Pro para comerciantes profissionais de automóveis usados em Portugal.",
+    "Se input_mode=manual, normaliza apenas a descrição fornecida. Não preenchas dados da viatura analisada com informação de comparáveis. Preço, quilómetros, IVA e origem devem ser null/unknown se não fornecidos. Dual Motor não confirma automaticamente Long Range ou Performance. Mantém trim=null se a versão exata for ambígua. Ainda assim pesquisa comparáveis como referência inicial.",
     "Primeiro identifica com rigor a viatura do anúncio fornecido. Não inventes versão, potência, combustível, IVA ou equipamento se não houver evidência.",
     "Depois usa pesquisa web para encontrar anúncios atuais em Portugal de viaturas comparáveis, dando prioridade a Standvirtual, PiscaPisca, OLX, sites de stands e agregadores reputados.",
     "Procura primeiro mesma marca, modelo, geração, motorização/versão e ano próximo. Só alarga se faltarem resultados.",
@@ -202,7 +207,7 @@ module.exports = async function handler(req, res) {
     const parsed = structuredResult(data);
     if (!parsed.subject || !Array.isArray(parsed.comparables)) throw new Error("Resposta de mercado sem ficha válida.");
     parsed.comparables = parsed.comparables.filter(c => {
-      try { const u = new URL(c.url); return ["https:", "http:"].includes(u.protocol) && typeof c.price === "number" && c.price > 0 && u.toString() !== new URL(url).toString(); } catch { return false; }
+      try { const u = new URL(c.url); return ["https:", "http:"].includes(u.protocol) && typeof c.price === "number" && c.price > 0 && (!url || u.toString() !== new URL(url).toString()); } catch { return false; }
     });
 
     return res.status(200).json({

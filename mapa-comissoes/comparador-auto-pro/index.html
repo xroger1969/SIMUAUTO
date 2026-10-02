@@ -44,13 +44,14 @@
 
     <section class="hero">
       <span class="eyebrow">Motor de decisão de compra</span>
-      <h1>Cola o link. Encontra o valor de compra.</h1>
+      <h1>Cola o link ou descreve a viatura.</h1>
       <p>O objetivo é chegar ao número que interessa: quanto podemos pagar para ainda fazer um bom negócio.</p>
 
       <form id="analyzeForm" class="analyze-bar">
-        <input aria-label="Link do anúncio da viatura" id="vehicleUrl" type="url" required placeholder="Cola aqui o link do anúncio">
+        <input aria-label="Link ou descrição da viatura" id="vehicleUrl" type="text" maxlength="4000" required placeholder="Link ou Tesla Model Y Dual Motor 2023">
         <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
       </form>
+      <div class="hint"><a href="https://apps.apple.com/pt/app/spottd/id1516876698" target="_blank" rel="noopener noreferrer">Consultar Spottd ↗</a> · Podes acrescentar à descrição os dados que confirmares na aplicação.</div>
       <div class="hint" id="analyzeHint">Compara anúncios em Portugal e calcula a compra com custos, margem e reserva de risco. Valores anunciados são referências, não vendas confirmadas.</div>
     </section>
 
@@ -129,7 +130,7 @@
     <section class="empty-state" id="emptyState">
       <div class="empty-icon">↗</div>
       <h2>Pronto para o primeiro negócio</h2>
-      <p>Cola um link acima. O layout fica simples; toda a complexidade fica por trás.</p>
+      <p>Cola um anúncio ou escreve marca, modelo e ano. Se souberes, acrescenta quilómetros, versão e preço.</p>
     </section>
   </main>
 
