@@ -1,3 +1,4 @@
+const { structuredResult } = require("../lib/structured-result");
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
 
@@ -19,7 +20,15 @@ async function validUser(token) {
       authorization: "Bearer " + token
     }
   });
-  return response.ok;
+  if(!response.ok)return false;
+  const membership=await fetch(SUPABASE_URL+"/rest/v1/rpc/get_current_member",{
+    method:"POST",signal:AbortSignal.timeout(10000),
+    headers:{apikey:SUPABASE_KEY,authorization:"Bearer "+token,"content-type":"application/json","content-profile":"mapa_comercial"},
+    body:"{}"
+  });
+  if(!membership.ok)return false;
+  const member=await membership.json();
+  return member?.active===true&&member?.role==="admin";
 }
 
 module.exports = async function handler(req, res) {
@@ -111,6 +120,7 @@ module.exports = async function handler(req, res) {
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
+      signal: AbortSignal.timeout(110000),
       headers: {
         "content-type": "application/json",
         authorization: "Bearer " + process.env.OPENAI_API_KEY
@@ -129,7 +139,7 @@ module.exports = async function handler(req, res) {
           },
           verbosity: "low"
         },
-        max_output_tokens: 700
+        max_output_tokens: 3000
       })
     });
 
@@ -141,8 +151,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const text = outputText(data);
-    const parsed = JSON.parse(text);
+    const parsed = structuredResult(data);
 
     if (!parsed.should_save_memory) {
       parsed.memory_rule = {

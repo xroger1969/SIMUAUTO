@@ -48,13 +48,15 @@
       <p>O objetivo é chegar ao número que interessa: quanto podemos pagar para ainda fazer um bom negócio.</p>
 
       <form id="analyzeForm" class="analyze-bar">
-        <input id="vehicleUrl" type="url" required placeholder="https://www.auto1.com/... ou outro anúncio">
+        <input aria-label="Link do anúncio da viatura" id="vehicleUrl" type="url" required placeholder="https://www.auto1.com/... ou outro anúncio">
         <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
       </form>
-      <div class="hint" id="analyzeHint">V1: leitura pública automática, snapshot do anúncio e memória comercial. Fontes autenticadas e radar multi-site entram por adaptadores próprios.</div>
+      <div class="hint" id="analyzeHint">Compara anúncios em Portugal e calcula a compra com custos, margem e reserva de risco. Valores anunciados são referências, não vendas confirmadas.</div>
     </section>
 
-    <section class="progress-panel hidden" id="progressPanel">
+<details class="panel" style="margin:20px 0"><summary>Configurar custos e margem de compra</summary><p>Valores económicos após IVA recuperável, quando aplicável. Ajusta-os para este negócio.</p><form id="dealForm" class="detail-grid">
+<label>Transporte (€)<input name="transport" type="number" min="0" max="100000" step="50" value="150"></label><label>Taxas de compra (€)<input name="auction_fee" type="number" min="0" max="100000" step="50" value="0"></label><label>Recondicionamento (€)<input name="reconditioning" type="number" min="0" max="100000" step="50" value="450"></label><label>Reserva de garantia (€)<input name="warranty_reserve" type="number" min="0" max="100000" step="50" value="350"></label><label>Financiamento de stock (€)<input name="stock_finance" type="number" min="0" max="100000" step="50" value="150"></label><label>Outros custos (€)<input name="other" type="number" min="0" max="100000" step="50" value="100"></label><label>Margem objetivo (€)<input name="target_margin" type="number" min="0" max="100000" step="50" value="2000"></label><label>Margem mínima (€)<input name="minimum_margin" type="number" min="0" max="100000" step="50" value="1200"></label></form><p>Os valores voltam aos valores iniciais ao recarregar a página.</p></details>
+    <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
       <div class="spinner"></div>
       <div>
         <strong id="progressTitle">A analisar…</strong>

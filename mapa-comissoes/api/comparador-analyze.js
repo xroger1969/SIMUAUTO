@@ -9,10 +9,12 @@ function privateIp(ip) {
     if (p[0] === 169 && p[1] === 254) return true;
     if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
     if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return true;
     if (p[0] >= 224) return true;
     return false;
   }
   const x = ip.toLowerCase();
+  if(x.startsWith("::ffff:"))return privateIp(x.slice(7));
   return x === "::1" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe80:");
 }
 
@@ -101,7 +103,7 @@ module.exports = async function handler(req, res) {
     let response;
     try {
       response = await fetch(target.toString(), {
-        redirect: "follow",
+        redirect: "manual",
         signal: controller.signal,
         headers: {
           "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/154 Safari/537.36",
@@ -109,12 +111,18 @@ module.exports = async function handler(req, res) {
           "accept-language": "pt-PT,pt;q=0.9,en;q=0.7"
         }
       });
-    } finally {
-      clearTimeout(timer);
+    } catch(error) {
+      clearTimeout(timer);throw error;
     }
+    if(response.status>=300&&response.status<400){clearTimeout(timer);return res.status(200).json({ok:false,status:"failed",message:"Este anúncio redireciona. Cola o endereço final da página."});}
 
     const type = response.headers.get("content-type") || "";
-    const rawBody = Buffer.from(await response.arrayBuffer());
+    let rawBody;
+    try {
+      const chunks=[];let size=0;
+      for await(const chunk of response.body){size+=chunk.length;if(size>1500000){controller.abort();throw new Error("Página demasiado grande para leitura direta.");}chunks.push(Buffer.from(chunk));}
+      rawBody=Buffer.concat(chunks);
+    }finally{clearTimeout(timer)}
     const html = rawBody.subarray(0, 1500000).toString("utf8");
     const finalUrl = response.url || target.toString();
 

@@ -4,7 +4,7 @@ const DEFAULT_CONFIG = Object.freeze({
   riskReservePct:.006, kmAdjustmentPer1000:20, ageAdjustmentPerMonth:55,
   equipmentUnitAdjustment:120, minimumMargin:1500, targetMargin:2000
 });
-const num=(v,f=0)=>Number.isFinite(Number(v))?Number(v):f;
+const num=(v,f=0)=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v))?Number(v):f;
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const norm=v=>String(v??"").trim().toLowerCase();
 const same=(a,b)=>!!norm(a)&&norm(a)===norm(b);
@@ -17,7 +17,7 @@ function monthIndex(v){
 function ageDelta(subject,comp){
   const a=monthIndex(subject.first_registration),b=monthIndex(comp.first_registration);
   if(a!=null&&b!=null)return a-b;
-  return (num(subject.year)-num(comp.year))*12;
+  return subject.year!=null&&comp.year!=null?(num(subject.year)-num(comp.year))*12:0;
 }
 function jaccard(a,b){
   const A=new Set(list(a)),B=new Set(list(b));
@@ -63,7 +63,7 @@ export function similarity(s,c,config=DEFAULT_CONFIG){
 }
 function adjustedPrice(s,c,config){
   let p=num(c.price);
-  p+=(num(c.mileage_km)-num(s.mileage_km))/1000*config.kmAdjustmentPer1000;
+  if(c.mileage_km!=null&&s.mileage_km!=null)p+=(num(c.mileage_km)-num(s.mileage_km))/1000*config.kmAdjustmentPer1000;
   p+=ageDelta(s,c)*config.ageAdjustmentPerMonth;
   const S=new Set(list(s.equipment)),C=new Set(list(c.equipment));
   p+=([...S].filter(x=>!C.has(x)).length-[...C].filter(x=>!S.has(x)).length)*config.equipmentUnitAdjustment;
@@ -90,7 +90,12 @@ function confidence(rows,marketValue,s){
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom,weights:{...DEFAULT_CONFIG.weights,...(custom.weights||{})}};
   const s=input.subject||{},excluded=[],rows=[];
+  const seen=new Set();
   for(const c of input.comparables||[]){
+    if(!(num(c.price)>0)){excluded.push({comp:c,reason:"preço inválido"});continue}
+    const key=c.url?String(c.url).split("?")[0].replace(/\/$/,""):null;
+    if(key&&seen.has(key)){excluded.push({comp:c,reason:"anúncio duplicado"});continue}
+    if(key)seen.add(key);
     const reason=hardExclusion(s,c); if(reason){excluded.push({comp:c,reason});continue}
     const sim=similarity(s,c,config); if(sim<config.minSimilarity){excluded.push({comp:c,reason:`semelhança insuficiente (${sim}%)`});continue}
     rows.push({comp:c,similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
@@ -113,12 +118,12 @@ export function evaluatePurchase(input,custom={}){
   const flagReserve=(input.risk_flags||[]).reduce((a,x)=>a+num(x.reserve_eur),0);
   const reserve=Math.round(saleEconomic*config.riskReservePct+flagReserve+(confidencePct<70?saleEconomic*.008:0));
   const targetMargin=num(input.target_margin,config.targetMargin),minimumMargin=num(input.minimum_margin,config.minimumMargin);
-  const maxPurchase=Math.round(fromEconomic(saleEconomic-fixedCosts-reserve-targetMargin));
-  const absoluteMax=Math.round(fromEconomic(saleEconomic-fixedCosts-reserve-minimumMargin));
+  const maxPurchase=Math.max(0,Math.round(fromEconomic(saleEconomic-fixedCosts-reserve-targetMargin)));
+  const absoluteMax=Math.max(0,Math.round(fromEconomic(saleEconomic-fixedCosts-reserve-minimumMargin)));
   const currentPrice=num(input.current_purchase_price,NaN);
   const expectedMargin=Number.isFinite(currentPrice)?Math.round(saleEconomic-toEconomic(currentPrice)-fixedCosts-reserve):NaN;
   let decision="sem dados";
-  if(Number.isFinite(currentPrice)){
+  if(Number.isFinite(currentPrice)&&Number.isFinite(maxPurchase)){
     if(currentPrice<=maxPurchase*.97)decision="compra muito interessante";
     else if(currentPrice<=maxPurchase)decision="boa compra";
     else if(currentPrice<=absoluteMax)decision="comprar só com justificação";

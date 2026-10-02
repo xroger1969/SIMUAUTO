@@ -58,3 +58,6 @@ button{cursor:pointer}
 .toast{position:fixed;right:20px;bottom:20px;z-index:120;background:white;color:#0b1420;border-radius:11px;padding:10px 13px;font-size:11px;font-weight:800;opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:translateY(0)}
 @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.detail-grid{grid-template-columns:1fr}.decision-card{grid-template-columns:1fr}.decision-side{border-left:0;border-top:1px solid rgba(255,255,255,.08);padding:16px 0 0}.analyze-bar{grid-template-columns:1fr}.chat-form{grid-template-columns:1fr}.topbar{align-items:flex-start}.hero{padding:24px}}
 @media(max-width:560px){.app{width:min(100% - 20px,1240px)}.kpis{grid-template-columns:1fr}.vehicle-head{display:block}.confidence{display:inline-block;margin-top:10px}.hero h1{font-size:34px}}
+
+#dealForm label{display:grid;gap:8px;font-size:14px;color:var(--muted,#aab8ca)}
+#dealForm input{width:100%;padding:12px;border-radius:10px;border:1px solid #29415d;background:#08111d;color:#fff;font:inherit} details summary{cursor:pointer;font-weight:700} .comp a{display:block;margin-top:8px;color:#81b6ff;font-size:13px}

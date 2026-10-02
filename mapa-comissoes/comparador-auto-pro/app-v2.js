@@ -8,7 +8,7 @@ const db = globalThis.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 const q=id=>document.getElementById(id);
 const euro=new Intl.NumberFormat("pt-PT",{style:"currency",currency:"EUR",maximumFractionDigits:0});
-const fmt=v=>Number.isFinite(Number(v))?euro.format(Number(v)):"—";
+const fmt=v=>v!==null&&v!==undefined&&Number.isFinite(Number(v))?euro.format(Number(v)):"—";
 const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const toast=message=>{
   const el=q("toast");el.textContent=message;el.classList.add("show");
@@ -131,7 +131,7 @@ function vehicleMeta(v){
   else if(v.year)bits.push(v.year);
   if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km");
   if(v.power_cv)bits.push(v.power_cv+" cv");
-  if(v.battery_kwh)bits.push(v.battery_kwh+" kWh úteis");
+  if(v.battery_kwh)bits.push(v.battery_kwh+" kWh");
   return bits.join(" · ")||"Dados ainda incompletos";
 }
 function renderRisks(flags,warnings){
@@ -147,6 +147,7 @@ function renderComparables(rows){
   (rows||[]).slice(0,6).forEach(c=>{
     const el=document.createElement("div");el.className="comp";
     el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km?Number(c.mileage_km).toLocaleString("pt-PT")+" km":""))+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc(c.similarity+"% semelhante")+"</em></div>";
+    if(c.url){try{const u=new URL(c.url);if(["https:","http:"].includes(u.protocol)){const a=document.createElement("a");a.href=u.toString();a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}}catch{}}
     box.appendChild(el);
   });
 }
@@ -186,9 +187,9 @@ function renderReaderOnly(reader,url){
   q("vehicleMeta").textContent=reader.page?.description||"Leitura concluída; falta normalizar a viatura.";
   ["maxPurchase","currentPrice","saleLikely","saleFast","expectedMargin"].forEach(id=>q(id).textContent="—");
   q("comparableCount").textContent="0";q("confidencePill").textContent="Confiança —";
-  q("decisionText").textContent="Radar de mercado ainda não ligado nesta preview.";
+  q("decisionText").textContent="Não foi possível confirmar todos os dados da viatura.";
   q("gapText").textContent="Sem decisão de compra ainda.";
-  q("marketSummary").textContent="A leitura pública do link funcionou. A próxima camada vai transformar o anúncio em ficha estruturada e procurar comparáveis.";
+  q("marketSummary").textContent="A leitura pública do link funcionou. Confirma os dados do anúncio antes de tomar uma decisão de compra.";
   q("comparableList").innerHTML="";
   renderRisks([{label:"Análise ainda sem comparáveis; não usar para licitar.",severity:"high"}],[]);
   q("calcBox").textContent="O motor de cálculo só é ativado quando existirem dados suficientes do carro e do mercado.";
@@ -260,13 +261,16 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 
     const subject=market.subject||{};
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
-    if(!subject.make||!subject.model||!Number.isFinite(Number(subject.price))){
+    if(!subject.make||!subject.model||!(typeof subject.price==="number"&&subject.price>0)){
       renderReaderOnly(reader,url.toString());
       renderRisks([{label:"Dados insuficientes para calcular com segurança.",severity:"high"}],[]);
       await updateAnalysis({status:"failed",vehicle:subject,reader,error_message:"Dados insuficientes após normalização"});
       return;
     }
 
+    const fields=new FormData(q("dealForm"));
+    for(const [key,value] of fields){if(key.endsWith("margin"))DEAL[key]=Number(value);else DEAL.costs[key]=Number(value)}
+    if(DEAL.minimum_margin>DEAL.target_margin)throw new Error("A margem mínima não pode ultrapassar a margem objetivo.");
     progress("A calcular a compra…","A aplicar comparabilidade, outliers, custos, margem e risco.");
     const result=evaluatePurchase({
       subject,
@@ -295,7 +299,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   }catch(err){
     q("emptyState").classList.remove("hidden");
     q("emptyState").querySelector("h2").textContent="Não consegui concluir esta leitura";
-    q("emptyState").querySelector("p").textContent=String(err?.message||err);
+    q("emptyState").querySelector("p").textContent=/JSON|Unexpected|position/.test(String(err?.message))?"A resposta do serviço ficou inválida. Tenta novamente; não foi emitida uma recomendação de compra.":String(err?.message||err);
     await updateAnalysis({status:"failed",error_message:String(err?.message||err)});
   }finally{
     stopProgress();q("analyzeBtn").disabled=false;
@@ -370,16 +374,7 @@ q("chatForm").addEventListener("submit",async ev=>{
     await storeMessage("assistant",reply,savedRules);
     q("saveStatus").textContent="IA ativa";
   }catch(err){
-    const type=ruleType(text);
-    const scope=currentVehicle?{
-      make:currentVehicle.make||null,
-      model:currentVehicle.model||null,
-      trim:currentVehicle.trim||null,
-      year_min:currentVehicle.year||null,
-      year_max:currentVehicle.year||null
-    }:{};
-    const effect=ruleEffect(text,type);
-    const fallback=ruleReply(type)+" A ligação à API ainda não está disponível nesta execução.";
+    const fallback="Não consegui concluir a resposta da IA. A tua mensagem não foi guardada como aprendizagem. Tenta novamente.";
     addMsg("assistant",fallback);
     await storeMessage("assistant",fallback,[]);
     q("saveStatus").textContent="IA pendente";
