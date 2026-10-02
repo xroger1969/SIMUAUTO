@@ -102,7 +102,10 @@ module.exports = async function handler(req, res) {
   const page = req.body?.page || {};
   const manual=req.body?.mode==="manual";
   const description=String(req.body?.description||"").trim();
+  const refinement=String(req.body?.refinement||"").trim();
+  const previousSubject=req.body?.previous_subject&&typeof req.body.previous_subject==="object"?req.body.previous_subject:null;
   const imageDataUrl=String(req.body?.image_data_url||"").trim();
+  if(refinement.length>1600)return res.status(400).json({error:"refinement_too_long"});
   if(manual?(description.length<3||description.length>4000):!url)return res.status(400).json({error:"invalid_vehicle_input"});
   if(imageDataUrl){
     if(!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageDataUrl))return res.status(400).json({error:"invalid_image"});
@@ -217,6 +220,8 @@ module.exports = async function handler(req, res) {
     manual_description: manual?description:null,
     input_mode: manual?"manual":"url",
     registration_data:registrationData,
+    previous_subject:previousSubject,
+    refinement_from_dealer:refinement||null,
     image_attached:Boolean(imageDataUrl)
   }).slice(0, 18000);
 
@@ -226,6 +231,9 @@ module.exports = async function handler(req, res) {
     "Se input_mode=manual, normaliza apenas a descrição fornecida e, quando existir, a fotografia anexada. Não preenchas dados da viatura analisada com informação de comparáveis. Preço, quilómetros, IVA e origem devem ser null/unknown se não estiverem visíveis ou fornecidos. Dual Motor não confirma automaticamente Long Range ou Performance. Mantém trim=null se a versão exata for ambígua. Ainda assim pesquisa comparáveis como referência inicial.",
     "Quando existir fotografia, lê matrícula, marca, modelo, versão, ano, quilómetros e preço apenas se estiverem claramente visíveis. Uma fotografia exterior do carro não autoriza inventar versão, bateria, potência ou ano. Se a imagem for documento, ecrã ou anúncio, transcreve apenas os dados legíveis.",
     "Primeiro identifica com rigor a viatura do anúncio fornecido. Não inventes versão, potência, combustível, IVA ou equipamento se não houver evidência.",
+    "Se previous_subject existir, usa-o apenas como continuidade da análise anterior: preserva dados anteriormente confirmados quando a nova pesquisa não trouxer evidência melhor.",
+    "Se refinement_from_dealer existir, refaz a análise à luz dessa indicação. Se for um dado concreto sobre esta viatura, trata-o como informação declarada pelo comerciante e cruza-o com o anúncio e a pesquisa sempre que possível.",
+    "Se o refinamento for uma observação sobre procura, liquidez, fiabilidade ou comportamento de mercado (por exemplo, 'estes carros vendem-se mal'), trata-a como hipótese a testar: pesquisa para confirmar ou contrariar. Não alteres preço, risco ou procura apenas para concordar com o comerciante.",
     "Depois usa pesquisa web para encontrar anúncios atuais em Portugal de viaturas comparáveis. O mercado de referência principal é o retalho profissional: stands, concessionários e comerciantes profissionais.",
     "Pesquisa primeiro anúncios de profissionais em Standvirtual, PiscaPisca, sites de stands/concessionários e outros portais reputados. Em plataformas mistas, confirma o tipo de vendedor na página do anúncio.",
     "Classifica seller_type como professional apenas quando houver evidência de stand/comerciante/concessionário; private quando estiver identificado como particular; caso contrário unknown. Regista seller_name quando estiver visível.",
