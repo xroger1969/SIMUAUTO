@@ -168,7 +168,10 @@ module.exports = async function handler(req, res) {
       type: meta(html, "og:type", "property")
     };
     const description = meta(html, "description") || og.description;
-    const sample = cleanText(html).slice(0, 15000);
+    const fullText=cleanText(html);
+    const sample = fullText.slice(0, 15000);
+    const originMatch=fullText.match(/\bOrigem\s*[:—-]?\s*(Importado|Nacional)\b/i);
+    const originEvidence=originMatch?{value:/importado/i.test(originMatch[1])?"imported":"national",label:originMatch[0],section:"Estado e histórico",url:finalUrl}:null;
 
     return res.status(200).json({
       ok: true,
@@ -181,7 +184,8 @@ module.exports = async function handler(req, res) {
         description,
         og,
         json_ld: jsonLd(html),
-        text_sample: sample
+        text_sample: sample,
+        origin_evidence: originEvidence
       }
     });
   } catch (err) {

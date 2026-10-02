@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Comparador Auto Pro — Ligação AUTO1",
+  "version": "1.0.0",
+  "description": "Lê os anúncios AUTO1 na tua sessão quando pedes uma análise no Comparador Auto Pro.",
+  "permissions": ["scripting"],
+  "host_permissions": ["https://www.auto1.com/*"],
+  "background": {"service_worker": "background.js"},
+  "content_scripts": [{
+    "matches": ["https://mapa-comercial-git-feature-comparad-a70ff4-xroger1969s-projects.vercel.app/comparador-auto-pro/*", "https://mapa-comercial-sand.vercel.app/comparador-auto-pro/*"],
+    "js": ["bridge.js"],
+    "run_at": "document_start"
+  }]
+}

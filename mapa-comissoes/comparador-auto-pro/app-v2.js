@@ -125,6 +125,7 @@ async function refreshMemoryCount(){
   q("memoryCount").textContent=(count||0)+" "+((count||0)===1?"regra":"regras");
 }
 
+const originLabel=v=>v==="national"?"Nacional":v==="imported"?"Importado":"Origem por confirmar";
 function vehicleMeta(v){
   const bits=[];
   if(v.first_registration)bits.push(v.first_registration.slice(0,7).split("-").reverse().join("/"));
@@ -132,6 +133,7 @@ function vehicleMeta(v){
   if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km");
   if(v.power_cv)bits.push(v.power_cv+" cv");
   if(v.battery_kwh)bits.push(v.battery_kwh+" kWh");
+  bits.push(originLabel(v.origin));
   return bits.join(" · ")||"Dados ainda incompletos";
 }
 function renderRisks(flags,warnings){
@@ -146,7 +148,7 @@ function renderComparables(rows){
   const box=q("comparableList");box.innerHTML="";
   (rows||[]).slice(0,6).forEach(c=>{
     const el=document.createElement("div");el.className="comp";
-    el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km?Number(c.mileage_km).toLocaleString("pt-PT")+" km":""))+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc(c.similarity+"% semelhante")+"</em></div>";
+    el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km?Number(c.mileage_km).toLocaleString("pt-PT")+" km":"")+" · "+originLabel(c.origin))+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc(c.similarity+"% semelhante")+"</em></div>";
     if(c.url){try{const u=new URL(c.url);if(["https:","http:"].includes(u.protocol)){const a=document.createElement("a");a.href=u.toString();a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}}catch{}}
     box.appendChild(el);
   });
@@ -208,6 +210,26 @@ async function updateAnalysis(patch){
   await db.from("cap_analyses").update(payload).eq("id",currentAnalysisId);
 }
 
+function auto1Request(action,url,timeout=80000){
+  return new Promise((resolve,reject)=>{
+    const id=crypto.randomUUID();
+    const timer=setTimeout(()=>{window.removeEventListener("message",listener);reject(new Error(action==="ping"?"Instala a extensão AUTO1 e recarrega esta página.":"A ligação AUTO1 não respondeu. Confirma a sessão e tenta novamente."))},timeout);
+    function listener(event){
+      if(event.source!==window||event.origin!==location.origin||event.data?.channel!=="CAP_AUTO1_RESPONSE"||event.data.id!==id)return;
+      clearTimeout(timer);window.removeEventListener("message",listener);
+      if(event.data.ok)resolve(event.data);else reject(new Error(event.data.message||"Falha na ligação AUTO1."));
+    }
+    window.addEventListener("message",listener);
+    window.postMessage({channel:"CAP_AUTO1_REQUEST",id,action,url},location.origin);
+  });
+}
+async function checkAuto1(){
+  try{await auto1Request("ping",null,1800);q("auto1Status").textContent="— extensão ligada";return true}
+  catch{q("auto1Status").textContent="— instalar extensão";return false}
+}
+q("auto1Check").addEventListener("click",async()=>{q("auto1Connection").open=true;await checkAuto1()});
+checkAuto1();
+
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   let url;
@@ -223,6 +245,15 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     if(manual){
       if(manual.length<40)throw new Error("Acrescenta marca, modelo, ano, quilómetros e preço nos dados do anúncio.");
       reader={ok:true,status:"ok",source_kind:"dealer_provided",page:{title:"Dados fornecidos pelo comerciante",description:"Leitura manual; anúncio privado não verificado diretamente.",text_sample:manual,json_ld:[]}};
+    }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
+      if(!await checkAuto1()){
+        q("auto1Connection").open=true;
+        throw new Error("Instala a extensão na secção Ligação automática à AUTO1, inicia sessão na AUTO1 e recarrega esta página.");
+      }
+      progress("A ler a AUTO1 na tua sessão…","A extensão abre a ficha no Chrome. Se necessário, inicia sessão na aba AUTO1.");
+      const capture=await auto1Request("read",url.toString());
+      reader=capture.reader;
+      if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("A AUTO1 não devolveu dados suficientes da ficha.");
     }else{
       progress("A ler a página pública…","A tentar obter os dados do anúncio.");
       const resp=await fetch("/api/comparador-analyze",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:url.toString()})});
@@ -284,6 +315,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     result.market.comment=market.market_comment||"";
     if(manual)result.warnings.push("Dados da viatura fornecidos pelo comerciante; anúncio privado não verificado diretamente.");
     renderResult(result,url.hostname,market.risk_flags||[]);
+    if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
 
     await updateAnalysis({
       status:"done",

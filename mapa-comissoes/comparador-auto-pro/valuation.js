@@ -134,9 +134,9 @@ export function evaluatePurchase(input,custom={}){
     market:{comparablesReceived:(input.comparables||[]).length,comparablesUsed:valid.length,comparablesExcluded:excluded.length,marketValue,saleLikely,saleFast,confidencePct},
     purchase:{currentPrice,fixedCosts:Math.round(fixedCosts),riskReserve:reserve,targetMargin,minimumMargin,maxPurchase,absoluteMax,expectedMargin,decision},
     tax:{mode:taxMode,vatRate},
-    comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(x=>({label:x.comp.label,url:x.comp.url,price:num(x.comp.price),adjustedPrice:x.adjustedPrice,similarity:x.similarity,year:x.comp.year,mileage_km:x.comp.mileage_km,trim:x.comp.trim})),
+    comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(x=>({label:x.comp.label,url:x.comp.url,price:num(x.comp.price),adjustedPrice:x.adjustedPrice,similarity:x.similarity,year:x.comp.year,mileage_km:x.comp.mileage_km,trim:x.comp.trim,origin:x.comp.origin||"unknown"})),
     excluded:excluded.map(x=>({label:x.comp?.label,url:x.comp?.url,reason:x.reason})),
-    warnings:[...(valid.length<5?["Poucos comparáveis válidos."]:[]),...(confidencePct<60?["Confiança baixa."]:[])]
+    warnings:[...(s.origin===undefined||s.origin==="unknown"?["Origem da viatura por confirmar."]:[]),...(valid.some(x=>!x.comp.origin||x.comp.origin==="unknown")?["Existem comparáveis com origem por confirmar."]:[]),...(valid.length<5?["Poucos comparáveis válidos."]:[]),...(confidencePct<60?["Confiança baixa."]:[])]
   };
 }
 export {DEFAULT_CONFIG};

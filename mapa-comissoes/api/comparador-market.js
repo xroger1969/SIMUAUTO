@@ -54,7 +54,7 @@ module.exports = async function handler(req, res) {
       subject: {
         type: "object",
         additionalProperties: false,
-        required: ["make","model","generation","trim","body_type","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","vat_deductible","price","equipment"],
+        required: ["make","model","generation","trim","body_type","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","vat_deductible","price","equipment","origin"],
         properties: {
           make:{type:["string","null"]},
           model:{type:["string","null"]},
@@ -71,7 +71,8 @@ module.exports = async function handler(req, res) {
           mileage_km:{type:["integer","null"]},
           vat_deductible:{type:["boolean","null"]},
           price:{type:["number","null"]},
-          equipment:{type:"array",items:{type:"string"}}
+          equipment:{type:"array",items:{type:"string"}},
+          origin:{type:"string",enum:["national","imported","unknown"]}
         }
       },
       comparables: {
@@ -81,7 +82,7 @@ module.exports = async function handler(req, res) {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["label","url","source_domain","make","model","generation","trim","fuel","battery_kwh","power_cv","drivetrain","year","first_registration","mileage_km","price","vat_deductible","warranty_months","days_since_seen","equipment"],
+          required: ["label","url","source_domain","make","model","generation","trim","fuel","battery_kwh","power_cv","drivetrain","year","first_registration","mileage_km","price","vat_deductible","warranty_months","days_since_seen","equipment","origin"],
           properties: {
             label:{type:"string"},
             url:{type:"string"},
@@ -101,7 +102,8 @@ module.exports = async function handler(req, res) {
             vat_deductible:{type:["boolean","null"]},
             warranty_months:{type:["integer","null"]},
             days_since_seen:{type:["integer","null"]},
-            equipment:{type:"array",items:{type:"string"}}
+            equipment:{type:"array",items:{type:"string"}},
+          origin:{type:"string",enum:["national","imported","unknown"]}
           }
         }
       },
@@ -138,6 +140,7 @@ module.exports = async function handler(req, res) {
     title: page.title || "",
     description: page.description || "",
     json_ld: page.json_ld || [],
+    origin_evidence: page.origin_evidence || null,
     text_sample: String(page.text_sample || "").slice(0, 14000),
     original_url: url
   }).slice(0, 18000);
@@ -147,6 +150,8 @@ module.exports = async function handler(req, res) {
     "Primeiro identifica com rigor a viatura do anúncio fornecido. Não inventes versão, potência, combustível, IVA ou equipamento se não houver evidência.",
     "Depois usa pesquisa web para encontrar anúncios atuais em Portugal de viaturas comparáveis, dando prioridade a Standvirtual, PiscaPisca, OLX, sites de stands e agregadores reputados.",
     "Procura primeiro mesma marca, modelo, geração, motorização/versão e ano próximo. Só alarga se faltarem resultados.",
+    "Em cada anúncio Standvirtual consulta a secção Estado e histórico, campo Origem. Regista national apenas quando diz Nacional e imported apenas quando diz Importado. Se o campo não estiver acessível, regista unknown. Não deduzas a origem pelo idioma, matrícula, país do vendedor ou ausência de informação.",
+    "Consulta a página de cada comparável para confirmar a origem. Não uses excertos de pesquisa para assumir Nacional.",
     "Evita duplicados do mesmo carro entre plataformas.",
     "Não uses preços de carros novos, páginas editoriais, peças, aluguer ou classificados estrangeiros no cálculo principal.",
     "Cada comparável tem de ter URL real e preço observado. Se ano/km/versão não forem confirmáveis, usa null em vez de inventar.",
