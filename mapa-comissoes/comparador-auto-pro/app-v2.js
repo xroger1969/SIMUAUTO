@@ -189,8 +189,6 @@ function renderResult(result,sourceHost,riskFlags=[]){
   renderComparables(result.comparables);
   renderRisks(riskFlags,result.warnings);
   q("calcBox").innerHTML=
-    "Custos económicos considerados: <strong>"+esc(fmt(result.purchase?.fixedCosts))+"</strong><br>"+
-    "Reserva de risco: <strong>"+esc(fmt(result.purchase?.riskReserve))+"</strong><br>"+
     "Margem objetivo ideal: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
     "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong>";
 }
