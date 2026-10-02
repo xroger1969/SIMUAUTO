@@ -657,7 +657,7 @@ async function runMarketAnalysis(payload){
   let consecutiveNetworkFailures=0;
   while(Date.now()-startedAt<8*60*1000){
     await wait(2200);
-    if(Date.now()-startedAt>12000)progress("A pesquisar o mercado…","A pesquisa continua em segundo plano. A página já não depende de uma ligação longa.");
+    if(Date.now()-startedAt>12000)progress("A pesquisar o mercado…","");
     let poll;
     try{
       poll=await fetchJson("/api/comparador-market?response_id="+encodeURIComponent(responseId),{
