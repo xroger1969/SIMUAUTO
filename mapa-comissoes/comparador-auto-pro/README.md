@@ -24,3 +24,4 @@ Protótipo isolado dentro do projeto `SIMUAUTO`, sem alterar o Mapa Comercial at
 - aprendizagem baseada em compras/vendas reais;
 - notificações apenas quando houver uma necessidade clara (OneSignal/Resend ficam fora da V1 para não criar complexidade desnecessária).
 \n\n<!-- redeploy after OPENAI_API_KEY configuration: 2026-10-02 -->\n
+<!-- preview redeploy after enabling OPENAI_API_KEY for Preview: 2026-10-02 11:16 -->
