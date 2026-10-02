@@ -101,3 +101,16 @@ button{cursor:pointer}
 .refine-bar .btn{min-height:40px;padding:9px 12px}
 
 @media(max-width:560px){.refine-bar{grid-template-columns:1fr auto}.refine-mark{grid-column:1/-1;padding-left:2px}.refine-bar input{min-width:0}.analyze-bar .vehicle-input-shell>input{padding-right:142px}.input-tool{width:40px;height:40px}.attachment-status{font-size:10px}}
+
+
+.refine-inline-status{margin:8px 2px 0;font-size:11px;color:#aac8e8}
+.refine-dialog{position:fixed;inset:0;z-index:150;display:grid;place-items:center;padding:20px;background:rgba(3,10,18,.68);backdrop-filter:blur(5px)}
+.refine-dialog-card{width:min(560px,100%);border:1px solid #41688f;border-radius:18px;background:#10263c;box-shadow:0 28px 80px rgba(0,0,0,.42);padding:18px}
+.refine-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.refine-dialog-head strong{display:block;margin-top:5px;font-size:18px}
+.refine-dialog-close{width:34px;height:34px;border-radius:10px;border:1px solid #355776;background:#0b1d30;color:#dcecff;font-size:22px;line-height:1;cursor:pointer}
+.refine-dialog-state{display:inline-flex;margin-top:16px;padding:6px 9px;border-radius:999px;border:1px solid #385f85;background:#0b1f34;color:#9fc9fa;font-size:10px;font-weight:800}
+.refine-dialog-state.success{border-color:#2e6b4c;background:#0e2b1e;color:#a7e2bd}
+.refine-dialog-state.error{border-color:#7b3f45;background:#32161b;color:#ffb8bf}
+.refine-dialog-card p{margin:13px 0 2px;color:#d6e3f2;font-size:13px;line-height:1.65;white-space:pre-line}
+@media(max-width:560px){.refine-dialog{align-items:end;padding:12px}.refine-dialog-card{border-radius:18px 18px 12px 12px}}
