@@ -48,10 +48,25 @@
       <p>O objetivo é chegar ao número que interessa: quanto podemos pagar para ainda fazer um bom negócio.</p>
 
       <form id="analyzeForm" class="analyze-bar">
-        <input aria-label="Link, matrícula ou descrição da viatura" id="vehicleUrl" type="text" maxlength="4000" required placeholder="Link, matrícula ou Tesla Model Y 2023">
+        <div class="vehicle-input-shell">
+          <input aria-label="Link, matrícula ou descrição da viatura" id="vehicleUrl" type="text" maxlength="4000" placeholder="Link, matrícula ou descreve a viatura">
+          <div class="input-tools" aria-label="Ferramentas de entrada">
+            <button class="input-tool" type="button" id="micBtn" aria-label="Ditar por voz" title="Ditar por voz">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21H8v2h8v-2h-3v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>
+            </button>
+            <label class="input-tool" for="vehiclePhoto" aria-label="Anexar fotografia" title="Anexar fotografia">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5 9.41 13.59a2 2 0 1 0 2.83 2.83l7.78-7.78a4 4 0 1 0-5.66-5.66L6.58 10.76a6 6 0 1 0 8.49 8.49l6.36-6.36-1.42-1.42-6.36 6.36a4 4 0 1 1-5.66-5.66l7.78-7.78a2 2 0 1 1 2.83 2.83l-7.78 7.78a.01.01 0 0 1-.02 0 .01.01 0 0 1 0-.02l7.07-7.07-1.41-1.41-7.07 7.07a2.01 2.01 0 0 0 2.84 2.84l7.78-7.78"/></svg>
+            </label>
+            <input id="vehiclePhoto" type="file" accept="image/*" capture="environment" hidden>
+          </div>
+        </div>
         <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
       </form>
-      <div class="hint"><a href="https://apps.apple.com/pt/app/spottd/id1516876698" target="_blank" rel="noopener noreferrer">Consultar Spottd ↗</a> · Podes acrescentar à descrição os dados que confirmares na aplicação.</div>
+      <div class="attachment-status hidden" id="attachmentStatus">
+        <span id="attachmentName">Fotografia pronta para a IA</span>
+        <button type="button" id="removeImage">Remover</button>
+      </div>
+      <div class="hint"><a href="https://apps.apple.com/pt/app/spottd/id1516876698" target="_blank" rel="noopener noreferrer">Consultar Spottd ↗</a> · Também podes ditar ou anexar uma fotografia para a IA ler.</div>
       <div class="hint" id="analyzeHint">Compara anúncios em Portugal e calcula a compra com custos, margem e reserva de risco. Valores anunciados são referências, não vendas confirmadas.</div>
     </section>
 
