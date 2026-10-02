@@ -15,7 +15,7 @@ async function lookupRegistration(value,{username=process.env.REGISTRATION_API_U
  const plate=String(value||'').toUpperCase().replace(/[\s-]/g,'');
  if(!PLATE.test(plate))throw failure('Matrícula portuguesa inválida.',400);
  if(!username)throw failure('A consulta por matrícula está preparada, mas falta ativar a conta do fornecedor. Entretanto, escreve a marca, modelo, ano e quilómetros.',503);
- let response;try{response=await fetcher('https://www.matricula.co.pt/api/reg.asmx/CheckPortugal',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({RegistrationNumber:plate,username}),signal:AbortSignal.timeout(15000)});}catch{throw failure('O serviço de matrículas não respondeu. Tenta novamente mais tarde.');}
+ let response;try{response=await fetcher('https://www.matricula.co.pt/api/reg.asmx/CheckPortugal',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({RegistrationNumber:plate,username:username.trim()}),signal:AbortSignal.timeout(45000)});}catch(error){console.error('registration_transport_failure',{kind:error.name,code:error.cause?.code||error.code||'unknown'});throw failure('Não foi possível ligar ao serviço de matrículas. Tenta novamente dentro de instantes.');}
  if(!response.ok)throw failure('Consulta de matrícula indisponível. Verifica o acesso e os créditos do fornecedor.');
  const xml=await response.text();if(xml.length>200000)throw failure('Resposta demasiado extensa do fornecedor.');
  return parseRegistration(xml);
