@@ -112,5 +112,10 @@ button{cursor:pointer}
 .refine-dialog-state{display:inline-flex;margin-top:16px;padding:6px 9px;border-radius:999px;border:1px solid #385f85;background:#0b1f34;color:#9fc9fa;font-size:10px;font-weight:800}
 .refine-dialog-state.success{border-color:#2e6b4c;background:#0e2b1e;color:#a7e2bd}
 .refine-dialog-state.error{border-color:#7b3f45;background:#32161b;color:#ffb8bf}
-.refine-dialog-card p{margin:13px 0 2px;color:#d6e3f2;font-size:13px;line-height:1.65;white-space:pre-line}
-@media(max-width:560px){.refine-dialog{align-items:end;padding:12px}.refine-dialog-card{border-radius:18px 18px 12px 12px}}
+.refine-dialog-card{max-height:min(78vh,680px);display:flex;flex-direction:column;overflow:hidden}
+.refine-dialog-messages{margin-top:12px;max-height:52vh;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth;display:flex;flex-direction:column;gap:8px;padding:2px 4px 4px 0}
+.refine-dialog-message{max-width:88%;padding:10px 12px;border:1px solid #355776;border-radius:12px;background:#0b1d30;color:#d6e3f2;font-size:13px;line-height:1.55;white-space:pre-line;overflow-wrap:anywhere}
+.refine-dialog-message.user{align-self:flex-end;background:#1c4c78;border-color:#4c7da7;color:#f2f8ff}
+.refine-dialog-message.assistant{align-self:flex-start}
+.refine-dialog-message.error{align-self:flex-start;background:#32161b;border-color:#7b3f45;color:#ffccd1}
+@media(max-width:560px){.refine-dialog{align-items:end;padding:12px}.refine-dialog-card{border-radius:18px 18px 12px 12px;max-height:82vh}.refine-dialog-messages{max-height:58vh}}
