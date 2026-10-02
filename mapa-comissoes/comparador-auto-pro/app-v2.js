@@ -141,7 +141,7 @@ async function refreshMemoryCount(){
 }
 
 async function learnFromRefinement(text){
-  if(!text||!session||!currentAnalysisId)return false;
+  if(!text||!session||!currentAnalysisId)return {learned:false,reply:""};
   try{
     const memories=relevantMemories(await loadMemories(),currentVehicle||{});
     const response=await fetch("/api/comparador-ai",{
@@ -168,10 +168,13 @@ async function learnFromRefinement(text){
     });
 
     const data=await response.json().catch(()=>({}));
-    if(!response.ok)return false;
+    if(!response.ok)return {learned:false,reply:""};
 
+    const reply=String(data.reply||"").trim();
     const memory=data.memory_rule;
-    if(!(data.should_save_memory&&memory&&memory.rule_type&&memory.rule_type!=="none"))return false;
+    if(!(data.should_save_memory&&memory&&memory.rule_type&&memory.rule_type!=="none")){
+      return {learned:false,reply};
+    }
 
     const scope=memory.scope||{};
     const {error}=await db.from("cap_memory_rules").insert({
@@ -186,10 +189,10 @@ async function learnFromRefinement(text){
     });
     if(error)throw error;
     await refreshMemoryCount();
-    return true;
+    return {learned:true,reply};
   }catch(error){
     console.warn("Aprendizagem do refinamento:",error);
-    return false;
+    return {learned:false,reply:""};
   }
 }
 
@@ -805,6 +808,16 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   }
 });
 
+function showRefineDialog(state,message,tone="loading"){
+  q("refineDialogState").textContent=state;
+  q("refineDialogState").className="refine-dialog-state"+(tone==="success"?" success":tone==="error"?" error":"");
+  q("refineDialogText").textContent=message;
+  q("refineDialog").classList.remove("hidden");
+}
+function closeRefineDialog(){q("refineDialog").classList.add("hidden")}
+q("refineDialogClose").addEventListener("click",closeRefineDialog);
+q("refineDialog").addEventListener("click",ev=>{if(ev.target===q("refineDialog"))closeRefineDialog()});
+
 q("refineForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   const text=q("refineInput").value.trim();
@@ -815,8 +828,13 @@ q("refineForm").addEventListener("submit",async ev=>{
   }
 
   const button=q("refineBtn");
+  const originalButtonText=button.textContent;
   q("refineInput").disabled=true;
   button.disabled=true;
+  button.textContent="A analisar…";
+  q("refineInlineStatus").textContent="A IA está a refazer a análise…";
+  q("refineInlineStatus").classList.remove("hidden");
+  showRefineDialog("A analisar…","A cruzar a tua indicação com esta viatura e com a concorrência profissional.","loading");
   addMsg("user","Refinar análise: "+text);
   await storeMessage("user","Refinar análise: "+text);
 
@@ -886,25 +904,35 @@ q("refineForm").addEventListener("submit",async ev=>{
       reader
     });
 
-    const learned=await learnFromRefinement(text);
+    const refinementAI=await learnFromRefinement(text);
+    const learned=refinementAI.learned;
     q("refineInput").value="";
     const reply=(missing.length
       ?"Análise refeita com a tua indicação. Ainda falta confirmar "+missing.join(", ")+"."
       :"Análise refeita com a tua indicação e nova pesquisa de mercado.")
       +(learned?" A orientação também ficou guardada para análises futuras a que se aplique.":"");
+    const priceSummary=Number.isFinite(Number(result.purchase?.maxPurchase))
+      ?"\n\nNovo máximo de compra recomendado: "+fmt(result.purchase.maxPurchase)+"."
+      :"";
+    const visibleReply=(refinementAI.reply?refinementAI.reply+"\n\n":"")+reply+priceSummary;
     addMsg("assistant",reply);
     await storeMessage("assistant",reply);
     q("saveStatus").textContent="IA ativa";
+    q("refineInlineStatus").textContent="Análise atualizada pela IA.";
+    showRefineDialog("Análise atualizada",visibleReply,"success");
     toast(learned?"Análise refeita e orientação guardada.":"Análise refeita.");
   }catch(err){
     const message=String(err?.message||err);
     addMsg("assistant","Não consegui refazer a análise: "+message);
     await storeMessage("assistant","Não consegui refazer a análise: "+message);
+    q("refineInlineStatus").textContent="Não foi possível refazer a análise.";
+    showRefineDialog("Não foi possível concluir",message,"error");
     toast("Não foi possível refazer a análise.");
   }finally{
     stopProgress();
     q("refineInput").disabled=false;
     button.disabled=false;
+    button.textContent=originalButtonText;
   }
 });
 
