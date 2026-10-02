@@ -20,34 +20,6 @@ let member=null;
 let currentAnalysisId=null;
 let currentVehicle=null;
 
-const CASE_YX06990={
-  subject:{
-    make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Business Pro Performance",
-    fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,
-    first_registration:"2021-08-01",mileage_km:59517,vat_deductible:true,price:23300,
-    equipment:["acc stop&go","lane assist","camera traseira","bancos aquecidos","volante aquecido","keyless","discover pro","led"]
-  },
-  comparables:[
-    {label:"ID.4 Business Pro Performance",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Business Pro Performance",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-12-01",mileage_km:76100,price:26000,vat_deductible:true,warranty_months:18,days_since_seen:3,url:"https://www.standvirtual.com/"},
-    {label:"ID.4 Business Pro Performance",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Business Pro Performance",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-08-01",mileage_km:99864,price:25999,vat_deductible:true,days_since_seen:7,url:"https://www.standvirtual.com/"},
-    {label:"ID.4 Pro Performance Life",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Pro Performance Life",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-10-01",mileage_km:59000,price:25900,days_since_seen:5,url:"https://www.standvirtual.com/"},
-    {label:"ID.4 Pro Performance 1st",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Pro Performance 1st",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-03-01",mileage_km:50443,price:25800,days_since_seen:6,url:"https://www.standvirtual.com/"},
-    {label:"ID.4 Pro Performance 1st",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Pro Performance 1st",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-06-01",mileage_km:85284,price:24950,days_since_seen:9,url:"https://www.standvirtual.com/"},
-    {label:"ID.4 Pro Performance",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Pro Performance",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-05-01",mileage_km:112000,price:25500,days_since_seen:12,url:"https://www.standvirtual.com/"},
-    {label:"ID.4 Pro Performance 1st",make:"Volkswagen",model:"ID.4",generation:"ID.4",trim:"Pro Performance 1st",fuel:"electric",battery_kwh:77,power_cv:204,drivetrain:"RWD",year:2021,first_registration:"2021-07-01",mileage_km:94479,price:28900,days_since_seen:4,url:"https://www.standvirtual.com/"}
-  ],
-  current_purchase_price:23300,
-  tax:{mode:"deductible",vat_rate:.23},
-  costs:{auction_fee:370.5,transport:120,reconditioning:300,warranty_reserve:120,stock_finance:80,other:0},
-  risk_flags:[
-    {code:"cosmetic",label:"4 pontos de carroçaria assinalados",reserve_eur:250,severity:"medium"},
-    {code:"one_key",label:"Apenas 1 chave",reserve_eur:180,severity:"medium"},
-    {code:"service_history",label:"Histórico de manutenção não disponível",reserve_eur:120,severity:"medium"}
-  ],
-  target_margin:1500,
-  minimum_margin:900
-};
-
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
   q("authGate").classList.remove("hidden");q("app").classList.add("hidden");
@@ -109,12 +81,28 @@ function ruleType(text){
   if(/margem|ganhar|custo|comissão|comissao|preço mínimo|preco minimo/.test(t))return "margin_cost";
   return "commercial_preference";
 }
+function ruleEffect(text,type){
+  const t=text.toLowerCase();
+  const negative=/não quero|nao quero|evitar|problema|avaria|fraco|lento|difícil|dificil|má saída|ma saida|pouca procura/.test(t);
+  const positive=/muito procurado|vende muito|muita procura|boa saída|boa saida|rápido|rapido|forte procura|quero dar ênfase|quero dar enfase/.test(t);
+  if(type==="technical_risk"){
+    return {mode:"advisory",reserve_eur:negative?250:150,polarity:"negative"};
+  }
+  if(type==="liquidity"){
+    return {mode:"advisory",liquidity_bias:positive?1:negative?-1:0,polarity:positive?"positive":negative?"negative":"neutral"};
+  }
+  if(type==="margin_cost"){
+    return {mode:"advisory",polarity:negative?"negative":"neutral"};
+  }
+  return {mode:"advisory",polarity:positive?"positive":negative?"negative":"neutral"};
+}
+
 function ruleReply(type){
   return {
-    technical_risk:"Registei isto como alerta técnico. Vai pesar no risco e na reserva, não alterar cegamente o preço de mercado.",
-    liquidity:"Registei a observação de procura/liquidez. O sistema deve confirmá-la com oferta, rotação e histórico antes de reduzir a margem de segurança.",
-    margin_cost:"Registei como regra de margem/custo. Fica separada do valor de mercado para podermos auditar a decisão.",
-    commercial_preference:"Registei como preferência comercial. Fica associada a este tipo de viatura e pode ser revista mais tarde."
+    technical_risk:"Registei isto como aprendizagem técnica. Começa como regra prudente e ganha peso quando compras/vendas reais a confirmarem.",
+    liquidity:"Registei a tua leitura de procura/liquidez. Não vai distorcer o preço sozinho: ganha peso com stock, tempo de venda e resultados reais.",
+    margin_cost:"Registei esta regra de margem/custo. Fica auditável e separada do valor de mercado.",
+    commercial_preference:"Registei esta preferência comercial. Fica ligada ao contexto da viatura e pode ser reforçada ou contrariada pelos resultados reais."
   }[type];
 }
 function addMsg(role,text){
@@ -220,20 +208,6 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
     await createAnalysis(url.toString(),url.hostname);
 
-    if(url.hostname.includes("auto1.com")&&url.pathname.includes("YX06990")){
-      progress("Caso real reconhecido","A aplicar comparáveis, IVA, custos e risco já validados.");
-      await new Promise(r=>setTimeout(r,350));
-      const result=evaluatePurchase(CASE_YX06990);
-      renderResult(result,url.hostname,CASE_YX06990.risk_flags);
-      await updateAnalysis({
-        status:"done",vehicle:result.subject,market:result.market,purchase:result.purchase,
-        risks:CASE_YX06990.risk_flags,reader:{status:"stored_authenticated_case",reference:"YX06990"}
-      });
-      addMsg("assistant","Caso real YX06990 carregado. Podes ensinar-me regras sobre este ID.4 na caixa abaixo.");
-      await storeMessage("assistant","Caso real YX06990 carregado. Podes ensinar-me regras sobre este ID.4 na caixa abaixo.");
-      return;
-    }
-
     progress("A ler a página pública…","Sem navegador pago: primeiro tentamos leitura direta e segura.");
     const resp=await fetch("/api/comparador-analyze",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:url.toString()})});
     const reader=await resp.json();
@@ -246,11 +220,23 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       return;
     }
     if(reader.status!=="ok"){
-      await updateAnalysis({status:"failed",reader,error_message:reader.message||reader.error||"Falha de leitura"});
+      await updateAnalysis({
+        status:"failed",
+        reader,
+        error_message:reader.message||reader.error||"Falha de leitura",
+        source_available:[404,410].includes(Number(reader.http_status))?false:null
+      });
       throw new Error(reader.message||"Não foi possível ler o anúncio.");
     }
     renderReaderOnly(reader,url.toString());
-    await updateAnalysis({status:"searching",reader,vehicle:{page_title:reader.page?.title||""}});
+    await updateAnalysis({
+      status:"searching",
+      reader,
+      vehicle:{page_title:reader.page?.title||""},
+      source_snapshot:reader.page||{},
+      source_last_seen_at:new Date().toISOString(),
+      source_available:true
+    });
     addMsg("assistant","Consegui ler o anúncio. O próximo passo desta V1 é ligar a normalização automática e o radar de comparáveis.");
     await storeMessage("assistant","Consegui ler o anúncio. O próximo passo desta V1 é ligar a normalização automática e o radar de comparáveis.");
   }catch(err){
@@ -271,10 +257,20 @@ q("chatForm").addEventListener("submit",async ev=>{
     make:currentVehicle.make||null,model:currentVehicle.model||null,trim:currentVehicle.trim||null,
     year_min:currentVehicle.year||null,year_max:currentVehicle.year||null
   }:{};
-  const rule={rule_type:type,statement:text,scope,effect:{mode:"advisory"},confidence:.6,analysis_id:currentAnalysisId,user_id:session.user.id};
+  const effect=ruleEffect(text,type);
+  const rule={
+    rule_type:type,
+    statement:text,
+    scope,
+    effect,
+    evidence_level:"observation",
+    confidence:.6,
+    analysis_id:currentAnalysisId,
+    user_id:session.user.id
+  };
   const {error}=await db.from("cap_memory_rules").insert(rule);
   if(error){addMsg("assistant","Não consegui guardar esta observação: "+error.message);return}
-  const reply=ruleReply(type);addMsg("assistant",reply);await storeMessage("assistant",reply,[{rule_type:type,statement:text,scope}]);
+  const reply=ruleReply(type);addMsg("assistant",reply);await storeMessage("assistant",reply,[{rule_type:type,statement:text,scope,effect}]);
   refreshMemoryCount();
 });
 
