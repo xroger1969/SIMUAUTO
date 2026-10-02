@@ -29,7 +29,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       configured: Boolean(process.env.OPENAI_API_KEY),
-      model: process.env.OPENAI_MODEL || "gpt-6-luna",
+      model: process.env.OPENAI_MODEL || "gpt-6-astra",
       api: "responses"
     });
   }
@@ -116,7 +116,7 @@ module.exports = async function handler(req, res) {
         authorization: "Bearer " + process.env.OPENAI_API_KEY
       },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || "gpt-6-luna",
+        model: process.env.OPENAI_MODEL || "gpt-6-astra",
         store: false,
         instructions,
         input: "CONTEXTO:\n" + contextJson + "\n\nMENSAGEM DO COMERCIANTE:\n" + message,
@@ -156,7 +156,7 @@ module.exports = async function handler(req, res) {
 
     return res.status(200).json({
       ok: true,
-      model: data.model || process.env.OPENAI_MODEL || "gpt-6-luna",
+      model: data.model || process.env.OPENAI_MODEL || "gpt-6-astra",
       usage: data.usage || null,
       ...parsed
     });
