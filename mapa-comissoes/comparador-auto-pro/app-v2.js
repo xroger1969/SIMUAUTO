@@ -248,6 +248,41 @@ function setImageStatus(name){
     q("attachmentStatus").classList.add("hidden");
   }
 }
+function resetSearchInput(){
+  const input=q("vehicleUrl");
+  input.value="";
+  selectedImageData=null;
+  selectedImageName="";
+  q("vehiclePhoto").value="";
+  setImageStatus("");
+
+  if(speechRecognition){
+    try{
+      speechRecognition.onerror=null;
+      speechRecognition.onend=null;
+      speechRecognition.onresult=null;
+      speechRecognition.abort();
+    }catch{}
+    speechRecognition=null;
+  }
+  if(mediaRecorder&&mediaRecorder.state!=="inactive"){
+    try{
+      mediaRecorder.ondataavailable=null;
+      mediaRecorder.onstop=null;
+      mediaRecorder.stop();
+    }catch{}
+  }
+  clearTimeout(recordingTimer);
+  recordingTimer=null;
+  mediaStream?.getTracks().forEach(track=>track.stop());
+  mediaStream=null;
+  mediaRecorder=null;
+  audioChunks=[];
+  setMicActive(false);
+
+  input.focus();
+  toast("Pesquisa limpa.");
+}
 function loadImageElement(file){
   return new Promise((resolve,reject)=>{
     const url=URL.createObjectURL(file),img=new Image();
@@ -367,6 +402,7 @@ q("vehiclePhoto").addEventListener("change",async ev=>{
 q("removeImage").addEventListener("click",()=>{
   selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
 });
+q("resetSearchBtn").addEventListener("click",resetSearchInput);
 q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
 
 async function loadMemories(){
