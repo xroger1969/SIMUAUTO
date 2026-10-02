@@ -33,7 +33,7 @@ let recordingTimer=null;
 
 const DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
-  target_margin:2000,
+  target_margin:3500,
   minimum_margin:1200
 };
 
@@ -140,6 +140,7 @@ async function refreshMemoryCount(){
 }
 
 const originLabel=v=>v==="national"?"Nacional":v==="imported"?"Importado":"Origem por confirmar";
+const sellerLabel=v=>v==="professional"?"Profissional":v==="private"?"Particular":"Vendedor por confirmar";
 function vehicleMeta(v){
   const bits=[];
   if(v.first_registration)bits.push(v.first_registration.slice(0,7).split("-").reverse().join("/"));
@@ -162,7 +163,7 @@ function renderComparables(rows){
   const box=q("comparableList");box.innerHTML="";
   (rows||[]).slice(0,6).forEach(c=>{
     const el=document.createElement("div");el.className="comp";
-    el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km?Number(c.mileage_km).toLocaleString("pt-PT")+" km":"")+" · "+originLabel(c.origin))+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc(c.similarity+"% semelhante")+"</em></div>";
+    el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km?Number(c.mileage_km).toLocaleString("pt-PT")+" km":"")+" · "+originLabel(c.origin)+" · "+sellerLabel(c.seller_type))+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc(c.similarity+"% semelhante")+"</em></div>";
     if(c.url){try{const u=new URL(c.url);if(["https:","http:"].includes(u.protocol)){const a=document.createElement("a");a.href=u.toString();a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}}catch{}}
     box.appendChild(el);
   });
@@ -190,7 +191,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("calcBox").innerHTML=
     "Custos económicos considerados: <strong>"+esc(fmt(result.purchase?.fixedCosts))+"</strong><br>"+
     "Reserva de risco: <strong>"+esc(fmt(result.purchase?.riskReserve))+"</strong><br>"+
-    "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
+    "Margem objetivo ideal: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
     "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong>";
 }
 function renderReaderOnly(reader,url){
