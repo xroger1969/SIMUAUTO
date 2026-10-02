@@ -2,13 +2,19 @@ const DEFAULT_CONFIG = Object.freeze({
   weights:{identity:25,powertrain:20,year:15,mileage:15,performance:10,equipment:7,commercial:5,freshness:3},
   minSimilarity:55, negotiationDiscountPct:.02, fastSaleDiscountPct:.035,
   riskReservePct:.006, kmAdjustmentPer1000:20, ageAdjustmentPerMonth:55,
-  equipmentUnitAdjustment:120, minimumMargin:1500, targetMargin:2000
+  equipmentUnitAdjustment:120, minimumMargin:1500, targetMargin:3500
 });
 const num=(v,f=0)=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v))?Number(v):f;
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const norm=v=>String(v??"").trim().toLowerCase();
 const same=(a,b)=>!!norm(a)&&norm(a)===norm(b);
 const list=v=>Array.isArray(v)?v.map(norm).filter(Boolean):[];
+function sellerType(c){
+  const t=norm(c?.seller_type||c?.sellerType);
+  if(["professional","dealer","stand","trade"].includes(t))return "professional";
+  if(["private","particular"].includes(t))return "private";
+  return "unknown";
+}
 
 function monthIndex(v){
   if(!v)return null; const d=new Date(v); if(Number.isNaN(d.getTime()))return null;
@@ -100,12 +106,32 @@ export function evaluatePurchase(input,custom={}){
     const sim=similarity(s,c,config); if(sim<config.minSimilarity){excluded.push({comp:c,reason:`semelhança insuficiente (${sim}%)`});continue}
     rows.push({comp:c,similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
   }
-  let valid=rows;
-  if(rows.length>=5){
-    const q=quartiles(rows.map(x=>x.adjustedPrice)),iqr=q.q3-q.q1,lo=q.q1-1.5*iqr,hi=q.q3+1.5*iqr;
-    valid=[]; for(const r of rows){if(r.adjustedPrice<lo||r.adjustedPrice>hi)excluded.push({comp:r.comp,reason:"outlier de preço"});else valid.push(r)}
+  const professionalRows=rows.filter(r=>sellerType(r.comp)==="professional");
+  const nonPrivateRows=rows.filter(r=>sellerType(r.comp)!=="private");
+  let marketBasis="private_fallback";
+  let basisRows=rows;
+  if(professionalRows.length>=3){
+    marketBasis="professional";
+    basisRows=professionalRows;
+    for(const r of rows){
+      if(sellerType(r.comp)!=="professional")excluded.push({comp:r.comp,reason:sellerType(r.comp)==="private"?"anúncio particular — fora da amostra profissional principal":"vendedor não confirmado — fora da amostra profissional principal"});
+    }
+  }else if(nonPrivateRows.length){
+    marketBasis=professionalRows.length?"professional_priority":"seller_unconfirmed";
+    basisRows=nonPrivateRows;
+    for(const r of rows){
+      if(sellerType(r.comp)==="private")excluded.push({comp:r.comp,reason:"anúncio particular — fora da referência profissional"});
+    }
   }
-  const marketValue=Math.round(weightedMedian(valid.map(x=>({value:x.adjustedPrice,weight:Math.pow(x.similarity/100,2)}))));
+  let valid=basisRows;
+  if(basisRows.length>=5){
+    const q=quartiles(basisRows.map(x=>x.adjustedPrice)),iqr=q.q3-q.q1,lo=q.q1-1.5*iqr,hi=q.q3+1.5*iqr;
+    valid=[]; for(const r of basisRows){if(r.adjustedPrice<lo||r.adjustedPrice>hi)excluded.push({comp:r.comp,reason:"outlier de preço"});else valid.push(r)}
+  }
+  const marketValue=Math.round(weightedMedian(valid.map(x=>({
+    value:x.adjustedPrice,
+    weight:Math.pow(x.similarity/100,2)*(sellerType(x.comp)==="professional"?1.25:sellerType(x.comp)==="unknown"?.65:.25)
+  }))));
   const confidencePct=confidence(valid,marketValue,s);
   const saleLikely=Math.round(marketValue*(1-num(input.negotiation_discount_pct,config.negotiationDiscountPct)));
   const saleFast=Math.round(saleLikely*(1-num(input.fast_sale_discount_pct,config.fastSaleDiscountPct)));
@@ -131,12 +157,12 @@ export function evaluatePurchase(input,custom={}){
   }
   return{
     subject:s,
-    market:{comparablesReceived:(input.comparables||[]).length,comparablesUsed:valid.length,comparablesExcluded:excluded.length,marketValue,saleLikely,saleFast,confidencePct},
+    market:{comparablesReceived:(input.comparables||[]).length,comparablesUsed:valid.length,comparablesExcluded:excluded.length,professionalComparables:valid.filter(x=>sellerType(x.comp)==="professional").length,privateComparables:valid.filter(x=>sellerType(x.comp)==="private").length,unknownSellerComparables:valid.filter(x=>sellerType(x.comp)==="unknown").length,marketBasis,marketValue,saleLikely,saleFast,confidencePct},
     purchase:{currentPrice,fixedCosts:Math.round(fixedCosts),riskReserve:reserve,targetMargin,minimumMargin,maxPurchase,absoluteMax,expectedMargin,decision},
     tax:{mode:taxMode,vatRate},
-    comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(x=>({label:x.comp.label,url:x.comp.url,price:num(x.comp.price),adjustedPrice:x.adjustedPrice,similarity:x.similarity,year:x.comp.year,mileage_km:x.comp.mileage_km,trim:x.comp.trim,origin:x.comp.origin||"unknown"})),
+    comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(x=>({label:x.comp.label,url:x.comp.url,price:num(x.comp.price),adjustedPrice:x.adjustedPrice,similarity:x.similarity,year:x.comp.year,mileage_km:x.comp.mileage_km,trim:x.comp.trim,origin:x.comp.origin||"unknown",seller_type:sellerType(x.comp),seller_name:x.comp.seller_name||null,source_domain:x.comp.source_domain||null})),
     excluded:excluded.map(x=>({label:x.comp?.label,url:x.comp?.url,reason:x.reason})),
-    warnings:[...(s.origin===undefined||s.origin==="unknown"?["Origem da viatura por confirmar."]:[]),...(valid.some(x=>!x.comp.origin||x.comp.origin==="unknown")?["Existem comparáveis com origem por confirmar."]:[]),...(valid.length<5?["Poucos comparáveis válidos."]:[]),...(confidencePct<60?["Confiança baixa."]:[])]
+    warnings:[...(s.origin===undefined||s.origin==="unknown"?["Origem da viatura por confirmar."]:[]),...(valid.some(x=>!x.comp.origin||x.comp.origin==="unknown")?["Existem comparáveis com origem por confirmar."]:[]),...(marketBasis==="private_fallback"?["Sem comparáveis profissionais confirmados; anúncios particulares usados apenas como referência de recurso."]:[]),...((marketBasis==="professional_priority"&&professionalRows.length<3)?["Poucos comparáveis de profissionais confirmados; complementado apenas com vendedores ainda não confirmados."]:[]),...(valid.length<5?["Poucos comparáveis válidos."]:[]),...(confidencePct<60?["Confiança baixa."]:[])]
   };
 }
 export {DEFAULT_CONFIG};
