@@ -246,26 +246,20 @@ function auto1VehicleCode(url){
     return m?decodeURIComponent(m[1]).trim():"";
   }catch{return ""}
 }
-async function readAuto1ViaApi(url){
-  let lastMessage="A leitura direta AUTO1 por API ainda não está disponível.";
-  for(let attempt=0;attempt<5;attempt++){
-    const {response,data}=await fetchJson("/api/comparador-auto1",{
-      method:"POST",
-      headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
-      body:JSON.stringify({url:url.toString()})
-    },50000);
-    if(response.ok&&data.reader?.status==="ok")return data.reader;
-    if(response.status===202||data.status==="pending"){
-      progress("A ler a AUTO1…","A ficha está a ser obtida diretamente pelo link. Só mais um momento.");
-      await wait(2500);
-      continue;
+function auto1LinkReader(url){
+  const code=auto1VehicleCode(url);
+  return {
+    ok:true,
+    status:"ok",
+    source_kind:"auto1_link_only",
+    vehicle_code:code||null,
+    page:{
+      title:"AUTO1 "+(code||""),
+      description:"Link privado AUTO1 reconhecido. O sistema vai tentar identificar a viatura pelo código da oferta e pela pesquisa de mercado.",
+      text_sample:"AUTO1 offer code: "+(code||"unknown")+"\nSource URL: "+url,
+      json_ld:[]
     }
-    lastMessage=data.message||data.error||lastMessage;
-    const err=new Error(lastMessage);
-    err.code=data.error||"auto1_api_error";
-    throw err;
-  }
-  throw new Error(lastMessage);
+  };
 }
 function auto1ScreenshotReader(url,description){
   const code=auto1VehicleCode(url);
@@ -588,33 +582,15 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     if(entry.mode==="manual"){
       reader={ok:true,status:"ok",source_kind:selectedImageData?"photo":"manual",page:{title:selectedImageData?(entry.description==="Fotografia anexada para identificação da viatura."?"Fotografia para leitura por IA":entry.description):entry.description,description:selectedImageData?"Fotografia fornecida pelo comerciante; a IA deve ler apenas o que estiver visível.":"Descrição fornecida pelo comerciante; campos omissos não confirmados.",text_sample:entry.description,json_ld:[]}};
     }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
-      let apiError=null;
-      try{
-        progress("A ler a AUTO1 pelo link…","A tentar obter a ficha sem depender do Chrome.");
-        reader=await readAuto1ViaApi(url);
-      }catch(error){
-        apiError=error;
-      }
-
-      if(!reader&&selectedImageData){
+      if(selectedImageData){
+        progress("A ler a AUTO1…","A usar o link e a fotografia em conjunto.");
         reader=auto1ScreenshotReader(url.toString(),entry.description);
-        toast("AUTO1: vou usar o link + a fotografia anexada.");
+      }else{
+        progress("A identificar a AUTO1…","A usar o código da oferta e a pesquisa disponível, sem serviços pagos.");
+        reader=auto1LinkReader(url.toString());
       }
 
-      if(!reader&&await checkAuto1()){
-        progress("A ler a AUTO1 na tua sessão…","A usar a ligação local como alternativa.");
-        const capture=await auto1Request("read",url.toString());
-        reader=capture.reader;
-      }
-
-      if(!reader){
-        q("auto1Connection").classList.remove("hidden");
-        const message=apiError?.code==="auto1_api_not_configured"
-          ?"O link AUTO1 foi reconhecido, mas a leitura direta por API ainda precisa de ser ativada. Em Safari, anexa ou cola uma captura da ficha e volta a analisar."
-          :(apiError?.message||"Não consegui obter a ficha AUTO1 pelo link. Em Safari, anexa ou cola uma captura da ficha e volta a analisar.");
-        throw new Error(message);
-      }
-      if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("A AUTO1 não devolveu dados suficientes da ficha.");
+      if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("Não consegui preparar o link AUTO1 para análise.");
     }else{
       progress("A ler a página pública…","A tentar obter os dados do anúncio.");
       const resp=await fetch("/api/comparador-analyze",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:url.toString()})});
@@ -685,7 +661,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 
     renderResult(result,entry.registration?"Matrícula.co.pt":selectedImageData?"photo":entry.mode==="manual"?"manual":url.hostname,market.risk_flags||[]);
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
-    if(reader.source_kind==="auto1_api")q("sourceLabel").textContent="AUTO1 · Link direto · "+reader.vehicle_code;
+    if(reader.source_kind==="auto1_link_only")q("sourceLabel").textContent="AUTO1 · Link · "+(reader.vehicle_code||"");
     if(reader.source_kind==="auto1_screenshot")q("sourceLabel").textContent="AUTO1 · Link + fotografia · "+(reader.vehicle_code||"");
 
     await updateAnalysis({
@@ -697,7 +673,12 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       reader
     });
 
-    const completion=missing.length?"Pesquisei o mercado. Falta confirmar "+missing.join(", ")+". Acrescenta esses dados no campo acima e volta a analisar.":"Análise concluída. Podes perguntar ou ensinar-me algo sobre esta viatura.";
+    const auto1LinkOnly=reader?.source_kind==="auto1_link_only";
+    const completion=missing.length
+      ?(auto1LinkOnly
+        ?"Reconheci o link AUTO1 e pesquisei o que estava disponível. Falta confirmar "+missing.join(", ")+". Se colares uma captura da ficha com ⌘V, completo a leitura sem qualquer serviço pago."
+        :"Pesquisei o mercado. Falta confirmar "+missing.join(", ")+". Acrescenta esses dados no campo acima e volta a analisar.")
+      :"Análise concluída. Podes perguntar ou ensinar-me algo sobre esta viatura.";
     addMsg("assistant",completion);
     await storeMessage("assistant",completion);
   }catch(err){
@@ -780,7 +761,7 @@ q("refineForm").addEventListener("submit",async ev=>{
 
     renderResult(result,lastAnalysisContext.sourceHost,market.risk_flags||[]);
     if(reader?.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
-    if(reader?.source_kind==="auto1_api")q("sourceLabel").textContent="AUTO1 · Link direto · "+reader.vehicle_code;
+    if(reader?.source_kind==="auto1_link_only")q("sourceLabel").textContent="AUTO1 · Link · "+(reader.vehicle_code||"");
     if(reader?.source_kind==="auto1_screenshot")q("sourceLabel").textContent="AUTO1 · Link + fotografia · "+(reader.vehicle_code||"");
 
     lastAnalysisContext.marketPayload={...payload,previous_subject:subject};
