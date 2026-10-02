@@ -639,8 +639,21 @@ q("analyzeForm").addEventListener("submit",async ev=>{
         progress("A ler a AUTO1…","A usar o link e a fotografia em conjunto.");
         reader=auto1ScreenshotReader(url.toString(),entry.description);
       }else{
-        progress("A identificar a AUTO1…","A usar o código da oferta e a pesquisa disponível, sem serviços pagos.");
-        reader=auto1LinkReader(url.toString());
+        const privateReaderAvailable=await checkAuto1();
+        if(privateReaderAvailable){
+          progress("A ler a AUTO1…","A usar a sessão AUTO1 já iniciada no Chrome.");
+          try{
+            const privateRead=await auto1Request("read",url.toString());
+            reader=privateRead.reader;
+          }catch(error){
+            console.warn("Leitura privada AUTO1 indisponível; a continuar sem custos:",error);
+            progress("A identificar a AUTO1…","A ligação privada não respondeu; vou continuar pelo código da oferta.");
+            reader=auto1LinkReader(url.toString());
+          }
+        }else{
+          progress("A identificar a AUTO1…","A usar o código da oferta e a pesquisa disponível, sem serviços pagos.");
+          reader=auto1LinkReader(url.toString());
+        }
       }
 
       if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("Não consegui preparar o link AUTO1 para análise.");
