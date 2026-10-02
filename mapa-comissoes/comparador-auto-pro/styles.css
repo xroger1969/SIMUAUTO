@@ -91,3 +91,13 @@ button{cursor:pointer}
 .ai-panel{margin-top:24px;padding:18px 22px}.ai-panel>summary{display:flex;align-items:center;justify-content:space-between;font-size:14px;color:#aab8ca}.ai-panel[open]>.panel-head{margin-top:20px}.hero h1{font-size:clamp(30px,4vw,52px);max-width:900px}.hero{padding:32px}.manual-details{display:none}
 
 @media(max-width:560px){.analyze-bar .vehicle-input-shell>input{padding-right:142px}.input-tool{width:40px;height:40px}.attachment-status{font-size:10px}}
+
+
+.refine-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;margin-top:14px;padding:9px 10px;border:1px solid #3b5d7e;border-radius:14px;background:rgba(15,34,54,.62);box-shadow:none}
+.refine-mark{font-size:10px;font-weight:800;letter-spacing:.03em;color:#a8ccf7;white-space:nowrap;padding:0 3px}
+.refine-bar input{min-width:0;width:100%;min-height:40px;border:1px solid #365777;background:#10263c;color:#fff;border-radius:10px;padding:10px 12px;outline:none}
+.refine-bar input::placeholder{color:#8299b3}
+.refine-bar input:focus{border-color:#5b9df1;box-shadow:0 0 0 3px rgba(91,157,241,.10)}
+.refine-bar .btn{min-height:40px;padding:9px 12px}
+
+@media(max-width:560px){.refine-bar{grid-template-columns:1fr auto}.refine-mark{grid-column:1/-1;padding-left:2px}.refine-bar input{min-width:0}.analyze-bar .vehicle-input-shell>input{padding-right:142px}.input-tool{width:40px;height:40px}.attachment-status{font-size:10px}}
