@@ -114,7 +114,9 @@ module.exports = async function handler(req, res) {
     "Se o comerciante ensinar algo reutilizável, cria uma memória estruturada com confiança moderada. Uma observação isolada nunca deve alterar cegamente o preço de mercado.",
     "Liquidez influencia rotação e risco; riscos técnicos influenciam reserva; margem/custos influenciam o cálculo comercial.",
     "Se for apenas uma pergunta sobre a compra atual, responde sem criar memória.",
-    "Se faltarem dados, explica exatamente o que falta."
+    "Se faltarem dados, explica exatamente o que falta.",
+    "Nunca afirmes que já guardaste uma aprendizagem. Propõe a regra estruturada; a aplicação só confirmará depois de a guardar com sucesso.",
+    "Usa a conversa anterior para manter o contexto. As memórias do comerciante são observações pessoais, não factos confirmados do mercado."
   ].join("\n");
 
   try {

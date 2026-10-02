@@ -63,3 +63,5 @@ button{cursor:pointer}
 #dealForm input{width:100%;padding:12px;border-radius:10px;border:1px solid #29415d;background:#08111d;color:#fff;font:inherit} details summary{cursor:pointer;font-weight:700} .comp a{display:block;margin-top:8px;color:#81b6ff;font-size:13px}
 
 .manual-details{margin-top:18px;color:#aab8ca}.manual-details summary{color:#81b6ff}.manual-details textarea{box-sizing:border-box;width:100%;padding:14px;border:1px solid #29415d;border-radius:12px;background:#08111d;color:#fff;font:inherit;resize:vertical}.manual-details p{font-size:14px;line-height:1.5}
+
+.ai-panel{margin-top:24px;padding:18px 22px}.ai-panel>summary{display:flex;align-items:center;justify-content:space-between;font-size:14px;color:#aab8ca}.ai-panel[open]>.panel-head{margin-top:20px}.hero h1{font-size:clamp(30px,4vw,52px);max-width:900px}.hero{padding:32px}.manual-details{display:none}

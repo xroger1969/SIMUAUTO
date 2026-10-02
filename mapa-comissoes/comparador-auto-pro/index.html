@@ -44,20 +44,16 @@
 
     <section class="hero">
       <span class="eyebrow">Motor de decisão de compra</span>
-      <h1>Cola o anúncio. O resto fica para o sistema.</h1>
+      <h1>Cola o link. Encontra o valor de compra.</h1>
       <p>O objetivo é chegar ao número que interessa: quanto podemos pagar para ainda fazer um bom negócio.</p>
 
       <form id="analyzeForm" class="analyze-bar">
-        <input aria-label="Link do anúncio da viatura" id="vehicleUrl" type="url" required placeholder="https://www.auto1.com/... ou outro anúncio">
+        <input aria-label="Link do anúncio da viatura" id="vehicleUrl" type="url" required placeholder="Cola aqui o link do anúncio">
         <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
       </form>
-      <details class="manual-details" id="auto1Connection"><summary>Ligação automática à AUTO1 <span id="auto1Status">— verificar extensão</span></summary><p>Instala a extensão uma vez no Chrome. Depois, ao analisar um link AUTO1, a ficha abre na tua sessão e os dados seguem automaticamente para o Comparador.</p><p><a class="btn ghost small" href="./auto1-connector.zip" download>Descarregar extensão AUTO1</a> <button class="btn ghost small" type="button" id="auto1Check">Verificar ligação</button></p><ol><li>Descarrega e extrai o ZIP.</li><li>Abre <strong>chrome://extensions</strong> e ativa <strong>Modo de programador</strong>.</li><li>Escolhe <strong>Carregar sem compactação</strong> e seleciona a pasta extraída que contém manifest.json.</li><li>Inicia sessão na AUTO1 e recarrega esta página.</li></ol><p>Chrome no computador. A extensão lê os dados do anúncio na tua sessão, sem enviar a palavra-passe ao Comparador.</p></details>
-      <details id="manualDetails" class="manual-details"><summary>AUTO1 ou anúncio privado? Colar dados do anúncio</summary><p>Abre o anúncio na tua conta e copia os dados da viatura: marca, modelo, versão, ano, quilómetros e preço. Não coloques credenciais.</p><textarea id="manualListing" maxlength="14000" rows="7" placeholder="Ex.: Citroën Grand C4 SpaceTourer 1.2 PureTech Origins, 2020, 85 000 km, preço 12 500 €, estado e equipamento…"></textarea><p>Depois carrega em «Analisar compra». Os dados fornecidos por ti serão identificados como tal.</p></details>
       <div class="hint" id="analyzeHint">Compara anúncios em Portugal e calcula a compra com custos, margem e reserva de risco. Valores anunciados são referências, não vendas confirmadas.</div>
     </section>
 
-<details class="panel" style="margin:20px 0"><summary>Configurar custos e margem de compra</summary><p>Valores económicos após IVA recuperável, quando aplicável. Ajusta-os para este negócio.</p><form id="dealForm" class="detail-grid">
-<label>Transporte (€)<input name="transport" type="number" min="0" max="100000" step="50" value="150"></label><label>Taxas de compra (€)<input name="auction_fee" type="number" min="0" max="100000" step="50" value="0"></label><label>Recondicionamento (€)<input name="reconditioning" type="number" min="0" max="100000" step="50" value="450"></label><label>Reserva de garantia (€)<input name="warranty_reserve" type="number" min="0" max="100000" step="50" value="350"></label><label>Financiamento de stock (€)<input name="stock_finance" type="number" min="0" max="100000" step="50" value="150"></label><label>Outros custos (€)<input name="other" type="number" min="0" max="100000" step="50" value="100"></label><label>Margem objetivo (€)<input name="target_margin" type="number" min="0" max="100000" step="50" value="2000"></label><label>Margem mínima (€)<input name="minimum_margin" type="number" min="0" max="100000" step="50" value="1200"></label></form><p>Os valores voltam aos valores iniciais ao recarregar a página.</p></details>
     <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
       <div class="spinner"></div>
       <div>
@@ -114,20 +110,20 @@
         </article>
       </div>
 
-      <article class="panel ai-panel">
+      <details class="panel ai-panel"><summary>Conversa e ensina o sistema <span class="memory-badge" id="memoryCount">0 regras</span></summary>
         <div class="panel-head">
           <div>
             <span class="eyebrow">Comprador IA</span>
-            <h3>Conversa e ensina o sistema</h3>
+            <h3>As tuas orientações</h3><p>As orientações guardadas são recuperadas nas próximas análises das viaturas a que se aplicam.</p>
           </div>
-          <span class="memory-badge" id="memoryCount">0 regras</span>
+
         </div>
         <div class="chat" id="chat"></div>
         <form id="chatForm" class="chat-form">
           <input id="chatInput" autocomplete="off" placeholder="Ex.: este modelo está a vender muito bem / este motor dá problemas…">
           <button class="btn primary" type="submit">Enviar</button>
         </form>
-      </article>
+      </details>
     </section>
 
     <section class="empty-state" id="emptyState">
@@ -137,6 +133,7 @@
     </section>
   </main>
 
+  <div id="auto1Connection" class="panel hidden" style="max-width:760px;margin:20px auto" role="status"><h3>Ativar leitura privada AUTO1</h3><p>A sessão AUTO1 precisa de estar iniciada no Chrome e a extensão instalada. Esta configuração só aparece quando falta a ligação.</p><a class="btn ghost small" href="./auto1-connector.zip" download>Descarregar extensão</a><p>Extrai o ZIP. Em chrome://extensions, ativa Modo de programador e escolhe Carregar sem compactação. Seleciona a pasta extraída e recarrega esta página.</p></div>
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

@@ -1,4 +1,5 @@
 import { evaluatePurchase } from "./valuation.js";
+import { relevantMemories } from "./memory.js";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -20,6 +21,7 @@ let member=null;
 let currentAnalysisId=null;
 let currentVehicle=null;
 let currentResult=null;
+let conversation=[];
 
 const DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
@@ -113,15 +115,17 @@ function ruleReply(type){
   }[type];
 }
 function addMsg(role,text){
+  conversation.push({role,content:text});conversation=conversation.slice(-12);
   const div=document.createElement("div");div.className="msg "+role;div.textContent=text;q("chat").appendChild(div);q("chat").scrollTop=q("chat").scrollHeight;
 }
 async function storeMessage(role,content,rules=[]){
   if(!session)return;
-  await db.from("cap_messages").insert({analysis_id:currentAnalysisId,user_id:session.user.id,role,content,extracted_rules:rules});
+  const {error}=await db.from("cap_messages").insert({analysis_id:currentAnalysisId,user_id:session.user.id,role,content,extracted_rules:rules});
+  if(error)toast("Não foi possível guardar esta mensagem no histórico.");
 }
 async function refreshMemoryCount(){
   if(!session)return;
-  const {count}=await db.from("cap_memory_rules").select("id",{count:"exact",head:true}).eq("active",true);
+  const {count}=await db.from("cap_memory_rules").select("id",{count:"exact",head:true}).eq("active",true).eq("user_id",session.user.id);
   q("memoryCount").textContent=(count||0)+" "+((count||0)===1?"regra":"regras");
 }
 
@@ -157,7 +161,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   currentResult=result||null;
   currentVehicle=result.subject||{};
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
-  q("sourceLabel").textContent=sourceName(sourceHost)+(q("manualListing").value.trim()?" · Dados fornecidos por ti":"");
+  q("sourceLabel").textContent=sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   q("confidencePill").textContent="Confiança "+(result.market?.confidencePct??0)+"%";
@@ -224,31 +228,30 @@ function auto1Request(action,url,timeout=80000){
   });
 }
 async function checkAuto1(){
-  try{await auto1Request("ping",null,1800);q("auto1Status").textContent="— extensão ligada";return true}
-  catch{q("auto1Status").textContent="— instalar extensão";return false}
+  try{await auto1Request("ping",null,1800);return true}catch{return false}
 }
-q("auto1Check").addEventListener("click",async()=>{q("auto1Connection").open=true;await checkAuto1()});
-checkAuto1();
+async function loadMemories(){
+  const {data,error}=await db.from("cap_memory_rules").select("rule_type,statement,scope,effect,evidence_level,confidence,created_at,valid_until").eq("active",true).eq("user_id",session.user.id).order("created_at",{ascending:false}).limit(200);
+  if(error)throw new Error("Não foi possível recuperar as tuas orientações guardadas.");
+  return data||[];
+}
 
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   let url;
-  try{url=new URL(q("vehicleUrl").value.trim())}catch{toast("Cola um link válido.");return}
+  try{url=new URL(q("vehicleUrl").value.trim());if(!["https:","http:"].includes(url.protocol)||url.username||url.password)throw new Error();if(url.hostname==="auto1.com")url.hostname="www.auto1.com"}catch{toast("Cola um link válido.");return}
+  q("auto1Connection").classList.add("hidden");
   q("analyzeBtn").disabled=true;q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
-  currentAnalysisId=null;currentVehicle=null;currentResult=null;q("chat").innerHTML="";
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;q("chat").innerHTML="";conversation=[];
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
     await createAnalysis(url.toString(),url.hostname);
 
-    const manual=q("manualListing").value.trim();
     let reader;
-    if(manual){
-      if(manual.length<40)throw new Error("Acrescenta marca, modelo, ano, quilómetros e preço nos dados do anúncio.");
-      reader={ok:true,status:"ok",source_kind:"dealer_provided",page:{title:"Dados fornecidos pelo comerciante",description:"Leitura manual; anúncio privado não verificado diretamente.",text_sample:manual,json_ld:[]}};
-    }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
+    if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
       if(!await checkAuto1()){
-        q("auto1Connection").open=true;
-        throw new Error("Instala a extensão na secção Ligação automática à AUTO1, inicia sessão na AUTO1 e recarrega esta página.");
+        q("auto1Connection").classList.remove("hidden");
+        throw new Error("Para ler a AUTO1, ativa a ligação indicada abaixo e mantém a sessão iniciada.");
       }
       progress("A ler a AUTO1 na tua sessão…","A extensão abre a ficha no Chrome. Se necessário, inicia sessão na aba AUTO1.");
       const capture=await auto1Request("read",url.toString());
@@ -260,11 +263,11 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       reader=await resp.json();
       if(reader.status!=="ok"){
         await updateAnalysis({status:reader.status==="needs_auth"?"needs_auth":"failed",reader,error_message:reader.message||"Leitura indisponível"});
-        q("manualDetails").open=true;
+
         q("emptyState").classList.remove("hidden");
         q("emptyState").querySelector("h2").textContent=reader.status==="needs_auth"?"Este anúncio exige a tua sessão":"Não foi possível ler este anúncio diretamente";
-        q("emptyState").querySelector("p").textContent="Abre o anúncio na tua conta, cola os dados da viatura na caixa acima e carrega novamente em Analisar compra.";
-        q("manualListing").focus();
+        q("emptyState").querySelector("p").textContent="Não foi possível obter os dados desta fonte. Confirma que o link está ativo e tenta novamente.";
+
         return;
       }
     }
@@ -274,7 +277,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       vehicle:{page_title:reader.page?.title||""},
       source_snapshot:reader.page||{},
       source_last_seen_at:new Date().toISOString(),
-      source_available:manual?null:true
+      source_available:true
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
@@ -298,9 +301,8 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       return;
     }
 
-    const fields=new FormData(q("dealForm"));
-    for(const [key,value] of fields){if(key.endsWith("margin"))DEAL[key]=Number(value);else DEAL.costs[key]=Number(value)}
-    if(DEAL.minimum_margin>DEAL.target_margin)throw new Error("A margem mínima não pode ultrapassar a margem objetivo.");
+    let memories=[],memoryWarning="";
+    try{memories=relevantMemories(await loadMemories(),subject)}catch(error){memoryWarning=error.message}
     progress("A calcular a compra…","A aplicar comparabilidade, outliers, custos, margem e risco.");
     const result=evaluatePurchase({
       subject,
@@ -313,7 +315,10 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
-    if(manual)result.warnings.push("Dados da viatura fornecidos pelo comerciante; anúncio privado não verificado diretamente.");
+    if(memoryWarning)result.warnings.push(memoryWarning);
+    result.market.dealer_memories=memories;
+    for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
+
     renderResult(result,url.hostname,market.risk_flags||[]);
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
 
@@ -350,12 +355,7 @@ q("chatForm").addEventListener("submit",async ev=>{
   await storeMessage("user",text);
 
   try{
-    const {data:memories}=await db.from("cap_memory_rules")
-      .select("rule_type,statement,scope,effect,evidence_level,confidence,created_at")
-      .eq("active",true)
-      .order("created_at",{ascending:false})
-      .limit(20);
-
+    const memories=relevantMemories(await loadMemories(),currentVehicle||{});
     const response=await fetch("/api/comparador-ai",{
       method:"POST",
       headers:{
@@ -373,7 +373,8 @@ q("chatForm").addEventListener("submit",async ev=>{
             tax:currentResult.tax,
             warnings:currentResult.warnings
           }:null,
-          dealer_memories:memories||[]
+          dealer_memories:memories||[],
+          conversation:conversation.slice(0,-1).slice(-8)
         }
       })
     });
@@ -382,7 +383,7 @@ q("chatForm").addEventListener("submit",async ev=>{
     if(!response.ok)throw new Error(data.message||data.error||"A IA não respondeu.");
 
     const reply=data.reply||"Recebi a tua mensagem.";
-    addMsg("assistant",reply);
+
 
     let savedRules=[];
     const memory=data.memory_rule;
@@ -403,6 +404,8 @@ q("chatForm").addEventListener("submit",async ev=>{
       refreshMemoryCount();
     }
 
+    addMsg("assistant",reply);
+    if(savedRules.length)addMsg("assistant","Orientação guardada. Será recuperada nas próximas análises a que se aplica.");
     await storeMessage("assistant",reply,savedRules);
     q("saveStatus").textContent="IA ativa";
   }catch(err){
