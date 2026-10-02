@@ -127,14 +127,6 @@ function vehicleMeta(v){
   if(v.battery_kwh)bits.push(v.battery_kwh+" kWh úteis");
   return bits.join(" · ")||"Dados ainda incompletos";
 }
-function renderRisks(flags,warnings){
-  const list=q("riskList");list.innerHTML="";
-  const all=[...(flags||[]).map(x=>({text:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))];
-  if(!all.length)all.push({text:"Sem alertas relevantes registados nesta análise.",severity:"low"});
-  all.forEach(x=>{
-    const el=document.createElement("div");el.className="risk "+(x.severity==="high"?"high":x.severity==="low"?"low":"");el.textContent=x.text;list.appendChild(el);
-  });
-}
 function renderComparables(rows){
   const box=q("comparableList");box.innerHTML="";
   (rows||[]).slice(0,6).forEach(c=>{
@@ -161,12 +153,6 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do recomendado":fmt(Math.abs(gap))+" abaixo do recomendado"):"—";
   q("marketSummary").textContent="Valor de mercado estimado em "+fmt(result.market?.marketValue)+". O preço provável de venda é separado do preço pedido e o cálculo exclui incompatibilidades e outliers.";
   renderComparables(result.comparables);
-  renderRisks(riskFlags,result.warnings);
-  q("calcBox").innerHTML=
-    "Custos económicos considerados: <strong>"+esc(fmt(result.purchase?.fixedCosts))+"</strong><br>"+
-    "Reserva de risco: <strong>"+esc(fmt(result.purchase?.riskReserve))+"</strong><br>"+
-    "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
-    "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong>";
 }
 function renderReaderOnly(reader,url){
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
@@ -181,8 +167,6 @@ function renderReaderOnly(reader,url){
   q("gapText").textContent="Sem decisão de compra ainda.";
   q("marketSummary").textContent="A leitura pública do link funcionou. A próxima camada vai transformar o anúncio em ficha estruturada e procurar comparáveis.";
   q("comparableList").innerHTML="";
-  renderRisks([{label:"Análise ainda sem comparáveis; não usar para licitar.",severity:"high"}],[]);
-  q("calcBox").textContent="O motor de cálculo só é ativado quando existirem dados suficientes do carro e do mercado.";
 }
 
 async function createAnalysis(url,host){
