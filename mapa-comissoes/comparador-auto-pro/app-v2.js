@@ -23,6 +23,13 @@ let currentAnalysisId=null;
 let currentVehicle=null;
 let currentResult=null;
 let conversation=[];
+let selectedImageData=null;
+let selectedImageName="";
+let speechRecognition=null;
+let mediaRecorder=null;
+let mediaStream=null;
+let audioChunks=[];
+let recordingTimer=null;
 
 const DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
@@ -82,6 +89,8 @@ function sourceName(host){
   if(/standvirtual\.com$/i.test(host))return "Standvirtual";
   if(/olx\./i.test(host))return "OLX";
   if(/piscapisca\.pt$/i.test(host))return "PiscaPisca";
+  if(host==="photo")return "Fotografia IA";
+  if(host==="manual")return "Descrição manual";
   return host.replace(/^www\./,"");
 }
 function ruleType(text){
@@ -231,6 +240,136 @@ function auto1Request(action,url,timeout=80000){
 async function checkAuto1(){
   try{await auto1Request("ping",null,1800);return true}catch{return false}
 }
+function setImageStatus(name){
+  selectedImageName=name||"";
+  if(selectedImageData){
+    q("attachmentName").textContent=(selectedImageName||"Fotografia")+" · pronta para a IA";
+    q("attachmentStatus").classList.remove("hidden");
+  }else{
+    q("attachmentStatus").classList.add("hidden");
+  }
+}
+function loadImageElement(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file),img=new Image();
+    img.onload=()=>{URL.revokeObjectURL(url);resolve(img)};
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Não consegui abrir esta fotografia."))};
+    img.src=url;
+  });
+}
+async function prepareImage(file){
+  if(!file||!file.type.startsWith("image/"))throw new Error("Escolhe uma fotografia.");
+  if(file.size>18*1024*1024)throw new Error("A fotografia é demasiado grande.");
+  const img=await loadImageElement(file);
+  const maxSide=1600;
+  const scale=Math.min(1,maxSide/Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height));
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
+  canvas.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
+  const ctx=canvas.getContext("2d",{alpha:false});
+  ctx.fillStyle="#fff";ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  let data=canvas.toDataURL("image/jpeg",.8);
+  if(data.length>2300000){
+    const max2=1200,scale2=Math.min(1,max2/Math.max(canvas.width,canvas.height));
+    const c2=document.createElement("canvas");
+    c2.width=Math.max(1,Math.round(canvas.width*scale2));c2.height=Math.max(1,Math.round(canvas.height*scale2));
+    const c2x=c2.getContext("2d",{alpha:false});c2x.fillStyle="#fff";c2x.fillRect(0,0,c2.width,c2.height);c2x.drawImage(canvas,0,0,c2.width,c2.height);
+    data=c2.toDataURL("image/jpeg",.72);
+  }
+  if(data.length>2600000)throw new Error("Não consegui reduzir a fotografia o suficiente.");
+  return data;
+}
+function appendDictation(text){
+  const input=q("vehicleUrl");
+  const current=input.value.trim();
+  input.value=(current?current+" ":"")+String(text||"").trim();
+  input.focus();
+}
+function setMicActive(active){
+  q("micBtn").classList.toggle("recording",!!active);
+  q("micBtn").setAttribute("aria-label",active?"Parar gravação":"Ditar por voz");
+  q("micBtn").title=active?"Parar gravação":"Ditar por voz";
+}
+function blobToDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||""));
+    reader.onerror=()=>reject(new Error("Não consegui preparar o áudio."));
+    reader.readAsDataURL(blob);
+  });
+}
+async function transcribeAudio(blob){
+  if(!session)throw new Error("A sessão expirou.");
+  toast("A transcrever a voz…");
+  const audio_data_url=await blobToDataUrl(blob);
+  const {response,data}=await fetchJson("/api/comparador-transcribe",{
+    method:"POST",
+    headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
+    body:JSON.stringify({audio_data_url})
+  },45000);
+  if(!response.ok)throw new Error(data.message||data.error||"Não consegui transcrever a voz.");
+  if(data.text)appendDictation(data.text);
+}
+async function stopRecorder(){
+  if(mediaRecorder&&mediaRecorder.state!=="inactive")mediaRecorder.stop();
+}
+async function startRecorder(){
+  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error("Este navegador não permite gravação de voz nesta página.");
+  mediaStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  const preferred=["audio/mp4","audio/webm;codecs=opus","audio/webm"].find(x=>MediaRecorder.isTypeSupported?.(x));
+  mediaRecorder=preferred?new MediaRecorder(mediaStream,{mimeType:preferred}):new MediaRecorder(mediaStream);
+  audioChunks=[];
+  mediaRecorder.ondataavailable=e=>{if(e.data?.size)audioChunks.push(e.data)};
+  mediaRecorder.onstop=async()=>{
+    clearTimeout(recordingTimer);recordingTimer=null;setMicActive(false);
+    const type=mediaRecorder?.mimeType||audioChunks[0]?.type||"audio/webm";
+    const blob=new Blob(audioChunks,{type});
+    mediaStream?.getTracks().forEach(t=>t.stop());mediaStream=null;mediaRecorder=null;audioChunks=[];
+    if(blob.size<1000)return;
+    try{await transcribeAudio(blob)}catch(error){toast(error.message)}
+  };
+  mediaRecorder.start();
+  setMicActive(true);
+  toast("A ouvir… toca outra vez para terminar.");
+  recordingTimer=setTimeout(()=>stopRecorder(),20000);
+}
+async function startVoiceInput(){
+  if(mediaRecorder&&mediaRecorder.state!=="inactive"){await stopRecorder();return}
+  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(Recognition){
+    if(speechRecognition){try{speechRecognition.stop()}catch{};return}
+    const r=new Recognition();speechRecognition=r;r.lang="pt-PT";r.interimResults=false;r.continuous=false;
+    r.onstart=()=>setMicActive(true);
+    r.onresult=e=>{const text=e.results?.[0]?.[0]?.transcript;if(text)appendDictation(text)};
+    r.onerror=async e=>{
+      if(e.error!=="aborted"&&e.error!=="no-speech")toast("A voz direta falhou. Vou usar gravação.");
+      speechRecognition=null;setMicActive(false);
+      if(e.error!=="not-allowed"&&e.error!=="service-not-allowed"){try{await startRecorder()}catch(error){toast(error.message)}}
+    };
+    r.onend=()=>{speechRecognition=null;setMicActive(false)};
+    try{r.start();return}catch{speechRecognition=null;setMicActive(false)}
+  }
+  await startRecorder();
+}
+
+q("vehiclePhoto").addEventListener("change",async ev=>{
+  const file=ev.target.files?.[0];
+  if(!file)return;
+  try{
+    toast("A preparar a fotografia…");
+    selectedImageData=await prepareImage(file);
+    setImageStatus(file.name||"Fotografia");
+    toast("Fotografia pronta para a IA.");
+  }catch(error){
+    selectedImageData=null;setImageStatus("");ev.target.value="";toast(error.message);
+  }
+});
+q("removeImage").addEventListener("click",()=>{
+  selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
+});
+q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
+
 async function loadMemories(){
   const {data,error}=await db.from("cap_memory_rules").select("rule_type,statement,scope,effect,evidence_level,confidence,created_at,valid_until").eq("active",true).eq("user_id",session.user.id).order("created_at",{ascending:false}).limit(200);
   if(error)throw new Error("Não foi possível recuperar as tuas orientações guardadas.");
@@ -259,9 +398,22 @@ async function runMarketAnalysis(payload){
     throw new Error("A ligação caiu ao iniciar a pesquisa. Toca novamente em Analisar compra.");
   }
   if(!start.response.ok)throw new Error(start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.");
+  const registrationData=start.data.registration_data||null;
   if(start.data.subject)return start.data;
   const responseId=start.data.response_id;
   if(!responseId)throw new Error("O radar iniciou sem identificador de acompanhamento.");
+
+  const mergeRegistration=result=>{
+    if(!registrationData||!result?.subject)return result;
+    result.subject.make=registrationData.make||result.subject.make;
+    result.subject.model=registrationData.model||result.subject.model;
+    result.subject.trim=registrationData.trim||result.subject.trim;
+    result.subject.year=registrationData.year||result.subject.year;
+    result.subject.first_registration=registrationData.first_registration||result.subject.first_registration;
+    result.subject.fuel=registrationData.fuel||result.subject.fuel;
+    result.subject.origin=registrationData.origin||result.subject.origin||"unknown";
+    return result;
+  };
 
   const startedAt=Date.now();
   let consecutiveNetworkFailures=0;
@@ -282,7 +434,7 @@ async function runMarketAnalysis(payload){
     }
     if(poll.response.status===202||poll.data.status==="queued"||poll.data.status==="in_progress")continue;
     if(!poll.response.ok)throw new Error(poll.data.message||poll.data.error||"Falha no radar de mercado.");
-    return poll.data;
+    return mergeRegistration(poll.data);
   }
   throw new Error("A pesquisa demorou demasiado. Nenhum valor de compra foi calculado.");
 }
@@ -290,7 +442,11 @@ async function runMarketAnalysis(payload){
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   let entry;
-  try{entry=parseVehicleInput(q("vehicleUrl").value)}catch(error){toast(error.message);return}
+  const rawInput=q("vehicleUrl").value.trim();
+  if(!rawInput&&!selectedImageData){toast("Escreve uma matrícula, cola um link, dita ou anexa uma fotografia.");return}
+  try{
+    entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"};
+  }catch(error){toast(error.message);return}
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
   q("analyzeBtn").disabled=true;q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
@@ -301,7 +457,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 
     let reader;
     if(entry.mode==="manual"){
-      reader={ok:true,status:"ok",source_kind:"manual",page:{title:entry.description,description:"Descrição fornecida pelo comerciante; campos omissos não confirmados.",text_sample:entry.description,json_ld:[]}};
+      reader={ok:true,status:"ok",source_kind:selectedImageData?"photo":"manual",page:{title:selectedImageData?(entry.description==="Fotografia anexada para identificação da viatura."?"Fotografia para leitura por IA":entry.description):entry.description,description:selectedImageData?"Fotografia fornecida pelo comerciante; a IA deve ler apenas o que estiver visível.":"Descrição fornecida pelo comerciante; campos omissos não confirmados.",text_sample:entry.description,json_ld:[]}};
     }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
       if(!await checkAuto1()){
         q("auto1Connection").classList.remove("hidden");
@@ -335,7 +491,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
-    const market=await runMarketAnalysis({url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{}});
+    const market=await runMarketAnalysis({url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_url:selectedImageData||null});
 
     const subject=market.subject||{};
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
@@ -376,7 +532,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
 
-    renderResult(result,entry.registration?"Matrícula.co.pt":entry.mode==="manual"?"Descrição manual":url.hostname,market.risk_flags||[]);
+    renderResult(result,entry.registration?"Matrícula.co.pt":selectedImageData?"photo":entry.mode==="manual"?"manual":url.hostname,market.risk_flags||[]);
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
 
     await updateAnalysis({
