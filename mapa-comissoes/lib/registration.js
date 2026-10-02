@@ -15,9 +15,27 @@ async function lookupRegistration(value,{username=process.env.REGISTRATION_API_U
  const plate=String(value||'').toUpperCase().replace(/[\s-]/g,'');
  if(!PLATE.test(plate))throw failure('Matrícula portuguesa inválida.',400);
  if(!username)throw failure('A consulta por matrícula está preparada, mas falta ativar a conta do fornecedor. Entretanto, escreve a marca, modelo, ano e quilómetros.',503);
- let response;try{response=await fetcher('https://www.matricula.co.pt/api/reg.asmx/CheckPortugal',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({RegistrationNumber:plate,username:username.trim()}),signal:AbortSignal.timeout(45000)});}catch(error){console.error('registration_transport_failure',{kind:error.name,code:error.cause?.code||error.code||'unknown'});throw failure('Não foi possível ligar ao serviço de matrículas. Tenta novamente dentro de instantes.');}
- if(!response.ok)throw failure('Consulta de matrícula indisponível. Verifica o acesso e os créditos do fornecedor.');
- const xml=await response.text();if(xml.length>200000)throw failure('Resposta demasiado extensa do fornecedor.');
- return parseRegistration(xml);
+ const endpoints=[
+  'https://www.regcheck.org.uk/api/reg.asmx/CheckPortugal',
+  'https://www.matricula.co.pt/api/reg.asmx/CheckPortugal'
+ ];
+ let transportError=null,httpError=null;
+ for(const endpoint of endpoints){
+  let response;
+  try{
+   response=await fetcher(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({RegistrationNumber:plate,username:username.trim()}),signal:AbortSignal.timeout(12000)});
+  }catch(error){
+   transportError=error;
+   console.error('registration_transport_failure',{host:new URL(endpoint).hostname,kind:error.name,code:error.cause?.code||error.code||'unknown'});
+   continue;
+  }
+  if(!response.ok){httpError=response.status;continue;}
+  const xml=await response.text();
+  if(xml.length>200000)throw failure('Resposta demasiado extensa do fornecedor.');
+  return parseRegistration(xml);
+ }
+ if(httpError)throw failure('Consulta de matrícula indisponível. Verifica o acesso e os créditos do fornecedor.');
+ if(transportError)throw failure('Não foi possível ligar ao serviço de matrículas. Tenta novamente dentro de instantes.');
+ throw failure('Não foi possível consultar esta matrícula.');
 }
 module.exports={lookupRegistration,parseRegistration};
