@@ -347,7 +347,7 @@ async function startVoiceInput(){
       speechRecognition=null;setMicActive(false);
       if(e.error!=="not-allowed"&&e.error!=="service-not-allowed"){try{await startRecorder()}catch(error){toast(error.message)}}
     };
-    r.onend=()=>{speechRecognition=null;setMicActive(false)};
+    r.onend=()=>{speechRecognition=null;if(!mediaRecorder||mediaRecorder.state==="inactive")setMicActive(false)};
     try{r.start();return}catch{speechRecognition=null;setMicActive(false)}
   }
   await startRecorder();
