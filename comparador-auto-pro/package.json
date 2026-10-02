@@ -1,0 +1,6 @@
+{
+  "name":"comparador-auto-pro",
+  "private":true,
+  "type":"module",
+  "scripts":{"test":"node --test valuation.test.mjs"}
+}
