@@ -102,7 +102,12 @@ module.exports = async function handler(req, res) {
   const page = req.body?.page || {};
   const manual=req.body?.mode==="manual";
   const description=String(req.body?.description||"").trim();
+  const imageDataUrl=String(req.body?.image_data_url||"").trim();
   if(manual?(description.length<3||description.length>4000):!url)return res.status(400).json({error:"invalid_vehicle_input"});
+  if(imageDataUrl){
+    if(!/^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageDataUrl))return res.status(400).json({error:"invalid_image"});
+    if(imageDataUrl.length>2800000)return res.status(413).json({error:"image_too_large",message:"A fotografia ficou demasiado grande. Tenta outra imagem."});
+  }
 
   let registrationData=null;
   if(req.body?.registration){
@@ -209,13 +214,15 @@ module.exports = async function handler(req, res) {
     original_url: url||null,
     manual_description: manual?description:null,
     input_mode: manual?"manual":"url",
-    registration_data:registrationData
+    registration_data:registrationData,
+    image_attached:Boolean(imageDataUrl)
   }).slice(0, 18000);
 
   const instructions = [
     "És o radar de mercado do Comparador Auto Pro para comerciantes profissionais de automóveis usados em Portugal.",
     "Se registration_data estiver presente, usa esses dados como identificação da viatura. Nunca inventes quilómetros, preço, origem ou versão ausentes. Não uses o valor indicativo do fornecedor como preço de anúncio.",
-    "Se input_mode=manual, normaliza apenas a descrição fornecida. Não preenchas dados da viatura analisada com informação de comparáveis. Preço, quilómetros, IVA e origem devem ser null/unknown se não fornecidos. Dual Motor não confirma automaticamente Long Range ou Performance. Mantém trim=null se a versão exata for ambígua. Ainda assim pesquisa comparáveis como referência inicial.",
+    "Se input_mode=manual, normaliza apenas a descrição fornecida e, quando existir, a fotografia anexada. Não preenchas dados da viatura analisada com informação de comparáveis. Preço, quilómetros, IVA e origem devem ser null/unknown se não estiverem visíveis ou fornecidos. Dual Motor não confirma automaticamente Long Range ou Performance. Mantém trim=null se a versão exata for ambígua. Ainda assim pesquisa comparáveis como referência inicial.",
+    "Quando existir fotografia, lê matrícula, marca, modelo, versão, ano, quilómetros e preço apenas se estiverem claramente visíveis. Uma fotografia exterior do carro não autoriza inventar versão, bateria, potência ou ano. Se a imagem for documento, ecrã ou anúncio, transcreve apenas os dados legíveis.",
     "Primeiro identifica com rigor a viatura do anúncio fornecido. Não inventes versão, potência, combustível, IVA ou equipamento se não houver evidência.",
     "Depois usa pesquisa web para encontrar anúncios atuais em Portugal de viaturas comparáveis, dando prioridade a Standvirtual, PiscaPisca, OLX, sites de stands e agregadores reputados.",
     "Procura primeiro mesma marca, modelo, geração, motorização/versão e ano próximo. Só alarga se faltarem resultados.",
@@ -253,7 +260,13 @@ module.exports = async function handler(req, res) {
         store: false,
         metadata: responseMetadata,
         instructions,
-        input: "ANÚNCIO A ANALISAR:\n" + pageContext + "\n\nPesquisa o mercado português e devolve a ficha normalizada e comparáveis atuais.",
+        input: imageDataUrl ? [{
+          role:"user",
+          content:[
+            {type:"input_text",text:"ANÚNCIO A ANALISAR:\n"+pageContext+"\n\nLê também a fotografia anexada, cruza apenas os dados visíveis com o contexto e pesquisa o mercado português. Devolve a ficha normalizada e comparáveis atuais."},
+            {type:"input_image",image_url:imageDataUrl,detail:"high"}
+          ]
+        }] : "ANÚNCIO A ANALISAR:\n" + pageContext + "\n\nPesquisa o mercado português e devolve a ficha normalizada e comparáveis atuais.",
         tools: [{ type: "web_search" }],
         tool_choice: "auto",
         max_tool_calls: 8,
@@ -280,7 +293,7 @@ module.exports = async function handler(req, res) {
     }
 
     if(!data.id)return res.status(502).json({error:"openai_market_error",message:"A pesquisa foi iniciada sem identificador de acompanhamento."});
-    return res.status(202).json({ok:true,status:data.status||"queued",response_id:data.id});
+    return res.status(202).json({ok:true,status:data.status||"queued",response_id:data.id,registration_data:registrationData});
   } catch (error) {
     return res.status(500).json({
       error:"server_error",
