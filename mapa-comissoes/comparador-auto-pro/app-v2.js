@@ -206,7 +206,7 @@ function vehicleMeta(v){
   return bits.join(" · ")||"Dados ainda incompletos";
 }
 function renderRisks(flags,warnings){
-  const list=q("riskList");list.innerHTML="";
+  const list=q("riskList");if(!list)return;list.innerHTML="";
   const all=[...(flags||[]).map(x=>({text:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))];
   if(!all.length)all.push({text:"Sem alertas relevantes registados nesta análise.",severity:"low"});
   all.forEach(x=>{
@@ -239,10 +239,11 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("decisionText").textContent=result.purchase?.decision||"—";
   const gap=(result.purchase?.currentPrice??0)-(result.purchase?.maxPurchase??0);
   q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do recomendado":fmt(Math.abs(gap))+" abaixo do recomendado"):"—";
-  q("marketSummary").textContent="Valor de mercado estimado em "+fmt(result.market?.marketValue)+". O preço provável de venda é separado do preço pedido e o cálculo exclui incompatibilidades e outliers.";
+  q("marketSummary").textContent="Valor de mercado estimado em "+fmt(result.market?.marketValue)+", com base nos comparáveis válidos apresentados abaixo.";
   renderComparables(result.comparables);
   renderRisks(riskFlags,result.warnings);
-  q("calcBox").innerHTML=
+  const calcBox=q("calcBox");
+  if(calcBox)calcBox.innerHTML=
     "Margem objetivo ideal: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
     "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong>";
 }
@@ -261,7 +262,7 @@ function renderReaderOnly(reader,url){
   q("marketSummary").textContent="A leitura pública do link funcionou. Confirma os dados do anúncio antes de tomar uma decisão de compra.";
   q("comparableList").innerHTML="";
   renderRisks([{label:"Análise ainda sem comparáveis; não usar para licitar.",severity:"high"}],[]);
-  q("calcBox").textContent="O motor de cálculo só é ativado quando existirem dados suficientes do carro e do mercado.";
+  const calcBox=q("calcBox");if(calcBox)calcBox.textContent="O motor de cálculo só é ativado quando existirem dados suficientes do carro e do mercado.";
 }
 
 async function createAnalysis(url,host){
