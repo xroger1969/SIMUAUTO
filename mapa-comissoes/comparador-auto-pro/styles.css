@@ -614,13 +614,14 @@ button{cursor:pointer}
 }
 
 
-/* Realistic automotive background — mobile landing screen */
+/* Premium automotive background — mobile landing screen */
 @media(max-width:560px){
   body{
     background:
-      linear-gradient(180deg,rgba(24,31,43,.12) 0%,rgba(23,30,42,.20) 42%,rgba(20,27,39,.68) 100%),
-      url("https://images.unsplash.com/photo-1764605206502-05e48ab08d82?auto=format&fit=crop&fm=jpg&q=72&w=1600") 58% 42% / cover no-repeat fixed,
-      linear-gradient(180deg,#232a39 0%,#293140 48%,#232a39 100%)!important;
+      linear-gradient(180deg,rgba(6,18,34,.22) 0%,rgba(8,21,39,.18) 34%,rgba(5,15,29,.42) 67%,rgba(4,12,23,.66) 100%),
+      url("https://images.pexels.com/photos/17571484/pexels-photo-17571484.jpeg?auto=compress&cs=tinysrgb&w=1600") 54% 46% / cover no-repeat fixed,
+      linear-gradient(180deg,#0d2038 0%,#102942 52%,#091827 100%)!important;
+    background-color:#0b1b2e!important;
   }
 
   .topbar,
@@ -630,16 +631,24 @@ button{cursor:pointer}
   }
 
   .app:has(#result.hidden):has(#progressPanel.hidden) .hero{
-    text-shadow:0 1px 18px rgba(3,9,17,.26);
+    text-shadow:0 2px 18px rgba(0,6,15,.42);
   }
 
   .app:has(#result.hidden):has(#progressPanel.hidden) .vehicle-input-shell>input{
-    background:rgba(7,14,24,.92);
-    backdrop-filter:blur(7px);
-    -webkit-backdrop-filter:blur(7px);
+    background:rgba(4,12,22,.94);
+    border-color:rgba(255,255,255,.09);
+    backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px);
+    box-shadow:0 12px 30px rgba(0,8,19,.28);
   }
 
   .app:has(#result.hidden):has(#progressPanel.hidden) .analyze-bar .btn.primary{
-    box-shadow:0 14px 34px rgba(42,80,158,.28);
+    background:linear-gradient(180deg,#5b91f2 0%,#4c80e7 100%);
+    box-shadow:0 14px 34px rgba(31,72,151,.34);
+  }
+
+  .app:has(#result.hidden):has(#progressPanel.hidden) .hint{
+    color:#a8b6c9;
+    text-shadow:0 1px 10px rgba(0,6,15,.52);
   }
 }
