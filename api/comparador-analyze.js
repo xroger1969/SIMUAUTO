@@ -16,42 +16,53 @@ function privateIp(ip) {
   return x === "::1" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe80:");
 }
 
+function stripBlock(html, tag) {
+  return html.replace(new RegExp("<" + tag + "\\b[^>]*>[\\s\\S]*?<\\/" + tag + ">", "gi"), " ");
+}
+
 function cleanText(html) {
-  return html
-    .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, " ")
-    .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, " ")
-    .replace(/<svg\\b[^>]*>[\\s\\S]*?<\\/svg>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/\\s+/g, " ")
+  let out = String(html || "");
+  out = stripBlock(out, "script");
+  out = stripBlock(out, "style");
+  out = stripBlock(out, "svg");
+  return out
+    .replace(new RegExp("<[^>]+>", "g"), " ")
+    .replace(new RegExp("&nbsp;", "gi"), " ")
+    .replace(new RegExp("&amp;", "gi"), "&")
+    .replace(new RegExp("&quot;", "gi"), '"')
+    .replace(new RegExp("&#39;", "gi"), "'")
+    .replace(new RegExp("\\s+", "g"), " ")
     .trim();
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
 }
 
 function meta(html, name, attr) {
   const a = attr || "name";
-  const safe = String(name).replace(/[.*+?^$()|[\\]{}\\\\]/g, "\\$&");
-  const re1 = new RegExp("<meta[^>]*" + a + "=[\\"']" + safe + "[\\"'][^>]*content=[\\"']([^\\"']*)[\\"'][^>]*>", "i");
-  const re2 = new RegExp("<meta[^>]*content=[\\"']([^\\"']*)[\\"'][^>]*" + a + "=[\\"']" + safe + "[\\"'][^>]*>", "i");
+  const safe = escapeRegex(name);
+  const q = "[\\\"']";
+  const re1 = new RegExp("<meta[^>]*" + a + "=" + q + safe + q + "[^>]*content=" + q + "([^\\\"']*)" + q + "[^>]*>", "i");
+  const re2 = new RegExp("<meta[^>]*content=" + q + "([^\\\"']*)" + q + "[^>]*" + a + "=" + q + safe + q + "[^>]*>", "i");
   const m = html.match(re1) || html.match(re2) || [];
   return m[1] || "";
 }
 
 function getTitle(html) {
-  const m = html.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i) || [];
-  return (m[1] || "").replace(/\\s+/g, " ").trim();
+  const re = new RegExp("<title[^>]*>([\\s\\S]*?)<\\/title>", "i");
+  const m = html.match(re) || [];
+  return (m[1] || "").replace(new RegExp("\\s+", "g"), " ").trim();
 }
 
 function jsonLd(html) {
   const out = [];
-  const re = /<script[^>]+type=[\\"']application\\/ld\\+json[\\"'][^>]*>([\\s\\S]*?)<\\/script>/gi;
+  const re = new RegExp("<script[^>]+type=[\\\"']application\\/ld\\+json[\\\"'][^>]*>([\\s\\S]*?)<\\/script>", "gi");
   let m;
   while ((m = re.exec(html)) && out.length < 8) {
     try {
       const v = JSON.parse(m[1].trim());
-      if (Array.isArray(v)) out.push.apply(out, v.slice(0, 4));
+      if (Array.isArray(v)) out.push(...v.slice(0, 4));
       else out.push(v);
     } catch {}
   }
@@ -94,7 +105,7 @@ module.exports = async function handler(req, res) {
         signal: controller.signal,
         headers: {
           "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/154 Safari/537.36",
-          "accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+          accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
           "accept-language": "pt-PT,pt;q=0.9,en;q=0.7"
         }
       });
