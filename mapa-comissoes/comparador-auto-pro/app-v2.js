@@ -22,6 +22,7 @@ let member=null;
 let currentAnalysisId=null;
 let currentVehicle=null;
 let currentResult=null;
+let lastAnalysisContext=null;
 let conversation=[];
 let selectedImageData=null;
 let selectedImageName="";
@@ -485,7 +486,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
   q("analyzeBtn").disabled=true;q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
-  currentAnalysisId=null;currentVehicle=null;currentResult=null;q("chat").innerHTML="";conversation=[];
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;lastAnalysisContext=null;q("chat").innerHTML="";conversation=[];
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
     await createAnalysis(entry.sourceUrl,entry.sourceDomain);
@@ -526,7 +527,10 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
-    const market=await runMarketAnalysis({url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_url:selectedImageData||null});
+    const marketPayload={url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_url:selectedImageData||null};
+    const sourceHost=entry.registration?"Matrícula.co.pt":selectedImageData?"photo":entry.mode==="manual"?"manual":url.hostname;
+    lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload};
+    const market=await runMarketAnalysis(marketPayload);
 
     const subject=market.subject||{};
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
@@ -591,6 +595,105 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     await updateAnalysis({status:"failed",error_message:message});
   }finally{
     stopProgress();q("analyzeBtn").disabled=false;
+  }
+});
+
+q("refineForm").addEventListener("submit",async ev=>{
+  ev.preventDefault();
+  const text=q("refineInput").value.trim();
+  if(!text)return;
+  if(!session||!lastAnalysisContext||!currentVehicle){
+    toast("Faz primeiro uma análise.");
+    return;
+  }
+
+  const button=q("refineBtn");
+  q("refineInput").disabled=true;
+  button.disabled=true;
+  addMsg("user","Refinar análise: "+text);
+  await storeMessage("user","Refinar análise: "+text);
+
+  try{
+    progress("A refinar com IA…","A cruzar a tua indicação com a viatura e a concorrência profissional.");
+    const previousRefinement=String(lastAnalysisContext.marketPayload?.refinement||"").trim();
+    const combinedRefinement=previousRefinement?previousRefinement+"\n"+text:text;
+    const payload={
+      ...lastAnalysisContext.marketPayload,
+      refinement:combinedRefinement,
+      previous_subject:currentVehicle||null
+    };
+    const market=await runMarketAnalysis(payload);
+
+    const subject={...(currentVehicle||{})};
+    for(const [key,value] of Object.entries(market.subject||{})){
+      if(value!==null&&value!==undefined&&value!=="")subject[key]=value;
+    }
+    const comparables=Array.isArray(market.comparables)?market.comparables:[];
+    if(!subject.make||!subject.model)throw new Error("O refinamento não deixou a viatura suficientemente identificada.");
+
+    let memories=[],memoryWarning="";
+    try{memories=relevantMemories(await loadMemories(),subject)}catch(error){memoryWarning=error.message}
+
+    progress("A recalcular a compra…","A atualizar comparáveis, custos, margem e risco.");
+    const result=evaluatePurchase({
+      subject,
+      comparables,
+      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
+      tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      costs:DEAL.costs,
+      risk_flags:market.risk_flags||[],
+      target_margin:DEAL.target_margin,
+      minimum_margin:DEAL.minimum_margin
+    });
+    result.market.comment=market.market_comment||"";
+
+    const entry=lastAnalysisContext.entry;
+    const reader=lastAnalysisContext.reader;
+    const missing=entry.mode==="manual"?manualMissing(subject):[];
+    if(entry.registration)result.warnings.push("Identificação por matrícula: Matrícula.co.pt. Confirma a versão e os quilómetros antes de decidir a compra.");
+    if(entry.mode==="manual"&&!entry.registration)result.warnings.push("Dados fornecidos por ti. A pesquisa confirma comparáveis, não os dados da tua viatura.");
+    if(missing.length){
+      result.purchase.maxPurchase=NaN;
+      result.purchase.absoluteMax=NaN;
+      result.purchase.expectedMargin=NaN;
+      result.purchase.decision="Referência inicial — falta confirmar "+missing.join(", ");
+      result.warnings.push("Completa a descrição com "+missing.join(", ")+" e volta a analisar para obter o teto de compra.");
+      result.market.confidencePct=Math.min(result.market.confidencePct,40);
+    }
+    if(memoryWarning)result.warnings.push(memoryWarning);
+    result.market.dealer_memories=memories;
+    for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
+
+    renderResult(result,lastAnalysisContext.sourceHost,market.risk_flags||[]);
+    if(reader?.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
+
+    lastAnalysisContext.marketPayload={...payload,previous_subject:subject};
+    await updateAnalysis({
+      status:"done",
+      vehicle:subject,
+      market:{...result.market,data_quality:market.data_quality||{},model:market.model||null,refinement:combinedRefinement},
+      purchase:result.purchase,
+      risks:market.risk_flags||[],
+      reader
+    });
+
+    q("refineInput").value="";
+    const reply=missing.length
+      ?"Análise refeita com a tua indicação. Ainda falta confirmar "+missing.join(", ")+"."
+      :"Análise refeita com a tua indicação e nova pesquisa de mercado.";
+    addMsg("assistant",reply);
+    await storeMessage("assistant",reply);
+    q("saveStatus").textContent="IA ativa";
+    toast("Análise refeita.");
+  }catch(err){
+    const message=String(err?.message||err);
+    addMsg("assistant","Não consegui refazer a análise: "+message);
+    await storeMessage("assistant","Não consegui refazer a análise: "+message);
+    toast("Não foi possível refazer a análise.");
+  }finally{
+    stopProgress();
+    q("refineInput").disabled=false;
+    button.disabled=false;
   }
 });
 
