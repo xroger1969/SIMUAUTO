@@ -237,6 +237,56 @@ async function loadMemories(){
   return data||[];
 }
 
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function fetchJson(url,options={},timeout=25000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const response=await fetch(url,{...options,signal:controller.signal});
+    const data=await response.json().catch(()=>({}));
+    return {response,data};
+  }finally{clearTimeout(timer)}
+}
+async function runMarketAnalysis(payload){
+  let start;
+  try{
+    start=await fetchJson("/api/comparador-market",{
+      method:"POST",
+      headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
+      body:JSON.stringify(payload)
+    },35000);
+  }catch(error){
+    throw new Error("A ligação caiu ao iniciar a pesquisa. Toca novamente em Analisar compra.");
+  }
+  if(!start.response.ok)throw new Error(start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.");
+  if(start.data.subject)return start.data;
+  const responseId=start.data.response_id;
+  if(!responseId)throw new Error("O radar iniciou sem identificador de acompanhamento.");
+
+  const startedAt=Date.now();
+  let consecutiveNetworkFailures=0;
+  while(Date.now()-startedAt<8*60*1000){
+    await wait(2200);
+    if(Date.now()-startedAt>12000)progress("A pesquisar o mercado…","A pesquisa continua em segundo plano. A página já não depende de uma ligação longa.");
+    let poll;
+    try{
+      poll=await fetchJson("/api/comparador-market?response_id="+encodeURIComponent(responseId),{
+        method:"GET",
+        headers:{"authorization":"Bearer "+session.access_token}
+      },20000);
+      consecutiveNetworkFailures=0;
+    }catch(error){
+      consecutiveNetworkFailures++;
+      if(consecutiveNetworkFailures<4)continue;
+      throw new Error("A ligação à internet oscilou várias vezes. A pesquisa foi interrompida; tenta novamente.");
+    }
+    if(poll.response.status===202||poll.data.status==="queued"||poll.data.status==="in_progress")continue;
+    if(!poll.response.ok)throw new Error(poll.data.message||poll.data.error||"Falha no radar de mercado.");
+    return poll.data;
+  }
+  throw new Error("A pesquisa demorou demasiado. Nenhum valor de compra foi calculado.");
+}
+
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   let entry;
@@ -285,16 +335,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     });
 
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
-    const marketResp=await fetch("/api/comparador-market",{
-      method:"POST",
-      headers:{
-        "content-type":"application/json",
-        "authorization":"Bearer "+session.access_token
-      },
-      body:JSON.stringify({url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{}})
-    });
-    const market=await marketResp.json().catch(()=>({}));
-    if(!marketResp.ok)throw new Error(market.message||market.error||"Falha no radar de mercado.");
+    const market=await runMarketAnalysis({url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{}});
 
     const subject=market.subject||{};
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
@@ -353,8 +394,10 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   }catch(err){
     q("emptyState").classList.remove("hidden");
     q("emptyState").querySelector("h2").textContent="Não consegui concluir esta leitura";
-    q("emptyState").querySelector("p").textContent=/JSON|Unexpected|position/.test(String(err?.message))?"A resposta do serviço ficou inválida. Tenta novamente; não foi emitida uma recomendação de compra.":String(err?.message||err);
-    await updateAnalysis({status:"failed",error_message:String(err?.message||err)});
+    const raw=String(err?.message||err);
+    const message=/JSON|Unexpected|position/.test(raw)?"A resposta do serviço ficou inválida. Tenta novamente; não foi emitida uma recomendação de compra.":/Load failed|Failed to fetch|NetworkError|network connection/i.test(raw)?"A ligação caiu durante a análise. Tenta novamente; nenhum valor incompleto foi usado.":raw;
+    q("emptyState").querySelector("p").textContent=message;
+    await updateAnalysis({status:"failed",error_message:message});
   }finally{
     stopProgress();q("analyzeBtn").disabled=false;
   }
