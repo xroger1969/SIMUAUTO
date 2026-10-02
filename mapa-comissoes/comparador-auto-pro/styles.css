@@ -612,3 +612,34 @@ button{cursor:pointer}
     padding-bottom:max(8px,env(safe-area-inset-bottom));
   }
 }
+
+
+/* Automotive silhouette background — mobile landing screen */
+@media(max-width:560px){
+  body{
+    background:
+      linear-gradient(180deg,rgba(30,37,51,.10) 0%,rgba(29,35,48,.18) 46%,rgba(24,31,43,.58) 100%),
+      url("./mobile-car-bg.svg") center top / cover no-repeat,
+      linear-gradient(180deg,#232a39 0%,#293140 48%,#232a39 100%)!important;
+  }
+
+  .topbar,
+  .hero{
+    position:relative;
+    z-index:1;
+  }
+
+  .app:has(#result.hidden):has(#progressPanel.hidden) .hero{
+    text-shadow:0 1px 18px rgba(3,9,17,.24);
+  }
+
+  .app:has(#result.hidden):has(#progressPanel.hidden) .vehicle-input-shell>input{
+    background:rgba(7,14,24,.90);
+    backdrop-filter:blur(7px);
+    -webkit-backdrop-filter:blur(7px);
+  }
+
+  .app:has(#result.hidden):has(#progressPanel.hidden) .analyze-bar .btn.primary{
+    box-shadow:0 14px 34px rgba(42,80,158,.28);
+  }
+}
