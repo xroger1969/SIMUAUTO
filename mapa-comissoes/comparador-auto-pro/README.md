@@ -23,3 +23,4 @@ Protótipo isolado dentro do projeto `SIMUAUTO`, sem alterar o Mapa Comercial at
 - leitor autenticado de fontes privadas sem navegador pago por análise;
 - aprendizagem baseada em compras/vendas reais;
 - notificações apenas quando houver uma necessidade clara (OneSignal/Resend ficam fora da V1 para não criar complexidade desnecessária).
+\n\n<!-- redeploy after OPENAI_API_KEY configuration: 2026-10-02 -->\n
