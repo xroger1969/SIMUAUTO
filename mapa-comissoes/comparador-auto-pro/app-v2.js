@@ -241,7 +241,12 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
-  q("expectedMargin").textContent=fmt(result.purchase?.expectedMargin);
+  const rawExpectedMargin=result.purchase?.expectedMargin;
+  const hasExpectedMargin=rawExpectedMargin!==null&&rawExpectedMargin!==undefined&&rawExpectedMargin!==""&&Number.isFinite(Number(rawExpectedMargin));
+  const recommendedSpread=(result.market?.saleLikely!==null&&result.market?.saleLikely!==undefined&&result.purchase?.maxPurchase!==null&&result.purchase?.maxPurchase!==undefined)
+    ? Number(result.market.saleLikely)-Number(result.purchase.maxPurchase)
+    : NaN;
+  q("expectedMargin").textContent=fmt(hasExpectedMargin?Number(rawExpectedMargin):recommendedSpread);
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=result.purchase?.decision||"—";
   const gap=(result.purchase?.currentPrice??0)-(result.purchase?.maxPurchase??0);
