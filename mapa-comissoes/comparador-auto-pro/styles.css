@@ -230,3 +230,161 @@ button{cursor:pointer}
   }
   .hero{justify-content:flex-start}
 }
+
+/* Weather-inspired mobile refinement */
+@media(max-width:560px){
+  :root{
+    --bg:#242a38;
+    --panel:#2a3040;
+    --panel2:#303747;
+    --line:rgba(255,255,255,.12);
+    --text:#f7f8fb;
+    --muted:#aeb6c6;
+    --blue:#5b8def;
+    --blue2:#88aaf6;
+  }
+
+  html{
+    background:#242a38;
+  }
+
+  body{
+    background:
+      radial-gradient(520px 360px at 68% 2%,rgba(123,143,176,.18),transparent 62%),
+      linear-gradient(180deg,#242a38 0%,#2a3040 48%,#222836 100%);
+    color:var(--text);
+  }
+
+  .topbar{
+    padding-bottom:12px;
+  }
+
+  .brand strong{
+    font-size:16px;
+    font-weight:760;
+  }
+
+  .brand small{
+    font-size:9.5px;
+    color:#aeb6c6;
+  }
+
+  .logo{
+    width:40px;
+    height:40px;
+    border-radius:12px;
+    background:linear-gradient(145deg,#487ee7,#6d9ff4);
+    box-shadow:0 8px 22px rgba(29,53,99,.26);
+  }
+
+  .status-dot{
+    background:rgba(13,42,27,.72);
+    border-color:rgba(72,160,111,.5);
+  }
+
+  .top-actions .btn.small{
+    background:rgba(13,20,31,.72);
+    border-color:rgba(255,255,255,.15);
+  }
+
+  .hero{
+    padding:28px 20px 26px;
+    border-radius:28px;
+    border:1px solid rgba(255,255,255,.12);
+    background:
+      linear-gradient(180deg,rgba(48,55,71,.86),rgba(40,47,62,.82));
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.045),
+      0 22px 55px rgba(8,12,20,.18);
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
+  }
+
+  .hero:after{
+    width:290px;
+    height:290px;
+    right:-120px;
+    top:-118px;
+    background:rgba(123,143,176,.07);
+  }
+
+  .eyebrow{
+    font-size:8.5px;
+    letter-spacing:.16em;
+    font-weight:750;
+    color:#8f9db3;
+  }
+
+  .hero h1{
+    max-width:34ch;
+    margin:9px 0 18px;
+    font-size:20px;
+    line-height:1.34;
+    letter-spacing:-.018em;
+    font-weight:650;
+    color:#e3e7ee;
+  }
+
+  .analyze-bar{
+    margin-top:8px;
+    gap:12px;
+  }
+
+  .analyze-bar .vehicle-input-shell>input{
+    min-height:84px;
+    border-radius:22px;
+    padding:20px 146px 20px 18px;
+    font-size:15px;
+    line-height:1.3;
+    background:rgba(9,15,24,.88);
+    border-color:rgba(255,255,255,.11);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+  }
+
+  .analyze-bar .vehicle-input-shell>input::placeholder{
+    color:#aeb6c6;
+  }
+
+  .input-tools{
+    right:9px;
+    gap:4px;
+  }
+
+  .input-tool{
+    width:42px;
+    height:42px;
+    border-radius:12px;
+    color:#bdc7d8;
+  }
+
+  .input-tool:hover,
+  .input-tool:focus-visible{
+    background:rgba(255,255,255,.07);
+  }
+
+  .analyze-bar .btn.primary{
+    min-height:58px;
+    border-radius:20px;
+    font-size:16px;
+    background:linear-gradient(180deg,#5b8def,#477ce7);
+    border-color:#6a96ef;
+    box-shadow:0 10px 26px rgba(51,86,153,.22);
+  }
+
+  .hint{
+    margin-top:13px;
+    font-size:9.5px;
+    line-height:1.45;
+    color:#8995a8;
+  }
+
+  .hint a{
+    color:#a8b8e8;
+  }
+
+  .attachment-status{
+    background:rgba(18,26,38,.72);
+    border-color:rgba(255,255,255,.1);
+  }
+}
+
