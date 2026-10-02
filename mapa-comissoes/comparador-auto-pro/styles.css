@@ -49,7 +49,7 @@ button{cursor:pointer}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}
 .kpis article{padding:16px;border:1px solid var(--line);border-radius:15px;background:linear-gradient(180deg,#1b3a58,#17324d);min-width:0;min-height:108px;display:flex;flex-direction:column;justify-content:center}
 .kpis span,.kpis small{display:block;color:var(--muted);font-size:10px}.kpis strong{display:block;font-size:22px;margin:6px 0 3px;letter-spacing:-.03em}
-.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+.detail-grid{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
 .panel{padding:18px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#1b3a58,#16314b);box-shadow:var(--shadow);min-width:0}
 .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.panel h3{margin:5px 0 0;font-size:18px}
 .copy{color:#a8b7c9;font-size:12px;line-height:1.65}
