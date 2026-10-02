@@ -44,7 +44,7 @@
 
     <section class="hero">
       <span class="eyebrow">Motor de decisão de compra</span>
-      <h1>Cola o link, indica a matrícula ou descreve a viatura.</h1>
+      <h1>Cola o link, faz upload da imagem com informação ou descreve a viatura.</h1>
 
       <form id="analyzeForm" class="analyze-bar">
         <div class="vehicle-input-shell">
@@ -152,7 +152,9 @@
         <button class="refine-dialog-close" type="button" id="refineDialogClose" aria-label="Fechar">×</button>
       </div>
       <div class="refine-dialog-state" id="refineDialogState">A analisar…</div>
-      <p id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</p>
+      <div class="refine-dialog-messages" id="refineDialogMessages" aria-live="polite">
+        <div class="refine-dialog-message assistant" id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</div>
+      </div>
     </div>
   </div>
   <div class="toast" id="toast"></div>
