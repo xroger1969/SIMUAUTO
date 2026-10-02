@@ -1,0 +1,37 @@
+name: Comparador Auto Pro Check
+
+on:
+  push:
+    branches:
+      - feature/comparador-auto-pro-v1
+      - main
+    paths:
+      - "comparador-auto-pro/**"
+      - "api/comparador-analyze.js"
+      - ".github/workflows/comparador-auto-pro-check.yml"
+  pull_request:
+    paths:
+      - "comparador-auto-pro/**"
+      - "api/comparador-analyze.js"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check public reader syntax
+        run: node --check api/comparador-analyze.js
+      - name: Check application syntax
+        run: node --check comparador-auto-pro/app.js
+      - name: Run valuation regression tests
+        working-directory: comparador-auto-pro
+        run: npm test
+      - name: Verify critical UI hooks
+        run: |
+          grep -q 'id="vehicleUrl"' comparador-auto-pro/index.html
+          grep -q 'id="maxPurchase"' comparador-auto-pro/index.html
+          grep -q 'id="chatInput"' comparador-auto-pro/index.html
+          grep -q 'cap_memory_rules' comparador-auto-pro/app.js
