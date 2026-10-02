@@ -35,13 +35,68 @@ function bearer(req) {
   return h.startsWith("Bearer ") ? h.slice(7).trim() : "";
 }
 
+function metadataRegistration(meta={}){
+  if(!meta.cap_reg_make || !meta.cap_reg_model) return null;
+  const year=Number(meta.cap_reg_year);
+  return {
+    make:meta.cap_reg_make,
+    model:meta.cap_reg_model,
+    trim:meta.cap_reg_trim||null,
+    year:Number.isInteger(year)&&year>1900?year:null,
+    origin:["national","imported","unknown"].includes(meta.cap_reg_origin)?meta.cap_reg_origin:"unknown"
+  };
+}
+
+function finalizeMarketResponse(data){
+  const parsed=structuredResult(data);
+  if(!parsed.subject || !Array.isArray(parsed.comparables)) throw new Error("Resposta de mercado sem ficha válida.");
+  const meta=data.metadata||{};
+  const registrationData=metadataRegistration(meta);
+  if(registrationData){
+    Object.assign(parsed.subject,{make:registrationData.make,model:registrationData.model,trim:registrationData.trim,year:registrationData.year,mileage_km:null,price:null,origin:registrationData.origin});
+  }
+  const originalUrl=String(meta.cap_source_url||"").trim();
+  parsed.comparables = parsed.comparables.filter(c => {
+    try {
+      const u = new URL(c.url);
+      return ["https:", "http:"].includes(u.protocol) && typeof c.price === "number" && c.price > 0 && (!originalUrl || u.toString() !== new URL(originalUrl).toString());
+    } catch { return false; }
+  });
+  return {
+    ok:true,
+    status:"completed",
+    response_id:data.id||null,
+    model:data.model || process.env.OPENAI_MODEL || "gpt-6-sol",
+    usage:data.usage || null,
+    ...parsed
+  };
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("cache-control", "no-store");
-  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (!["GET","POST"].includes(req.method)) return res.status(405).json({ error: "method_not_allowed" });
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: "openai_not_configured" });
 
   const token = bearer(req);
   if (!token || !(await validUser(token))) return res.status(401).json({ error: "invalid_auth" });
+
+  if(req.method==="GET"){
+    const id=String(req.query?.response_id||"").trim();
+    if(!/^resp_[A-Za-z0-9_-]+$/.test(id))return res.status(400).json({error:"invalid_response_id"});
+    try{
+      const response=await fetch("https://api.openai.com/v1/responses/"+encodeURIComponent(id),{
+        signal:AbortSignal.timeout(20000),
+        headers:{authorization:"Bearer "+process.env.OPENAI_API_KEY}
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)return res.status(502).json({error:"openai_market_status_error",message:data?.error?.message||"Não foi possível consultar o estado da pesquisa."});
+      if(data.status==="queued"||data.status==="in_progress")return res.status(202).json({ok:true,status:data.status,response_id:id});
+      if(data.status!=="completed")return res.status(502).json({error:"openai_market_failed",message:data?.error?.message||"A pesquisa de mercado terminou sem resultado válido."});
+      return res.status(200).json(finalizeMarketResponse(data));
+    }catch(error){
+      return res.status(502).json({error:"openai_market_status_error",message:String(error?.message||error)});
+    }
+  }
 
   const url = String(req.body?.url || "").trim();
   const page = req.body?.page || {};
@@ -175,6 +230,15 @@ module.exports = async function handler(req, res) {
     "O objetivo é fornecer dados ao motor determinístico, não tomar sozinho a decisão final."
   ].join("\n");
 
+  const responseMetadata={cap_source_url:String(url||"").slice(0,480)};
+  if(registrationData){
+    responseMetadata.cap_reg_make=String(registrationData.make||"").slice(0,120);
+    responseMetadata.cap_reg_model=String(registrationData.model||"").slice(0,120);
+    if(registrationData.trim)responseMetadata.cap_reg_trim=String(registrationData.trim).slice(0,120);
+    if(registrationData.year)responseMetadata.cap_reg_year=String(registrationData.year);
+    responseMetadata.cap_reg_origin=String(registrationData.origin||"unknown");
+  }
+
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -185,7 +249,9 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-6-sol",
+        background: true,
         store: false,
+        metadata: responseMetadata,
         instructions,
         input: "ANÚNCIO A ANALISAR:\n" + pageContext + "\n\nPesquisa o mercado português e devolve a ficha normalizada e comparáveis atuais.",
         tools: [{ type: "web_search" }],
@@ -213,21 +279,8 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const parsed = structuredResult(data);
-    if (!parsed.subject || !Array.isArray(parsed.comparables)) throw new Error("Resposta de mercado sem ficha válida.");
-    if(registrationData){
-      Object.assign(parsed.subject,{make:registrationData.make,model:registrationData.model,trim:registrationData.trim,year:registrationData.year,mileage_km:null,price:null,origin:registrationData.origin});
-    }
-    parsed.comparables = parsed.comparables.filter(c => {
-      try { const u = new URL(c.url); return ["https:", "http:"].includes(u.protocol) && typeof c.price === "number" && c.price > 0 && (!url || u.toString() !== new URL(url).toString()); } catch { return false; }
-    });
-
-    return res.status(200).json({
-      ok:true,
-      model:data.model || process.env.OPENAI_MODEL || "gpt-6-sol",
-      usage:data.usage || null,
-      ...parsed
-    });
+    if(!data.id)return res.status(502).json({error:"openai_market_error",message:"A pesquisa foi iniciada sem identificador de acompanhamento."});
+    return res.status(202).json({ok:true,status:data.status||"queued",response_id:data.id});
   } catch (error) {
     return res.status(500).json({
       error:"server_error",
