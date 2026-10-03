@@ -96,6 +96,7 @@
           <span>Máximo de compra recomendado</span>
           <strong id="maxPurchase">—</strong>
           <small id="decisionText">—</small>
+          <small class="quality-note" id="qualityNote">A validar qualidade da evidência…</small>
         </div>
         <div class="decision-side">
           <span>Preço atual</span>
@@ -107,7 +108,7 @@
       <div class="kpis">
         <article><span>Venda provável</span><strong id="saleLikely">—</strong><small>estimativa prudente</small></article>
         <article><span>Venda rápida</span><strong id="saleFast">—</strong><small>maior rotação</small></article>
-        <article><span>Margem prevista</span><strong id="expectedMargin">—</strong><small>estimativa comercial</small></article>
+        <article><span>Margem prevista</span><strong id="expectedMargin">—</strong><small id="expectedMarginNote">após custos e reserva</small></article>
         <article><span>Comparáveis</span><strong id="comparableCount">—</strong><small>usados no cálculo</small></article>
       </div>
 
@@ -118,9 +119,37 @@
           </div>
           <div id="marketSummary" class="copy"></div>
           <div class="comp-list" id="comparableList"></div>
+          <details class="evidence-details">
+            <summary id="evidenceSummary">Ver evidência completa</summary>
+            <div class="evidence-section">
+              <h4>Comparáveis usados</h4>
+              <div class="comp-list" id="allComparableList"></div>
+            </div>
+            <div class="evidence-section">
+              <h4>Excluídos do cálculo</h4>
+              <div class="excluded-list" id="excludedList"></div>
+            </div>
+          </details>
         </article>
 
       </div>
+
+      <details class="assumptions-details">
+        <summary>Premissas da compra</summary>
+        <form id="assumptionsForm" class="assumptions-form">
+          <label>Margem objetivo (€)<input id="targetMarginInput" type="number" min="0" step="50"></label>
+          <label>Margem mínima (€)<input id="minimumMarginInput" type="number" min="0" step="50"></label>
+          <label>Transporte (€)<input id="transportCostInput" type="number" min="0" step="10"></label>
+          <label>Recondicionamento (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
+          <label>Garantia/reserva (€)<input id="warrantyCostInput" type="number" min="0" step="10"></label>
+          <label>Financiamento de stock (€)<input id="stockCostInput" type="number" min="0" step="10"></label>
+          <label>Comissão de leilão (€)<input id="auctionCostInput" type="number" min="0" step="10"></label>
+          <label>Legalização/registo (€)<input id="registrationCostInput" type="number" min="0" step="10"></label>
+          <label>Outros custos (€)<input id="otherCostInput" type="number" min="0" step="10"></label>
+          <button class="btn ghost small" type="submit">Aplicar e guardar</button>
+        </form>
+        <p class="assumptions-help">Estes valores são editáveis. O cálculo distingue preço de venda, custos, reserva e margem económica.</p>
+      </details>
 
       <form id="refineForm" class="refine-bar">
         <span class="refine-mark">Mais informações</span>
@@ -161,8 +190,8 @@
   </div>
   <div class="toast" id="toast"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./app-v2.js?v=20261003-multi-photo"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
+  <script type="module" src="./app-v2.js?v=20261003-audit21"></script>
 </body>
 </html>
 
