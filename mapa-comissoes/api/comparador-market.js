@@ -125,7 +125,9 @@ function boundedContext(body,registrationData){
     description:clip(page.description,2200),
     json_ld:(Array.isArray(page.json_ld)?page.json_ld:[]).slice(0,4).map(item=>clip(JSON.stringify(item),2500)),
     origin_evidence:page.origin_evidence||null,
-    text_sample:clip(page.text_sample,12000),
+    text_sample:clip(page.text_sample,30000),
+    text_length:Number(page.text_length)||String(page.text_sample||"").length,
+    text_truncated:page.text_truncated===true,
     original_url:body.url||null,
     manual_description:body.mode==="manual"?clip(body.description,4000):null,
     input_mode:body.mode==="manual"?"manual":"url",
@@ -151,13 +153,16 @@ const marketSchema={
   properties:{
     subject:{
       type:"object",additionalProperties:false,
-      required:["make","model","generation","trim","body_type","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","vat_deductible","price","equipment","origin"],
+      required:["make","model","generation","trim","body_type","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","vat_deductible","price","equipment","origin","color","doors","seats","engine_cc","range_km","warranty_months","seller_name","location","ad_summary","ad_highlights"],
       properties:{
         make:{type:["string","null"]},model:{type:["string","null"]},generation:{type:["string","null"]},trim:{type:["string","null"]},
         body_type:{type:["string","null"]},fuel:{type:["string","null"]},battery_kwh:{type:["number","null"]},power_cv:{type:["number","null"]},
         drivetrain:{type:["string","null"]},transmission:{type:["string","null"]},year:{type:["integer","null"]},first_registration:{type:["string","null"]},
         mileage_km:{type:["integer","null"]},vat_deductible:{type:["boolean","null"]},price:{type:["number","null"]},
-        equipment:{type:"array",items:{type:"string"}},origin:{type:"string",enum:["national","imported","unknown"]}
+        equipment:{type:"array",items:{type:"string"}},origin:{type:"string",enum:["national","imported","unknown"]},
+        color:{type:["string","null"]},doors:{type:["integer","null"]},seats:{type:["integer","null"]},engine_cc:{type:["integer","null"]},
+        range_km:{type:["integer","null"]},warranty_months:{type:["integer","null"]},seller_name:{type:["string","null"]},location:{type:["string","null"]},
+        ad_summary:{type:"string"},ad_highlights:{type:"array",maxItems:16,items:{type:"string"}}
       }
     },
     comparables:{
@@ -209,6 +214,10 @@ const instructions=[
   "dealer_memories contém observações anteriores do comerciante. Trata-as como hipóteses a testar, não como factos. Pesquisa para as confirmar, contrariar ou deixar não confirmadas. Nunca alteres um preço apenas para concordar com uma memória.",
   "refinement_history contém indicações desta análise. Usa-as sem repetir ou acumular texto arbitrariamente.",
   "Se houver fotografias, lê em conjunto apenas os dados claramente visíveis.",
+  "Em subject.ad_summary resume fielmente a informação da VIATURA ANALISADA que está no anúncio/página/fotografias. Não uses comparáveis para preencher este resumo e não inventes dados ausentes.",
+  "Em subject.ad_highlights regista até 16 detalhes adicionais realmente encontrados no anúncio (estado/histórico, garantia, vendedor/localização, equipamento relevante, observações comerciais). Não repitas marca/modelo/preço/km só para encher.",
+  "Preenche color, doors, seats, engine_cc, range_km, warranty_months, seller_name e location apenas quando houver evidência no anúncio analisado. Caso contrário usa null.",
+  "Se o contexto indicar text_truncated=true, reconhece que a leitura textual foi parcial; nunca afirmes que leste o anúncio completo.",
   "Pesquisa obrigatoriamente a web antes de devolver comparáveis.",
   "A referência principal é retalho profissional em Portugal: Standvirtual, PiscaPisca, OLX Automóveis quando o vendedor for stand/comerciante, concessionários e sites próprios de stands.",
   "Abre páginas de anúncios sempre que possível. Cada comparável deve representar uma viatura disponível, ter URL real, preço observado e tipo de vendedor.",
