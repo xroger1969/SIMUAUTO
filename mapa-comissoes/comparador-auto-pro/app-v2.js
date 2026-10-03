@@ -282,7 +282,9 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     let label="Leitura do anúncio por confirmar",tone="warn";
     const length=Number(page.text_length)||String(page.text_sample||"").length||0;
     const chars=length?Number(length).toLocaleString("pt-PT")+" carateres":"";
-    if(kind==="link_only"){
+    if(kind==="auto1_link_only"){
+      label="AUTO1 privada · o link sozinho não expõe a ficha";
+    }else if(kind==="link_only"){
       label="Leitura direta bloqueada · dados pelo link + pesquisa web";
     }else if(kind==="photo_fallback"||kind==="auto1_screenshot"){
       label="Leitura pelas fotografias + contexto do link";tone="ok";
@@ -447,6 +449,22 @@ function renderResult(result,sourceHost,riskFlags=[]){
     "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
   syncDealForm();
 }
+function renderAuto1NeedsPhotos(reader,url){
+  currentResult=null;
+  currentVehicle=null;
+  q("result").classList.add("hidden");
+  const empty=q("emptyState");
+  empty.classList.remove("hidden");
+  empty.querySelector("h2").textContent="AUTO1: falta a ficha da viatura";
+  empty.querySelector("p").textContent="O link AUTO1 foi reconhecido, mas no iPhone a oferta é privada e o link sozinho não expõe marca, modelo, preço ou quilómetros. Anexa 1 a 3 capturas da ficha e volta a tocar em Analisar compra.";
+  const panel=q("auto1Connection");
+  if(panel){
+    panel.classList.remove("hidden");
+    const title=panel.querySelector("h3");
+    if(title)title.textContent="AUTO1 · "+(reader?.vehicle_code||"oferta privada");
+    setTimeout(()=>panel.scrollIntoView({behavior:"smooth",block:"center"}),120);
+  }
+}
 function renderReaderOnly(reader,url){
   currentResult=null;
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
@@ -461,7 +479,9 @@ function renderReaderOnly(reader,url){
   q("comparableCount").textContent="0";q("confidencePill").textContent="Confiança —";
   q("decisionText").textContent="Não foi possível confirmar todos os dados da viatura.";
   q("gapText").textContent="Sem decisão de compra ainda.";
-  q("marketSummary").textContent="A leitura pública do link funcionou. Confirma os dados do anúncio antes de tomar uma decisão de compra.";
+  q("marketSummary").textContent=String(reader?.source_kind||"").startsWith("auto1_")
+    ?"A AUTO1 não devolveu dados suficientes para identificar a viatura com segurança. Acrescenta capturas legíveis da ficha."
+    :"A leitura pública do link funcionou. Confirma os dados do anúncio antes de tomar uma decisão de compra.";
   q("comparableList").innerHTML="";
   renderRisks([{label:"Análise ainda sem comparáveis; não usar para licitar.",severity:"high"}],[]);
   const calcBox=q("calcBox");if(calcBox)calcBox.textContent="O motor de cálculo só é ativado quando existirem dados suficientes do carro e do mercado.";
@@ -1110,6 +1130,16 @@ q("analyzeForm").addEventListener("submit",async ev=>{
           }};
         }
       }
+    }
+
+    if(reader?.source_kind==="auto1_link_only"&&selectedImages.length===0){
+      const message="AUTO1 privada: o link sozinho não expõe a ficha da viatura. É necessária uma captura da oferta ou uma sessão autenticada no computador.";
+      await updateAnalysis({
+        status:"needs_auth",reader,vehicle:{page_title:reader.page?.title||""},source_snapshot:reader.page||{},
+        source_last_seen_at:new Date().toISOString(),source_available:false,error_message:message
+      },operation.analysisId);
+      renderAuto1NeedsPhotos(reader,url?.toString()||"");
+      return;
     }
 
     await updateAnalysis({
