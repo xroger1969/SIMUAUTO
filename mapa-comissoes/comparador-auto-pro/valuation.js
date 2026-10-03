@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-03.3";
+export const ENGINE_VERSION="2026-10-03.4";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -256,7 +256,9 @@ export function evaluatePurchase(input,custom={}){
   if(valid.some(r=>r.comp.country!=="PT"))warnings.push("Existem comparáveis cuja localização em Portugal não foi confirmada.");
   if(acquisition.needsLocationConfirmation)warnings.push("Confirma se esta viatura de leilão já está em Portugal. Só é aplicado o custo adicional de 1 200 € quando a viatura de leilão está fora de Portugal/importada.");
 
+  const professionalCount=valid.filter(r=>sellerType(r.comp)==="professional").length;
   const evidenceEligible=Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
+  const provisionalEligible=Number.isFinite(marketValue)&&!missing.length&&professionalCount>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
   const eligible=evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
   const completeness=(6-missing.length)/6;
@@ -278,14 +280,19 @@ export function evaluatePurchase(input,custom={}){
   const targetMargin=Math.max(0,num(input.target_margin,config.targetMargin));
   const minimumMargin=Math.max(0,Math.min(targetMargin,num(input.minimum_margin,config.minimumMargin)));
 
-  const maxPurchase=eligible?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-targetMargin)*factor)):NaN;
-  const absoluteMax=eligible?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-minimumMargin)*factor)):NaN;
+  const computedTargetCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-targetMargin)*factor)):NaN;
+  const computedAbsoluteCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-minimumMargin)*factor)):NaN;
+  const maxPurchase=eligible?computedTargetCeiling:NaN;
+  const absoluteMax=eligible?computedAbsoluteCeiling:NaN;
+  const provisionalMaxPurchase=!eligible&&provisionalEligible?computedTargetCeiling:NaN;
+  const provisionalAbsoluteMax=!eligible&&provisionalEligible?computedAbsoluteCeiling:NaN;
+  const effectiveCeiling=Number.isFinite(maxPurchase)?maxPurchase:provisionalMaxPurchase;
   const currentPrice=num(input.current_purchase_price,NaN);
   const expectedMargin=Number.isFinite(currentPrice)&&Number.isFinite(saleEconomic)
     ?Math.round(saleEconomic-currentPrice/factor-fixedCosts-riskReserve)
     :NaN;
-  const marginAtCeiling=Number.isFinite(maxPurchase)&&Number.isFinite(saleEconomic)
-    ?Math.round(saleEconomic-maxPurchase/factor-fixedCosts-riskReserve)
+  const marginAtCeiling=Number.isFinite(effectiveCeiling)&&Number.isFinite(saleEconomic)
+    ?Math.round(saleEconomic-effectiveCeiling/factor-fixedCosts-riskReserve)
     :NaN;
 
   let decision=valid.length?"Referência provisória — dados por confirmar":"sem dados";
@@ -296,6 +303,10 @@ export function evaluatePurchase(input,custom={}){
     else if(currentPrice<=maxPurchase)decision="boa compra";
     else if(currentPrice<=absoluteMax)decision="comprar só com justificação";
     else decision="não comprar";
+  }else if(provisionalEligible){
+    if(!Number.isFinite(currentPrice))decision="Teto provisório — confirmar evidência";
+    else if(currentPrice<=provisionalMaxPurchase)decision="Teto provisório — preço dentro do alvo; confirmar evidência";
+    else decision="Teto provisório — preço acima do alvo; confirmar evidência";
   }
 
   return {
@@ -323,6 +334,10 @@ export function evaluatePurchase(input,custom={}){
       minimumMargin,
       maxPurchase,
       absoluteMax,
+      provisionalMaxPurchase,
+      provisionalAbsoluteMax,
+      effectiveCeiling,
+      provisionalEligible,
       expectedMargin,
       marginAtCeiling,
       decision,
