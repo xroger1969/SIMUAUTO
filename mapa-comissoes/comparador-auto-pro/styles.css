@@ -43,6 +43,8 @@ button{cursor:pointer}
 .result{margin-top:20px}.vehicle-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin:0 2px 14px}
 .vehicle-head h2{font-size:26px;letter-spacing:-.035em;margin:6px 0 5px}.vehicle-head p{margin:0;color:var(--muted);font-size:12px}
 .confidence{padding:8px 10px;border-radius:999px;border:1px solid #2a4f7b;background:#102643;color:#add0ff;font-size:11px;font-weight:800}
+.vehicle-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.new-search-btn{white-space:nowrap;border-color:#3c5d80;background:rgba(10,26,43,.78)}
 .decision-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.42fr);gap:24px;align-items:end;padding:24px;border:1px solid #4d78a4;border-radius:20px;background:linear-gradient(145deg,#24547f,#1b3f62);box-shadow:var(--shadow)}
 .decision-card span,.decision-card small{display:block;color:#9bb2ce;font-size:11px}.decision-card>div>strong{display:block;font-size:clamp(40px,7vw,66px);letter-spacing:-.06em;margin:5px 0}
 .decision-side{border-left:1px solid rgba(255,255,255,.08);padding-left:26px;min-width:210px}.decision-side strong{font-size:28px!important}
@@ -72,7 +74,9 @@ button{cursor:pointer}
   .kpis article{min-height:100px;padding:14px}
   .kpis strong{font-size:20px}
   .vehicle-head{display:block}
-  .confidence{display:inline-block;margin-top:10px}
+  .confidence{display:inline-block;margin-top:0}
+  .vehicle-head-actions{justify-content:flex-start;margin-top:10px}
+  .new-search-btn{min-height:36px}
   .hero h1{font-size:34px}
   .decision-card{grid-template-columns:1fr 1fr;gap:14px;padding:18px}
   .decision-card>div>strong{font-size:38px}
