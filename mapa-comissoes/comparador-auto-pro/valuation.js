@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-03.4";
+export const ENGINE_VERSION="2026-10-03.5";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -76,6 +76,25 @@ function equipmentSimilarity(a,b){
   return intersection/new Set([...A,...B]).size;
 }
 
+function trimSimilarity(a,b){
+  if(!known(a)||!known(b))return 0;
+  const A=norm(a),B=norm(b);
+  if(A===B)return 1;
+  if(A.length>=3&&B.length>=3&&(A.includes(B)||B.includes(A)))return 1;
+
+  const tokens=v=>new Set(v.split(/[^a-z0-9]+/).filter(x=>x.length>=2));
+  const ta=tokens(A),tb=tokens(B);
+  if(!ta.size||!tb.size)return 0;
+  const common=[...ta].filter(x=>tb.has(x)).length;
+  const union=new Set([...ta,...tb]).size;
+  const overlap=common/union;
+
+  const code=v=>v.match(/\b\d{3}[a-z]{0,2}\b/i)?.[0]||null;
+  const ca=code(A),cb=code(B);
+  if(ca&&cb&&ca===cb)return Math.max(.9,overlap);
+  return overlap;
+}
+
 function hardExclusion(s,c){
   if(!same(s.make,c.make))return "marca diferente ou desconhecida";
   if(!same(s.model,c.model))return "modelo diferente ou desconhecido";
@@ -93,7 +112,7 @@ export function similarity(s,c){
   const add=(weight,value)=>{total+=weight;score+=weight*clamp(value,0,1)};
 
   add(25,same(s.make,c.make)&&same(s.model,c.model)?1:0);
-  if(known(s.trim)&&known(c.trim))add(18,same(s.trim,c.trim)?1:.25);
+  if(known(s.trim)&&known(c.trim))add(18,trimSimilarity(s.trim,c.trim));
   if(known(s.generation)&&known(c.generation))add(7,same(s.generation,c.generation)?1:0);
   if(known(s.fuel)&&known(c.fuel))add(10,fuel(s.fuel)===fuel(c.fuel)?1:0);
   if(known(s.year)&&known(c.year))add(14,1-Math.abs(num(s.year)-num(c.year))/4);
