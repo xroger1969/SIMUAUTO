@@ -216,6 +216,8 @@ const instructions=[
   "country=PT apenas se o anúncio estiver em Portugal. availability=available apenas se a página indicar que o anúncio está ativo. price_basis=gross apenas quando o preço apresentado ao público inclui IVA ou é claramente o preço final anunciado.",
   "observed_at deve refletir a data/hora desta pesquisa; nunca inventes uma data histórica.",
   "Procura mesma marca, modelo, geração, motorização/versão, tração e ano próximo. Só alarga se faltarem resultados.",
+  "Normaliza model como família comercial e trim como motorização/versão/equipamento. Exemplo BMW: model='Série 4 Gran Coupé' e trim='425d Pack M Auto'; não coloques '425d Gran Coupé' no campo model nem deixes apenas 'd Pack M Auto' no trim.",
+  "Mantém a mesma convenção de model e trim entre subject e todos os comparáveis para evitar rejeições artificiais do motor determinístico.",
   "Não uses anúncios estrangeiros, carros novos, páginas editoriais, peças, aluguer ou resultados sem preço como comparáveis principais.",
   "Evita o próprio anúncio e duplicados do mesmo carro entre plataformas. listing_id deve conter o identificador do anúncio quando estiver disponível.",
   "Não confundas preço pedido com preço vendido.",
