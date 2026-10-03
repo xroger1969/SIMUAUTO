@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js";
+import { evaluatePurchase } from "./valuation.js?v=20261003-8";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
