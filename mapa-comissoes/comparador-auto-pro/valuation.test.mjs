@@ -91,3 +91,54 @@ test("default target margin remains 3500 euros",()=>{
   const r=evaluatePurchase({subject,comparables:[professional(1),professional(2),professional(3)],source_url:"https://auction.example/x"});
   assert.equal(r.purchase.targetMargin,3500);
 });
+
+
+test("auction vehicle abroad adds 1200 euros compared with same auction vehicle already in Portugal",()=>{
+  const base={
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    source_url:"https://www.auto1.com/pt/app/merchant/car/TEST",
+    costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
+    target_margin:3500,minimum_margin:1200
+  };
+  const abroad=evaluatePurchase({...base,source_context:{is_auction:true,vehicle_location:"foreign"}});
+  const inPortugal=evaluatePurchase({...base,source_context:{is_auction:true,vehicle_location:"PT"}});
+  assert.equal(abroad.purchase.importCost,1200);
+  assert.equal(inPortugal.purchase.importCost,0);
+  assert.equal(abroad.purchase.fixedCosts-inPortugal.purchase.fixedCosts,1200);
+  assert.equal(inPortugal.purchase.maxPurchase-abroad.purchase.maxPurchase,1200);
+});
+
+test("auction vehicle already in Portugal never receives the 1200 euro import cost",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    source_url:"https://auction.example/car/1",
+    source_context:{is_auction:true,vehicle_location:"PT"}
+  });
+  assert.equal(r.purchase.importCost,0);
+  assert.equal(r.purchase.needsLocationConfirmation,false);
+});
+
+test("Standvirtual never receives the 1200 euro auction import cost",()=>{
+  const r=evaluatePurchase({
+    subject:{...subject,origin:"imported"},
+    comparables:[professional(1),professional(2),professional(3)],
+    source_url:"https://www.standvirtual.com/carros/anuncio/teste",
+    source_context:{is_auction:true,vehicle_location:"foreign"}
+  });
+  assert.equal(r.purchase.importCost,0);
+  assert.equal(r.purchase.acquisition.isAuction,false);
+  assert.equal(r.purchase.needsLocationConfirmation,false);
+});
+
+test("uncertain auction location asks for confirmation before issuing a ceiling",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    source_url:"https://auction.example/car/2",
+    source_context:{is_auction:true,vehicle_location:"unknown"}
+  });
+  assert.equal(r.purchase.needsLocationConfirmation,true);
+  assert.equal(r.purchase.eligible,false);
+  assert.ok(Number.isNaN(r.purchase.maxPurchase));
+  assert.match(r.purchase.decision,/Confirmar/);
+  assert.ok(r.warnings.some(x=>x.includes("1 200 €")));
+});
