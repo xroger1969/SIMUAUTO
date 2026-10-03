@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261003-sunset">
+  <link rel="stylesheet" href="./styles.css?v=20261003-newsearch1">
 </head>
 <body>
   <div class="auth-gate" id="authGate">
@@ -88,7 +88,10 @@
           <h2 id="vehicleTitle">Viatura</h2>
           <p id="vehicleMeta">—</p>
         </div>
-        <span class="confidence" id="confidencePill">Confiança —</span>
+        <div class="vehicle-head-actions">
+          <span class="confidence" id="confidencePill">Confiança —</span>
+          <button class="btn ghost small new-search-btn" type="button" id="newSearchBtn">Nova pesquisa</button>
+        </div>
       </div>
 
       <div class="decision-card">
@@ -202,7 +205,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261003-engine8"></script>
+  <script type="module" src="./app-v2.js?v=20261003-engine9"></script>
 </body>
 </html>
 
