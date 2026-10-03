@@ -967,18 +967,20 @@ q("analyzeForm").addEventListener("submit",async ev=>{
             text_sample:entry.description||("Source URL: "+url.toString()),json_ld:[],original_url:url.toString()
           }};
         }else{
-          await updateAnalysis({status:reader.status==="needs_auth"?"needs_auth":"failed",reader,error_message:reader.message||"Leitura indisponível"},operation.analysisId);
-          q("emptyState").classList.remove("hidden");
-          q("emptyState").querySelector("h2").textContent=reader.status==="needs_auth"?"Este anúncio exige a tua sessão":"Não foi possível ler este anúncio diretamente";
-          q("emptyState").querySelector("p").textContent="Anexa uma fotografia da ficha ou confirma que o link está ativo.";
-          return;
+          reader={ok:true,status:"ok",source_kind:"link_only",page:{
+            title:"Link para análise",
+            description:"A página não pôde ser lida diretamente. A IA deve usar o URL como pista, pesquisar a web e só confirmar dados suportados por evidência.",
+            text_sample:"Source URL: "+url.toString(),
+            json_ld:[],
+            original_url:url.toString()
+          }};
         }
       }
     }
 
     await updateAnalysis({
       status:"searching",reader,vehicle:{page_title:reader.page?.title||""},source_snapshot:reader.page||{},
-      source_last_seen_at:new Date().toISOString(),source_available:entry.mode==="manual"?null:reader.source_kind==="photo_fallback"?false:true
+      source_last_seen_at:new Date().toISOString(),source_available:entry.mode==="manual"?null:["photo_fallback","link_only"].includes(reader.source_kind)?false:true
     },operation.analysisId);
 
     let allRules=[],memoryWarning="";
@@ -1016,6 +1018,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     result.market.comment=market.market_comment||"";
     if(entry.registration)result.warnings.push("A matrícula reforça a identificação, mas preço, quilómetros e versão mantêm a fonte própria e devem ser confirmados.");
     if(entry.mode==="manual"&&!entry.registration)result.warnings.push("Os dados da tua viatura foram fornecidos por ti ou pelas fotografias; a pesquisa não os substitui.");
+    if(reader.source_kind==="link_only")result.warnings.push("O portal não permitiu leitura direta. A identificação foi tentada através do próprio link e da pesquisa web; confirma os dados principais antes de comprar.");
     if(memoryWarning)result.warnings.push(memoryWarning);
     result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
