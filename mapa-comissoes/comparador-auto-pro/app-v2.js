@@ -291,7 +291,13 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":result.purchase?.provisionalEligible?"Provisório ":"Referência ")+(result.market?.confidencePct??0)+"%";
-  const displayedCeiling=Number.isFinite(Number(result.purchase?.effectiveCeiling))?Number(result.purchase.effectiveCeiling):NaN;
+  const rawCeiling=result.purchase?.effectiveCeiling;
+  const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
+  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent=result.purchase?.eligible
+    ?"Máximo de compra recomendado"
+    :result.purchase?.provisionalEligible
+      ?"Valor de compra provisório"
+      :"Máximo de compra recomendado";
   q("maxPurchase").textContent=fmt(displayedCeiling);
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
@@ -310,7 +316,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
       ?"Detetei uma viatura de leilão, mas não consegui confirmar se já está em Portugal. Preciso desta resposta antes de aplicar ou excluir os 1 200 €."
       :"";
   }
-  const gap=Number(result.purchase?.currentPrice)-displayedCeiling;
+  const gap=hasCurrent&&Number.isFinite(displayedCeiling)?Number(result.purchase.currentPrice)-displayedCeiling:NaN;
   q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do valor-alvo":fmt(Math.abs(gap))+" abaixo do valor-alvo"):"—";
   const verified=result.market?.verifiedProfessionals??0;
   const quality=result.purchase?.eligible
@@ -333,7 +339,11 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(calcBox)calcBox.innerHTML=
     "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
     "Custo importação/leilão: <strong>"+esc(fmt(result.purchase?.importCost||0))+"</strong><br>"+
-    "Teto absoluto: <strong>"+esc(fmt(Number.isFinite(Number(result.purchase?.absoluteMax))?result.purchase.absoluteMax:result.purchase?.provisionalAbsoluteMax))+"</strong><br>"+
+    "Teto absoluto: <strong>"+esc(fmt(
+      result.purchase?.absoluteMax!==null&&result.purchase?.absoluteMax!==undefined&&Number.isFinite(Number(result.purchase.absoluteMax))
+        ?result.purchase.absoluteMax
+        :result.purchase?.provisionalAbsoluteMax
+    ))+"</strong><br>"+
     "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
   syncDealForm();
 }
