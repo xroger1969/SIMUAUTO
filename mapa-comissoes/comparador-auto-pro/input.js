@@ -22,17 +22,12 @@ export function parseVehicleInput(raw){
       url,
       description:"",
       sourceUrl:url.toString(),
-      sourceDomain:url.hostname,
-      ignoredShareText:value===matchlessUrl(value)?"":value.replace(matchlessUrl(value),"").trim()
+      sourceDomain:url.hostname
     };
   }
 
   if(/^[a-z][a-z0-9+.-]*:/i.test(value))throw new Error("Esse tipo de link não é suportado.");
   return {mode:"manual",url:null,description:value,sourceUrl:"manual:"+value,sourceDomain:"manual"};
-}
-
-function matchlessUrl(value){
-  return embeddedHttpUrl(value)||"";
 }
 
 export function manualMissing(subject){
