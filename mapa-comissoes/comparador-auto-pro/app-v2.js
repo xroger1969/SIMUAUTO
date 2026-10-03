@@ -384,6 +384,7 @@ function renderEvidence(result){
 function renderResult(result,sourceHost,riskFlags=[]){
   currentResult=result||null;
   currentVehicle=result.subject||{};
+  const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
   q("sourceLabel").textContent=sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
@@ -449,6 +450,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
 function renderReaderOnly(reader,url){
   currentResult=null;
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
+  const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
   const host=url?new URL(url).hostname:"Descrição manual";
   q("sourceLabel").textContent=sourceName(host);
