@@ -36,11 +36,16 @@ let mediaStream=null;
 let audioChunks=[];
 let recordingTimer=null;
 
-const DEAL={
+const DEFAULT_DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
   target_margin:3500,
   minimum_margin:1200
 };
+let DEAL=JSON.parse(JSON.stringify(DEFAULT_DEAL));
+let activeOperation=null;
+let operationSequence=0;
+let currentMarketData=null;
+let lastRefineFocus=null;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
@@ -48,7 +53,7 @@ function showAuth(){
 }
 function showApp(){
   q("authGate").classList.add("hidden");q("app").classList.remove("hidden");
-  refreshMemoryCount();
+  initializeAppData().catch(error=>console.warn("Inicialização CAP:",error));
 }
 async function validateMember(){
   const {data,error}=await db.schema("mapa_comercial").rpc("get_current_member");
@@ -82,7 +87,10 @@ q("authForm").addEventListener("submit",async ev=>{
   }
   setAuthMessage("");showApp();
 });
-q("logoutBtn").addEventListener("click",async()=>{await db.auth.signOut();session=null;showAuth()});
+q("logoutBtn").addEventListener("click",async()=>{
+  if(activeOperation){toast("A análise está em curso. Conclui-a antes de sair.");return}
+  await db.auth.signOut();session=null;showAuth();
+});
 
 function progress(title,text){
   q("progressPanel").classList.remove("hidden");
@@ -220,14 +228,29 @@ function renderRisks(flags,warnings){
     const el=document.createElement("div");el.className="risk "+(x.severity==="high"?"high":x.severity==="low"?"low":"");el.textContent=x.text;list.appendChild(el);
   });
 }
+function comparableElement(c){
+  const el=document.createElement("div");el.className="comp";
+  const evidence=c.evidence?.verified===true?" · verificado":" · por confirmar";
+  el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km!=null?Number(c.mileage_km).toLocaleString("pt-PT")+" km":"km por confirmar")+" · "+originLabel(c.origin)+" · "+sellerLabel(c.seller_type)+evidence)+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc((c.similarity??0)+"% semelhante")+"</em></div>";
+  if(c.url){try{const u=new URL(c.url);if(["https:","http:"].includes(u.protocol)){const a=document.createElement("a");a.href=u.toString();a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}}catch{}}
+  return el;
+}
 function renderComparables(rows){
   const box=q("comparableList");box.innerHTML="";
-  (rows||[]).slice(0,6).forEach(c=>{
-    const el=document.createElement("div");el.className="comp";
-    el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km?Number(c.mileage_km).toLocaleString("pt-PT")+" km":"")+" · "+originLabel(c.origin)+" · "+sellerLabel(c.seller_type))+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc(c.similarity+"% semelhante")+"</em></div>";
-    if(c.url){try{const u=new URL(c.url);if(["https:","http:"].includes(u.protocol)){const a=document.createElement("a");a.href=u.toString();a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}}catch{}}
-    box.appendChild(el);
+  (rows||[]).slice(0,6).forEach(c=>box.appendChild(comparableElement(c)));
+}
+function renderEvidence(result){
+  const all=q("allComparableList"),excluded=q("excludedList"),summary=q("evidenceSummary");
+  if(!all||!excluded)return;
+  all.innerHTML="";excluded.innerHTML="";
+  (result.comparables||[]).forEach(c=>all.appendChild(comparableElement(c)));
+  (result.excluded||[]).forEach(item=>{
+    const el=document.createElement("div");el.className="evidence-excluded";
+    el.innerHTML="<strong>"+esc(item.label||item.comp?.label||"Comparável excluído")+"</strong><span>"+esc(item.reason||"Excluído do cálculo")+"</span>";
+    excluded.appendChild(el);
   });
+  if(!(result.excluded||[]).length)excluded.innerHTML='<div class="evidence-empty">Sem exclusões adicionais.</div>';
+  if(summary)summary.textContent="Ver evidência completa · "+(result.comparables?.length||0)+" usados · "+(result.excluded?.length||0)+" excluídos";
 }
 function renderResult(result,sourceHost,riskFlags=[]){
   currentResult=result||null;
@@ -236,28 +259,35 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("sourceLabel").textContent=sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
-  q("confidencePill").textContent="Confiança "+(result.market?.confidencePct??0)+"%";
+  q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":"Referência ")+(result.market?.confidencePct??0)+"%";
   q("maxPurchase").textContent=fmt(result.purchase?.maxPurchase);
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
-  const rawExpectedMargin=result.purchase?.expectedMargin;
-  const hasExpectedMargin=rawExpectedMargin!==null&&rawExpectedMargin!==undefined&&rawExpectedMargin!==""&&Number.isFinite(Number(rawExpectedMargin));
-  const recommendedSpread=(result.market?.saleLikely!==null&&result.market?.saleLikely!==undefined&&result.purchase?.maxPurchase!==null&&result.purchase?.maxPurchase!==undefined)
-    ? Number(result.market.saleLikely)-Number(result.purchase.maxPurchase)
-    : NaN;
-  q("expectedMargin").textContent=fmt(hasExpectedMargin?Number(rawExpectedMargin):recommendedSpread);
+  const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
+  q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
+  if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent?"após custos e reserva":"ao teto recomendado";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=result.purchase?.decision||"—";
-  const gap=(result.purchase?.currentPrice??0)-(result.purchase?.maxPurchase??0);
+  const gap=Number(result.purchase?.currentPrice)-Number(result.purchase?.maxPurchase);
   q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do recomendado":fmt(Math.abs(gap))+" abaixo do recomendado"):"—";
-  q("marketSummary").textContent="Valor de mercado estimado em "+fmt(result.market?.marketValue)+", com base nos comparáveis válidos apresentados abaixo.";
+  const verified=result.market?.verifiedProfessionals??0;
+  const quality=result.purchase?.eligible
+    ?"Teto suportado por "+verified+" comparáveis profissionais verificados."
+    :(result.warnings?.[0]||"Referência provisória: evidência insuficiente para emitir um teto de compra.");
+  if(q("qualityNote"))q("qualityNote").textContent=quality;
+  q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
+    ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible?"A evidência mínima para o teto foi atingida.":"O teto fica bloqueado até existir evidência profissional suficiente.")
+    :"Ainda não existe uma referência de mercado suficiente.";
   renderComparables(result.comparables);
+  renderEvidence(result);
   renderRisks(riskFlags,result.warnings);
   const calcBox=q("calcBox");
   if(calcBox)calcBox.innerHTML=
-    "Margem objetivo ideal: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
-    "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong>";
+    "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
+    "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong><br>"+
+    "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
+  syncDealForm();
 }
 function renderReaderOnly(reader,url){
   currentResult=null;
@@ -284,10 +314,102 @@ async function createAnalysis(url,host){
   if(error)throw error;
   currentAnalysisId=data.id;return data.id;
 }
-async function updateAnalysis(patch){
-  if(!currentAnalysisId)return;
+async function updateAnalysis(patch,analysisId=currentAnalysisId){
+  if(!analysisId)return;
   const payload={...patch,updated_at:new Date().toISOString()};
-  await db.from("cap_analyses").update(payload).eq("id",currentAnalysisId);
+  const {error}=await db.from("cap_analyses").update(payload).eq("id",analysisId);
+  if(error)throw new Error("Não foi possível guardar o estado da análise.");
+}
+function setOperationBusy(busy){
+  q("analyzeBtn").disabled=!!busy;
+  if(q("refineBtn"))q("refineBtn").disabled=!!busy;
+  if(q("logoutBtn"))q("logoutBtn").disabled=!!busy;
+  const chatButton=q("chatForm")?.querySelector("button[type=submit]");
+  if(chatButton)chatButton.disabled=!!busy;
+}
+function beginOperation(kind,analysisId=null){
+  if(activeOperation)throw new Error("Já existe uma análise em curso.");
+  const op={id:++operationSequence,kind,analysisId,requestKey:crypto.randomUUID(),jobId:null};
+  activeOperation=op;setOperationBusy(true);return op;
+}
+function assertOperation(op){
+  if(activeOperation!==op)throw new Error("Esta operação já não é a análise ativa.");
+}
+function finishOperation(op){
+  if(activeOperation===op){activeOperation=null;setOperationBusy(false)}
+}
+function mergeDeal(settings){
+  const src=settings&&typeof settings==="object"?settings:{};
+  const out=JSON.parse(JSON.stringify(DEFAULT_DEAL));
+  for(const key of Object.keys(out.costs)){
+    const value=Number(src.costs?.[key]);
+    if(Number.isFinite(value)&&value>=0)out.costs[key]=value;
+  }
+  for(const key of ["target_margin","minimum_margin"]){
+    const value=Number(src[key]);
+    if(Number.isFinite(value)&&value>=0)out[key]=value;
+  }
+  out.minimum_margin=Math.min(out.minimum_margin,out.target_margin);
+  return out;
+}
+async function loadDealPreferences(){
+  if(!session)return;
+  const {data,error}=await db.from("cap_preferences").select("settings").eq("user_id",session.user.id).maybeSingle();
+  if(error)throw error;
+  DEAL=mergeDeal(data?.settings||DEFAULT_DEAL);
+  syncDealForm();
+}
+function syncDealForm(){
+  const map={
+    targetMarginInput:DEAL.target_margin,minimumMarginInput:DEAL.minimum_margin,
+    transportCostInput:DEAL.costs.transport,reconditioningCostInput:DEAL.costs.reconditioning,
+    warrantyCostInput:DEAL.costs.warranty_reserve,stockCostInput:DEAL.costs.stock_finance,
+    otherCostInput:DEAL.costs.other,auctionCostInput:DEAL.costs.auction_fee,registrationCostInput:DEAL.costs.registration
+  };
+  for(const [id,value] of Object.entries(map))if(q(id))q(id).value=String(value);
+}
+function dealFromForm(){
+  const read=id=>Math.max(0,Number(q(id)?.value||0));
+  return mergeDeal({
+    target_margin:read("targetMarginInput"),minimum_margin:read("minimumMarginInput"),
+    costs:{
+      transport:read("transportCostInput"),reconditioning:read("reconditioningCostInput"),
+      warranty_reserve:read("warrantyCostInput"),stock_finance:read("stockCostInput"),
+      other:read("otherCostInput"),auction_fee:read("auctionCostInput"),registration:read("registrationCostInput")
+    }
+  });
+}
+async function saveDealPreferences(){
+  const {error}=await db.from("cap_preferences").upsert({
+    user_id:session.user.id,settings:DEAL,updated_at:new Date().toISOString()
+  },{onConflict:"user_id"});
+  if(error)throw new Error("Não foi possível guardar as premissas.");
+}
+async function saveAnalysisSnapshot(analysisId,snapshot){
+  const {error}=await db.rpc("cap_save_analysis",{p_id:analysisId,p_snapshot:snapshot});
+  if(error)throw new Error("A análise foi calculada, mas não foi possível guardar toda a evidência.");
+}
+function makeSnapshot(result,market,reader,entry,marketPayload){
+  return {
+    saved_at:new Date().toISOString(),
+    result,
+    research:{
+      job_id:market?.job_id||null,response_id:market?.response_id||null,model:market?.model||null,
+      search_sources:market?.search_sources||[],data_quality:market?.data_quality||{},risk_flags:market?.risk_flags||[]
+    },
+    reader,
+    source:{url:entry?.sourceUrl||marketPayload?.url||null,domain:entry?.sourceDomain||null,mode:entry?.mode||null},
+    deal:DEAL,
+    memory_rules:result?.market?.dealer_memories||[]
+  };
+}
+async function persistCompletedAnalysis(analysisId,result,market,reader,entry,marketPayload){
+  await updateAnalysis({risks:market?.risk_flags||[],reader},analysisId);
+  await saveAnalysisSnapshot(analysisId,makeSnapshot(result,market,reader,entry,marketPayload));
+}
+async function initializeAppData(){
+  await Promise.allSettled([refreshMemoryCount(),loadDealPreferences()]);
+  await resumePendingAnalysis();
 }
 
 function auto1Request(action,url,timeout=80000){
@@ -629,205 +751,221 @@ async function fetchJson(url,options={},timeout=25000){
     return {response,data};
   }finally{clearTimeout(timer)}
 }
-async function runMarketAnalysis(payload){
-  let start;
-  try{
-    start=await fetchJson("/api/comparador-market",{
-      method:"POST",
-      headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
-      body:JSON.stringify(payload)
-    },35000);
-  }catch(error){
-    throw new Error("A ligação caiu ao iniciar a pesquisa. Toca novamente em Analisar compra.");
-  }
-  if(!start.response.ok)throw new Error(start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.");
-  const registrationData=start.data.registration_data||null;
-  if(start.data.subject)return start.data;
-  const responseId=start.data.response_id;
-  if(!responseId)throw new Error("O radar iniciou sem identificador de acompanhamento.");
-
-  const mergeRegistration=result=>{
-    if(!registrationData||!result?.subject)return result;
-    result.subject.make=registrationData.make||result.subject.make;
-    result.subject.model=registrationData.model||result.subject.model;
-    result.subject.trim=registrationData.trim||result.subject.trim;
-    result.subject.year=registrationData.year||result.subject.year;
-    result.subject.first_registration=registrationData.first_registration||result.subject.first_registration;
-    result.subject.fuel=registrationData.fuel||result.subject.fuel;
-    result.subject.origin=registrationData.origin||result.subject.origin||"unknown";
-    return result;
-  };
-
-  const startedAt=Date.now();
-  let consecutiveNetworkFailures=0;
-  while(Date.now()-startedAt<8*60*1000){
+async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
+  const startedAt=Date.now();let consecutiveNetworkFailures=0;
+  while(Date.now()-startedAt<timeoutMs){
+    assertOperation(operation);
     await wait(2200);
     if(Date.now()-startedAt>12000)progress("A pesquisar o mercado…","");
     let poll;
     try{
-      poll=await fetchJson("/api/comparador-market?response_id="+encodeURIComponent(responseId),{
-        method:"GET",
-        headers:{"authorization":"Bearer "+session.access_token}
+      poll=await fetchJson("/api/comparador-market?job_id="+encodeURIComponent(jobId),{
+        method:"GET",headers:{authorization:"Bearer "+session.access_token}
       },20000);
       consecutiveNetworkFailures=0;
     }catch(error){
       consecutiveNetworkFailures++;
       if(consecutiveNetworkFailures<4)continue;
-      throw new Error("A ligação à internet oscilou várias vezes. A pesquisa foi interrompida; tenta novamente.");
+      throw new Error("A ligação à internet oscilou várias vezes. A pesquisa fica guardada e pode ser retomada.");
     }
-    if(poll.response.status===202||poll.data.status==="queued"||poll.data.status==="in_progress")continue;
+    if(poll.response.status===202||["starting","queued","in_progress"].includes(poll.data.status))continue;
     if(!poll.response.ok)throw new Error(poll.data.message||poll.data.error||"Falha no radar de mercado.");
-    return mergeRegistration(poll.data);
+    return poll.data;
   }
-  throw new Error("A pesquisa demorou demasiado. Nenhum valor de compra foi calculado.");
+  throw new Error("A pesquisa continua pendente. Fica guardada e será retomada quando voltares ao Comparador.");
+}
+async function runMarketAnalysis(payload,operation){
+  assertOperation(operation);
+  const requestBody={...payload,analysis_id:operation.analysisId,request_key:operation.requestKey};
+  let start=null;
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      start=await fetchJson("/api/comparador-market",{
+        method:"POST",
+        headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
+        body:JSON.stringify(requestBody)
+      },40000);
+      break;
+    }catch(error){
+      if(attempt===1)throw new Error("A ligação caiu ao iniciar a pesquisa. O pedido mantém o mesmo identificador para evitar duplicações.");
+      await wait(700);
+    }
+  }
+  assertOperation(operation);
+  if(!start.response.ok)throw new Error(start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.");
+  if(start.data.subject)return start.data;
+  const jobId=start.data.job_id;
+  if(!jobId)throw new Error("O radar iniciou sem identificador persistente.");
+  operation.jobId=jobId;
+  const result=await pollMarketJob(jobId,operation);
+  if(start.data.registration_data&&!result.registration_data)result.registration_data=start.data.registration_data;
+  return result;
+}
+async function resumePendingAnalysis(){
+  if(!session||activeOperation)return;
+  const since=new Date(Date.now()-10*60*1000).toISOString();
+  const {data:jobs,error}=await db.from("cap_jobs").select("id,analysis_id,status,context,created_at").in("status",["starting","queued","in_progress"]).gte("created_at",since).order("created_at",{ascending:false}).limit(1);
+  if(error||!jobs?.length)return;
+  const job=jobs[0];
+  const {data:analysis}=await db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle();
+  if(!analysis)return;
+  const operation=beginOperation("resume",job.analysis_id);operation.jobId=job.id;
+  currentAnalysisId=job.analysis_id;
+  try{
+    progress("A retomar a pesquisa…","A pesquisa anterior ficou guardada. Vou continuar do ponto onde parou.");
+    const market=await pollMarketJob(job.id,operation);
+    assertOperation(operation);
+    const subject=market.subject||analysis.vehicle||{};
+    const allRules=await loadMemories().catch(()=>[]);
+    const memories=relevantMemories(allRules,subject);
+    const result=evaluatePurchase({
+      subject,comparables:Array.isArray(market.comparables)?market.comparables:[],
+      source_url:analysis.source_url,
+      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
+      tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+    });
+    result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
+    for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
+    const entry={sourceUrl:analysis.source_url,sourceDomain:analysis.source_domain,mode:job.context?.input_mode||"url"};
+    const reader=analysis.reader||{};
+    const marketPayload={url:analysis.source_url,dealer_memories:allRules.slice(0,12),registration_data:market.registration_data||job.context?.registration_data||null,refinement_history:job.context?.refinement_history||[]};
+    currentMarketData={market,reader,entry,sourceHost:analysis.source_domain||"manual",marketPayload,allRules};
+    lastAnalysisContext=currentMarketData;
+    renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    await persistCompletedAnalysis(job.analysis_id,result,market,reader,entry,marketPayload);
+    addMsg("assistant","Retomei e concluí a pesquisa que tinha ficado pendente.");
+  }catch(error){console.warn("Retoma CAP:",error);toast(error.message)}
+  finally{stopProgress();finishOperation(operation)}
 }
 
 q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
+  if(activeOperation){toast("Já existe uma análise em curso.");return}
   if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
   let entry;
   const rawInput=q("vehicleUrl").value.trim();
   if(!rawInput&&!selectedImageData){toast("Escreve uma matrícula, cola um link, dita ou anexa uma fotografia.");return}
-  try{
-    entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"};
-  }catch(error){toast(error.message);return}
+  try{entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"}}
+  catch(error){toast(error.message);return}
+
+  const operation=beginOperation("analysis");
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
-  q("analyzeBtn").disabled=true;q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
-  currentAnalysisId=null;currentVehicle=null;currentResult=null;lastAnalysisContext=null;q("chat").innerHTML="";conversation=[];
+  q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;currentMarketData=null;lastAnalysisContext=null;q("chat").innerHTML="";conversation=[];
+
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
-    await createAnalysis(entry.sourceUrl,entry.sourceDomain);
+    operation.analysisId=await createAnalysis(entry.sourceUrl,entry.sourceDomain);
+    assertOperation(operation);
 
     let reader;
     if(entry.mode==="manual"){
-      reader={ok:true,status:"ok",source_kind:selectedImageData?"photo":"manual",page:{title:selectedImageData?(entry.description==="Fotografia anexada para identificação da viatura."?"Fotografia para leitura por IA":entry.description):entry.description,description:selectedImageData?"Fotografia fornecida pelo comerciante; a IA deve ler apenas o que estiver visível.":"Descrição fornecida pelo comerciante; campos omissos não confirmados.",text_sample:entry.description,json_ld:[]}};
+      reader={ok:true,status:"ok",source_kind:selectedImageData?"photo":"manual",page:{
+        title:selectedImageData?(entry.description==="Fotografia anexada para identificação da viatura."?"Fotografia para leitura por IA":entry.description):entry.description,
+        description:selectedImageData?"Fotografias fornecidas pelo comerciante; a IA deve ler apenas o que estiver visível.":"Descrição fornecida pelo comerciante; campos omissos não confirmados.",
+        text_sample:entry.description,json_ld:[]
+      }};
     }else if(url.hostname==="www.auto1.com"&&url.pathname.includes("/app/merchant/car/")){
       const privateReaderAvailable=await checkAuto1();
       if(privateReaderAvailable){
         progress("A ler a AUTO1…","A usar a sessão AUTO1 já iniciada no Chrome.");
-        try{
-          const privateRead=await auto1Request("read",url.toString());
-          reader=privateRead.reader;
-        }catch(error){
-          console.warn("Leitura privada AUTO1 indisponível; a usar fallback:",error);
-          if(selectedImageData){
-            progress("A ler a AUTO1…","A ligação privada não respondeu; vou usar a fotografia anexada.");
-            reader=auto1ScreenshotReader(url.toString(),entry.description);
-          }else{
-            progress("A identificar a AUTO1…","A ligação privada não respondeu; vou continuar pelo código da oferta.");
-            reader=auto1LinkReader(url.toString());
-          }
+        try{reader=(await auto1Request("read",url.toString())).reader}
+        catch(error){
+          console.warn("Leitura privada AUTO1 indisponível:",error);
+          reader=selectedImageData?auto1ScreenshotReader(url.toString(),entry.description):auto1LinkReader(url.toString());
         }
-      }else if(selectedImageData){
-        progress("A ler a AUTO1…","A usar o link e a fotografia em conjunto.");
-        reader=auto1ScreenshotReader(url.toString(),entry.description);
-      }else{
-        progress("A identificar a AUTO1…","A usar o código da oferta e a pesquisa disponível, sem serviços pagos.");
-        reader=auto1LinkReader(url.toString());
-      }
-
+      }else reader=selectedImageData?auto1ScreenshotReader(url.toString(),entry.description):auto1LinkReader(url.toString());
       if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("Não consegui preparar o link AUTO1 para análise.");
     }else{
       progress("A ler a página pública…","A tentar obter os dados do anúncio.");
-      const resp=await fetch("/api/comparador-analyze",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:url.toString()})});
+      const resp=await fetch("/api/comparador-analyze",{
+        method:"POST",
+        headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
+        body:JSON.stringify({url:url.toString()})
+      });
       reader=await resp.json();
       if(reader.status!=="ok"){
-        await updateAnalysis({status:reader.status==="needs_auth"?"needs_auth":"failed",reader,error_message:reader.message||"Leitura indisponível"});
-
-        q("emptyState").classList.remove("hidden");
-        q("emptyState").querySelector("h2").textContent=reader.status==="needs_auth"?"Este anúncio exige a tua sessão":"Não foi possível ler este anúncio diretamente";
-        q("emptyState").querySelector("p").textContent="Não foi possível obter os dados desta fonte. Confirma que o link está ativo e tenta novamente.";
-
-        return;
+        if(selectedImageData){
+          reader={ok:true,status:"ok",source_kind:"photo_fallback",page:{
+            title:"Fotografia + link",description:"A página não pôde ser lida; a análise usa as fotografias e conserva o link apenas como contexto.",
+            text_sample:entry.description||("Source URL: "+url.toString()),json_ld:[],original_url:url.toString()
+          }};
+        }else{
+          await updateAnalysis({status:reader.status==="needs_auth"?"needs_auth":"failed",reader,error_message:reader.message||"Leitura indisponível"},operation.analysisId);
+          q("emptyState").classList.remove("hidden");
+          q("emptyState").querySelector("h2").textContent=reader.status==="needs_auth"?"Este anúncio exige a tua sessão":"Não foi possível ler este anúncio diretamente";
+          q("emptyState").querySelector("p").textContent="Anexa uma fotografia da ficha ou confirma que o link está ativo.";
+          return;
+        }
       }
     }
-    await updateAnalysis({
-      status:"searching",
-      reader,
-      vehicle:{page_title:reader.page?.title||""},
-      source_snapshot:reader.page||{},
-      source_last_seen_at:new Date().toISOString(),
-      source_available:entry.mode==="manual"?null:true
-    });
 
-    progress("A pesquisar o mercado…","A normalizar a viatura e procurar comparáveis atuais em Portugal.");
+    await updateAnalysis({
+      status:"searching",reader,vehicle:{page_title:reader.page?.title||""},source_snapshot:reader.page||{},
+      source_last_seen_at:new Date().toISOString(),source_available:entry.mode==="manual"?null:true
+    },operation.analysisId);
+
+    let allRules=[],memoryWarning="";
+    try{allRules=await loadMemories()}catch(error){memoryWarning=error.message}
+    progress("A pesquisar o mercado…","A normalizar a viatura e procurar concorrência profissional em Portugal.");
     const imagesForAnalysis=selectedImages.map(image=>image.data);
-    const marketPayload={url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,page:reader.page||{},image_data_urls:imagesForAnalysis};
+    const marketPayload={
+      url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,
+      page:reader.page||{},image_data_urls:imagesForAnalysis,dealer_memories:allRules.slice(0,20),refinement_history:[]
+    };
     const sourceHost=entry.registration?"Matrícula.co.pt":reader?.source_kind==="authenticated_browser"?url.hostname:imagesForAnalysis.length?"photo":entry.mode==="manual"?"manual":url.hostname;
-    lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload};
-    const market=await runMarketAnalysis(marketPayload);
+    lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload,allRules};
+    const market=await runMarketAnalysis(marketPayload,operation);
+    assertOperation(operation);
+    if(market.registration_data)marketPayload.registration_data=market.registration_data;
 
     const subject=mergeAuto1AuthenticatedFacts(market.subject||{},reader);
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
-    if(!subject.make||!subject.model||(entry.mode!=="manual"&&!(typeof subject.price==="number"&&subject.price>0))){
-      renderReaderOnly(reader,url?.toString()||null);
-      currentVehicle=subject;
-      addMsg("assistant","Acrescenta a marca, o modelo e a versão na descrição acima para identificar a viatura.");
-      renderRisks([{label:"Dados insuficientes para calcular com segurança.",severity:"high"}],[]);
-      await updateAnalysis({status:"failed",vehicle:subject,reader,error_message:"Dados insuficientes após normalização"});
+    if(!subject.make||!subject.model){
+      renderReaderOnly(reader,url?.toString()||null);currentVehicle=subject;
+      addMsg("assistant","Ainda falta identificar marca/modelo com segurança. Acrescenta informação ou fotografias mais legíveis.");
+      await updateAnalysis({status:"failed",vehicle:subject,reader,error_message:"Dados insuficientes após normalização"},operation.analysisId);
       return;
     }
 
-    let memories=[],memoryWarning="";
-    try{memories=relevantMemories(await loadMemories(),subject)}catch(error){memoryWarning=error.message}
-    progress("A calcular a compra…","A aplicar comparabilidade, outliers, custos, margem e risco.");
+    const memories=relevantMemories(allRules,subject);
+    progress("A calcular a compra…","A validar evidência, comparáveis, custos e margem.");
     const result=evaluatePurchase({
-      subject,
-      comparables,
+      subject,comparables,source_url:url?.toString()||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
-      costs:DEAL.costs,
-      risk_flags:market.risk_flags||[],
-      target_margin:DEAL.target_margin,
-      minimum_margin:DEAL.minimum_margin
+      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
-    const missing=entry.mode==="manual"?manualMissing(subject):[];
-    if(entry.registration)result.warnings.push("Identificação por matrícula: Matrícula.co.pt. Confirma a versão e os quilómetros antes de decidir a compra.");
-    if(entry.mode==="manual"&&!entry.registration)result.warnings.push("Dados fornecidos por ti. A pesquisa confirma comparáveis, não os dados da tua viatura.");
-    if(missing.length){
-      result.purchase.maxPurchase=NaN;result.purchase.absoluteMax=NaN;result.purchase.expectedMargin=NaN;
-      result.purchase.decision="Referência inicial — falta confirmar "+missing.join(", ");
-      result.warnings.push("Completa a descrição com "+missing.join(", ")+" e volta a analisar para obter o teto de compra.");
-      result.market.confidencePct=Math.min(result.market.confidencePct,40);
-    }
-
+    if(entry.registration)result.warnings.push("A matrícula reforça a identificação, mas preço, quilómetros e versão mantêm a fonte própria e devem ser confirmados.");
+    if(entry.mode==="manual"&&!entry.registration)result.warnings.push("Os dados da tua viatura foram fornecidos por ti ou pelas fotografias; a pesquisa não os substitui.");
     if(memoryWarning)result.warnings.push(memoryWarning);
     result.market.dealer_memories=memories;
-    for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
+    for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
 
-    renderResult(result,entry.registration?"Matrícula.co.pt":selectedImageData?"photo":entry.mode==="manual"?"manual":url.hostname,market.risk_flags||[]);
+    currentMarketData={market,reader,entry,sourceHost,marketPayload,allRules};
+    lastAnalysisContext=currentMarketData;
+    renderResult(result,sourceHost,market.risk_flags||[]);
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
     if(reader.source_kind==="auto1_link_only")q("sourceLabel").textContent="AUTO1 · Link · "+(reader.vehicle_code||"");
     if(reader.source_kind==="auto1_screenshot")q("sourceLabel").textContent="AUTO1 · Link + fotografia · "+(reader.vehicle_code||"");
 
-    await updateAnalysis({
-      status:"done",
-      vehicle:subject,
-      market:{...result.market,data_quality:market.data_quality||{},model:market.model||null},
-      purchase:result.purchase,
-      risks:market.risk_flags||[],
-      reader
-    });
-
-    const auto1LinkOnly=reader?.source_kind==="auto1_link_only";
-    const completion=missing.length
-      ?(auto1LinkOnly
-        ?"Reconheci o link AUTO1 e pesquisei o que estava disponível. Falta confirmar "+missing.join(", ")+". Se colares uma captura da ficha com ⌘V, completo a leitura sem qualquer serviço pago."
-        :"Pesquisei o mercado. Falta confirmar "+missing.join(", ")+". Acrescenta esses dados no campo acima e volta a analisar.")
-      :"Análise concluída. Podes perguntar ou ensinar-me algo sobre esta viatura.";
-    addMsg("assistant",completion);
-    await storeMessage("assistant",completion);
+    await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,marketPayload);
+    const completion=result.purchase?.eligible
+      ?"Análise concluída com evidência profissional suficiente para emitir o teto."
+      :"Pesquisa concluída como referência provisória. O teto fica bloqueado até confirmares a evidência indicada.";
+    addMsg("assistant",completion);await storeMessage("assistant",completion);
   }catch(err){
     q("emptyState").classList.remove("hidden");
     q("emptyState").querySelector("h2").textContent="Não consegui concluir esta leitura";
     const raw=String(err?.message||err);
-    const message=/JSON|Unexpected|position/.test(raw)?"A resposta do serviço ficou inválida. Tenta novamente; não foi emitida uma recomendação de compra.":/Load failed|Failed to fetch|NetworkError|network connection/i.test(raw)?"A ligação caiu durante a análise. Tenta novamente; nenhum valor incompleto foi usado.":raw;
+    const message=/JSON|Unexpected|position/.test(raw)?"A resposta do serviço ficou inválida. Não foi emitida uma recomendação de compra.":/Load failed|Failed to fetch|NetworkError|network connection/i.test(raw)?"A ligação caiu. A pesquisa fica identificada para evitar duplicações.":raw;
     q("emptyState").querySelector("p").textContent=message;
-    await updateAnalysis({status:"failed",error_message:message});
+    await updateAnalysis({status:"failed",error_message:message},operation.analysisId).catch(()=>{});
   }finally{
-    stopProgress();q("analyzeBtn").disabled=false;
+    stopProgress();finishOperation(operation);
   }
 });
 
@@ -847,142 +985,101 @@ function appendRefineDialogMessage(role,message){
   scrollRefineDialog();
 }
 function showRefineDialog(state,message,tone="loading",reset=false){
+  if(q("refineDialog").classList.contains("hidden"))lastRefineFocus=document.activeElement;
   q("refineDialogState").textContent=state;
   q("refineDialogState").className="refine-dialog-state"+(tone==="success"?" success":tone==="error"?" error":"");
   const box=q("refineDialogMessages");
   if(reset&&box)box.innerHTML="";
   q("refineDialog").classList.remove("hidden");
+  q("refineDialogClose")?.focus({preventScroll:true});
   if(message)appendRefineDialogMessage(tone==="error"?"error":"assistant",message);
   scrollRefineDialog();
 }
-function closeRefineDialog(){q("refineDialog").classList.add("hidden")}
+function closeRefineDialog(){
+  q("refineDialog").classList.add("hidden");
+  if(lastRefineFocus?.focus)lastRefineFocus.focus();
+}
 q("refineDialogClose").addEventListener("click",closeRefineDialog);
 q("refineDialog").addEventListener("click",ev=>{if(ev.target===q("refineDialog"))closeRefineDialog()});
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!q("refineDialog").classList.contains("hidden"))closeRefineDialog()});
 
 q("refineForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   const text=q("refineInput").value.trim();
   if(!text)return;
-  if(!session||!lastAnalysisContext||!currentVehicle){
-    toast("Faz primeiro uma análise.");
-    return;
-  }
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  if(!session||!lastAnalysisContext||!currentVehicle){toast("Faz primeiro uma análise.");return}
 
-  const button=q("refineBtn");
-  const originalButtonText=button.textContent;
-  q("refineInput").disabled=true;
-  button.disabled=true;
-  button.textContent="A analisar…";
-  q("refineInlineStatus").textContent="A IA está a refazer a análise…";
-  q("refineInlineStatus").classList.remove("hidden");
-  showRefineDialog("A analisar…","", "loading", true);
+  const operation=beginOperation("refine",currentAnalysisId);
+  const button=q("refineBtn"),originalButtonText=button.textContent;
+  q("refineInput").disabled=true;button.textContent="A analisar…";
+  q("refineInlineStatus").textContent="A IA está a refazer a análise…";q("refineInlineStatus").classList.remove("hidden");
+  showRefineDialog("A analisar…","","loading",true);
   appendRefineDialogMessage("user",text);
-  appendRefineDialogMessage("assistant","A cruzar a tua indicação com esta viatura e com a concorrência profissional.");
-  addMsg("user","Refinar análise: "+text);
-  await storeMessage("user","Refinar análise: "+text);
+  appendRefineDialogMessage("assistant","A testar a tua indicação contra esta viatura e a concorrência profissional.");
+  addMsg("user","Refinar análise: "+text);await storeMessage("user","Refinar análise: "+text);
 
   try{
-    progress("A refinar com IA…","A cruzar a tua indicação com a viatura e a concorrência profissional.");
-    const previousRefinement=String(lastAnalysisContext.marketPayload?.refinement||"").trim();
-    const combinedRefinement=previousRefinement?previousRefinement+"\n"+text:text;
+    const memories=relevantMemories(await loadMemories(),currentVehicle||{});
+    progress("A refinar com IA…","A testar a tua indicação sem a assumir como facto.");
+    const history=[...(lastAnalysisContext.marketPayload?.refinement_history||[]),text].slice(-5);
     const payload={
       ...lastAnalysisContext.marketPayload,
-      refinement:combinedRefinement,
-      previous_subject:currentVehicle||null
+      refinement_history:history,
+      previous_subject:currentVehicle||null,
+      dealer_memories:memories,
+      registration_data:lastAnalysisContext.marketPayload?.registration_data||null
     };
-    const market=await runMarketAnalysis(payload);
-    appendRefineDialogMessage("assistant","Pesquisa de mercado atualizada. A recalcular comparáveis, margem e teto de compra…");
+    const market=await runMarketAnalysis(payload,operation);
+    assertOperation(operation);
+    appendRefineDialogMessage("assistant","Pesquisa atualizada. A recalcular comparáveis, margem e teto…");
 
     const subject={...(currentVehicle||{})};
     for(const [key,value] of Object.entries(market.subject||{})){
       if(value!==null&&value!==undefined&&value!=="")subject[key]=value;
     }
-    const comparables=Array.isArray(market.comparables)?market.comparables:[];
     if(!subject.make||!subject.model)throw new Error("O refinamento não deixou a viatura suficientemente identificada.");
 
-    let memories=[],memoryWarning="";
-    try{memories=relevantMemories(await loadMemories(),subject)}catch(error){memoryWarning=error.message}
-
-    progress("A recalcular a compra…","A atualizar comparáveis, custos, margem e risco.");
+    progress("A recalcular a compra…","A validar a nova evidência e as premissas comerciais.");
     const result=evaluatePurchase({
-      subject,
-      comparables,
+      subject,comparables:Array.isArray(market.comparables)?market.comparables:[],source_url:lastAnalysisContext.url||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
-      costs:DEAL.costs,
-      risk_flags:market.risk_flags||[],
-      target_margin:DEAL.target_margin,
-      minimum_margin:DEAL.minimum_margin
+      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
-    result.market.comment=market.market_comment||"";
-    appendRefineDialogMessage("assistant","Cálculo atualizado. A preparar a resposta final da IA…");
+    result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
+    for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
+    appendRefineDialogMessage("assistant","Cálculo atualizado. A preparar a resposta final…");
 
-    const entry=lastAnalysisContext.entry;
-    const reader=lastAnalysisContext.reader;
-    const missing=entry.mode==="manual"?manualMissing(subject):[];
-    if(entry.registration)result.warnings.push("Identificação por matrícula: Matrícula.co.pt. Confirma a versão e os quilómetros antes de decidir a compra.");
-    if(entry.mode==="manual"&&!entry.registration)result.warnings.push("Dados fornecidos por ti. A pesquisa confirma comparáveis, não os dados da tua viatura.");
-    if(missing.length){
-      result.purchase.maxPurchase=NaN;
-      result.purchase.absoluteMax=NaN;
-      result.purchase.expectedMargin=NaN;
-      result.purchase.decision="Referência inicial — falta confirmar "+missing.join(", ");
-      result.warnings.push("Completa a descrição com "+missing.join(", ")+" e volta a analisar para obter o teto de compra.");
-      result.market.confidencePct=Math.min(result.market.confidencePct,40);
-    }
-    if(memoryWarning)result.warnings.push(memoryWarning);
-    result.market.dealer_memories=memories;
-    for(const rule of memories)result.warnings.push("Orientação tua: "+rule.statement);
-
-    renderResult(result,lastAnalysisContext.sourceHost,market.risk_flags||[]);
-    if(reader?.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
-    if(reader?.source_kind==="auto1_link_only")q("sourceLabel").textContent="AUTO1 · Link · "+(reader.vehicle_code||"");
-    if(reader?.source_kind==="auto1_screenshot")q("sourceLabel").textContent="AUTO1 · Link + fotografia · "+(reader.vehicle_code||"");
-
-    lastAnalysisContext.marketPayload={...payload,previous_subject:subject};
-    await updateAnalysis({
-      status:"done",
-      vehicle:subject,
-      market:{...result.market,data_quality:market.data_quality||{},model:market.model||null,refinement:combinedRefinement},
-      purchase:result.purchase,
-      risks:market.risk_flags||[],
-      reader
-    });
+    const entry=lastAnalysisContext.entry,reader=lastAnalysisContext.reader;
+    const nextPayload={...payload,previous_subject:subject,registration_data:market.registration_data||payload.registration_data||null};
+    currentMarketData={market,reader,entry,sourceHost:lastAnalysisContext.sourceHost,marketPayload:nextPayload,allRules:memories};
+    lastAnalysisContext=currentMarketData;
+    renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,nextPayload);
 
     const refinementAI=await learnFromRefinement(text);
-    const learned=refinementAI.learned;
     q("refineInput").value="";
-    const reply=(missing.length
-      ?"Análise refeita com a tua indicação. Ainda falta confirmar "+missing.join(", ")+"."
-      :"Análise refeita com a tua indicação e nova pesquisa de mercado.")
-      +(learned?" A orientação também ficou guardada para análises futuras a que se aplique.":"");
-    const priceSummary=Number.isFinite(Number(result.purchase?.maxPurchase))
-      ?"\n\nNovo máximo de compra recomendado: "+fmt(result.purchase.maxPurchase)+"."
-      :"";
+    const reply=(result.purchase?.eligible?"Análise refeita com evidência suficiente para o teto.":"Análise refeita; continua como referência provisória enquanto faltar evidência verificada.")
+      +(refinementAI.learned?" A orientação ficou guardada como hipótese para pesquisas futuras.":"");
+    const priceSummary=Number.isFinite(Number(result.purchase?.maxPurchase))?"\n\nNovo máximo recomendado: "+fmt(result.purchase.maxPurchase)+".":"";
     const visibleReply=(refinementAI.reply?refinementAI.reply+"\n\n":"")+reply+priceSummary;
-    addMsg("assistant",reply);
-    await storeMessage("assistant",reply);
-    q("saveStatus").textContent="IA ativa";
-    q("refineInlineStatus").textContent="Análise atualizada pela IA.";
+    addMsg("assistant",reply);await storeMessage("assistant",reply);
+    q("saveStatus").textContent="IA ativa";q("refineInlineStatus").textContent="Análise atualizada pela IA.";
     showRefineDialog("Análise atualizada",visibleReply,"success");
-    toast(learned?"Análise refeita e orientação guardada.":"Análise refeita.");
+    toast(refinementAI.learned?"Análise refeita e orientação guardada.":"Análise refeita.");
   }catch(err){
     const message=String(err?.message||err);
-    addMsg("assistant","Não consegui refazer a análise: "+message);
-    await storeMessage("assistant","Não consegui refazer a análise: "+message);
-    q("refineInlineStatus").textContent="Não foi possível refazer a análise.";
-    showRefineDialog("Não foi possível concluir",message,"error");
-    toast("Não foi possível refazer a análise.");
+    addMsg("assistant","Não consegui refazer a análise: "+message);await storeMessage("assistant","Não consegui refazer a análise: "+message);
+    q("refineInlineStatus").textContent="Não foi possível refazer a análise.";showRefineDialog("Não foi possível concluir",message,"error");
   }finally{
-    stopProgress();
-    q("refineInput").disabled=false;
-    button.disabled=false;
-    button.textContent=originalButtonText;
+    stopProgress();q("refineInput").disabled=false;button.textContent=originalButtonText;finishOperation(operation);
   }
 });
 
 q("chatForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
   const text=q("chatInput").value.trim();
   if(!text||!session)return;
 
@@ -1057,6 +1154,33 @@ q("chatForm").addEventListener("submit",async ev=>{
   }
 });
 
-db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data)showAuth()});
+q("assumptionsForm")?.addEventListener("submit",async ev=>{
+  ev.preventDefault();
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  const operation=beginOperation("recalculate",currentAnalysisId);
+  try{
+    DEAL=dealFromForm();
+    await saveDealPreferences();
+    syncDealForm();
+    if(currentMarketData&&currentVehicle&&currentAnalysisId){
+      const market=currentMarketData.market;
+      const result=evaluatePurchase({
+        subject:currentVehicle,comparables:Array.isArray(market.comparables)?market.comparables:[],
+        source_url:currentMarketData.marketPayload?.url||null,
+        current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
+        tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+        costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+      });
+      result.market.comment=market.market_comment||"";
+      result.market.dealer_memories=relevantMemories(await loadMemories().catch(()=>[]),currentVehicle);
+      renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+      await persistCompletedAnalysis(currentAnalysisId,result,market,currentMarketData.reader,currentMarketData.entry,currentMarketData.marketPayload);
+    }
+    toast("Premissas guardadas e análise recalculada.");
+  }catch(error){toast(error.message)}
+  finally{finishOperation(operation)}
+});
+
+db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data){activeOperation=null;showAuth()}});
 boot();
 
