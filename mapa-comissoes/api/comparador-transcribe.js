@@ -18,7 +18,7 @@ function parseAudioDataUrl(value){
   return {mime:match[1].toLowerCase(),payload};
 }
 
-module.exports=endpoint(async function handler(req,res){
+const handler=endpoint(async function handler(req,res){
   if(req.method!=="POST")return res.status(405).json({error:"method_not_allowed"});
   if(!process.env.OPENAI_API_KEY)throw appError("OpenAI não configurada.",503,"openai_not_configured");
   const {token}=await authenticate(req);
@@ -46,3 +46,5 @@ module.exports=endpoint(async function handler(req,res){
   if(!text)throw appError("Não consegui perceber a gravação.",502,"empty_transcription");
   return res.status(200).json({ok:true,text});
 });
+module.exports=handler;
+module.exports._test={parseAudioDataUrl};
