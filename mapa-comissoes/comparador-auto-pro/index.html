@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261003-readout1">
+  <link rel="stylesheet" href="./styles.css?v=20261003-share1">
 </head>
 <body>
   <div class="auth-gate" id="authGate">
@@ -154,6 +154,17 @@
         <article><span>Comparáveis</span><strong id="comparableCount">—</strong><small>usados no cálculo</small></article>
       </div>
 
+      <div class="valuation-share-bar hidden" id="valuationShareBar">
+        <div class="valuation-share-copy">
+          <strong>Resumo da avaliação</strong>
+          <small>Viatura + cotação de compra + preço ideal para vender rápido.</small>
+        </div>
+        <div class="valuation-share-actions">
+          <button class="btn ghost small" type="button" id="shareValuationBtn">Partilhar</button>
+          <button class="btn ghost small" type="button" id="printValuationBtn">Imprimir</button>
+        </div>
+      </div>
+
       <div class="detail-grid">
         <article class="panel">
           <div class="panel-head">
@@ -233,7 +244,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261003-auto1iphone1"></script>
+  <script type="module" src="./app-v2.js?v=20261003-share1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
 </body>
