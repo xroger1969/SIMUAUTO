@@ -1,27 +1,61 @@
-# Comparador Auto Pro — Preview V1
+# Comparador Auto Pro
 
-Protótipo isolado dentro do projeto `SIMUAUTO`, sem alterar o Mapa Comercial atual.
+Esta é a implementação canónica do Comparador Auto Pro. O código antigo da raiz e o antigo `app.js` foram removidos para impedir testes ou publicações sobre versões erradas.
 
-## Fluxo
-1. O utilizador cola um URL.
-2. O endpoint `/api/comparador-analyze` tenta uma leitura pública direta e segura.
-3. A análise fica registada no Supabase em tabelas `cap_*` protegidas por RLS.
-4. O caso real AUTO1 `YX06990` serve como primeira calibração end-to-end.
-5. O motor de valorização calcula mercado, venda provável, venda rápida, teto recomendado, teto absoluto, margem e confiança.
-6. A caixa "Comprador IA" já guarda observações estruturadas como memória comercial. A ligação ao modelo de IA será feita no servidor, nunca expondo a chave no browser.
+## Fluxo ativo
+
+1. O utilizador cola um link, indica uma matrícula, descreve a viatura ou anexa até 6 fotografias.
+2. `/api/comparador-analyze` lê páginas públicas com autenticação, quota, validação de destino e proteção SSRF.
+3. `/api/comparador-market` cria um job persistente associado ao utilizador e à análise.
+4. As orientações relevantes do comerciante são enviadas para a pesquisa como hipóteses a testar, nunca como factos.
+5. A pesquisa web devolve comparáveis e respetiva proveniência.
+6. `valuation.js` decide deterministicamente se existe evidência suficiente para emitir um teto de compra.
+7. Cada conclusão é guardada com snapshot, revisão, comparáveis usados/excluídos, fontes, modelo, parâmetros e versão do motor.
+
+## Regra de confiança
+
+Um teto de compra só pode ser emitido quando existem, no mínimo:
+
+- 3 viaturas profissionais distintas e verificadas;
+- marca, modelo, versão, ano, quilómetros e combustível confirmados na viatura analisada;
+- URLs/evidência de pesquisa válidas;
+- preços em Portugal numa base comparável;
+- dispersão de mercado dentro do limite de segurança.
+
+Sem estas condições, a aplicação apresenta apenas uma **referência provisória**, limita a confiança e bloqueia o teto recomendado.
+
+## Dados e histórico
+
+As tabelas `cap_*` usam RLS por utilizador. As pesquisas usam `cap_jobs` com chave idempotente e podem ser retomadas. As revisões são guardadas em `cap_revisions` e os anúncios que sustentam cada cálculo em `cap_comparables`.
+
+As premissas de margem e custos são editáveis em `cap_preferences` e podem recalcular a análise sem confundir preço de venda com margem económica.
 
 ## Segurança
-- Não existem chaves secretas no frontend.
-- O leitor bloqueia localhost e redes privadas para reduzir risco de SSRF.
-- O acesso à preview exige autenticação Supabase e perfil de administrador do Mapa Comercial.
-- As novas tabelas Supabase têm RLS por utilizador.
 
-## Próximas camadas
-- normalizador de anúncio por IA;
-- radar de comparáveis;
-- adaptadores por fonte;
-- leitor autenticado de fontes privadas sem navegador pago por análise;
-- aprendizagem baseada em compras/vendas reais;
-- notificações apenas quando houver uma necessidade clara (OneSignal/Resend ficam fora da V1 para não criar complexidade desnecessária).
-\n\n<!-- redeploy after OPENAI_API_KEY configuration: 2026-10-02 -->\n
-<!-- preview redeploy after enabling OPENAI_API_KEY for Preview: 2026-10-02 11:16 -->
+- Segredos permanecem no servidor.
+- APIs do Comparador exigem sessão administrativa válida.
+- Existem quotas para pesquisa de mercado, leitura pública, chat e voz.
+- O leitor público fixa a ligação ao IP já validado e volta a validar cada redirecionamento.
+- O `response_id` da pesquisa nunca é consultado diretamente pelo browser; o browser usa um `job_id` protegido por RLS.
+- O cliente Supabase está fixado numa versão exata.
+- O áudio de `MediaRecorder` aceita parâmetros de codec sem alargar os tipos permitidos.
+
+## Interface
+
+A entrada principal continua simples. No resultado existem secções discretas para:
+
+- qualidade da evidência;
+- todos os comparáveis usados;
+- anúncios excluídos e motivo;
+- premissas editáveis da compra;
+- refinamento com IA.
+
+O diálogo aceita Escape e devolve o foco ao controlo anterior. Durante uma análise, ações incompatíveis ficam bloqueadas.
+
+## Integrações
+
+Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSignal permanecem deliberadamente fora do caminho crítico do Comparador: não são necessários para calcular uma compra e só deverão ser ligados quando existir um caso concreto de notificação.
+
+## Verificação
+
+O workflow `.github/workflows/comparador-auto-pro-check.yml` testa exclusivamente esta árvore ativa, incluindo sintaxe, motor de valorização, memória, inputs, segurança, voz e hooks críticos da interface.
