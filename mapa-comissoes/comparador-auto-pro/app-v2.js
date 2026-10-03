@@ -379,7 +379,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn"]){
+  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -581,7 +581,7 @@ function setImageStatus(name){
     q("attachmentStatus").classList.add("hidden");
   }
 }
-function resetSearchInput(){
+function resetSearchInput({announce=true,focus=true}={}){
   const input=q("vehicleUrl");
   input.value="";
   imageGeneration++;selectedImages=[];
@@ -614,8 +614,39 @@ function resetSearchInput(){
   audioChunks=[];
   setMicActive(false);
 
-  input.focus();
-  toast("Pesquisa limpa.");
+  if(focus)input.focus();
+  if(announce)toast("Pesquisa limpa.");
+}
+function resetAnalysisView(){
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+
+  resetSearchInput({announce:false,focus:false});
+  stopProgress();
+
+  currentAnalysisId=null;
+  currentVehicle=null;
+  currentResult=null;
+  currentMarketData=null;
+  lastAnalysisContext=null;
+  auctionLocationOverride=null;
+  conversation=[];
+
+  q("result").classList.add("hidden");
+  q("emptyState").classList.add("hidden");
+  q("auto1Connection").classList.add("hidden");
+  q("chat").innerHTML="";
+  q("refineInput").value="";
+  q("refineInlineStatus").textContent="";
+  q("refineInlineStatus").classList.add("hidden");
+  q("refineDialog").classList.add("hidden");
+  q("refineDialogState").textContent="A analisar…";
+  q("refineDialogState").className="refine-dialog-state";
+  q("refineDialogMessages").innerHTML='<div class="refine-dialog-message assistant" id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</div>';
+  lastRefineFocus=null;
+
+  q("analyzeForm").scrollIntoView({behavior:"smooth",block:"center"});
+  setTimeout(()=>q("vehicleUrl").focus({preventScroll:true}),220);
+  toast("Pronto para uma nova pesquisa.");
 }
 function loadImageElement(file){
   return new Promise((resolve,reject)=>{
@@ -805,6 +836,7 @@ q("removeImage").addEventListener("click",()=>{
   imageGeneration++;selectedImages=[];selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
 });
 q("resetSearchBtn").addEventListener("click",resetSearchInput);
+q("newSearchBtn").addEventListener("click",resetAnalysisView);
 q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
 
 async function loadMemories(){
