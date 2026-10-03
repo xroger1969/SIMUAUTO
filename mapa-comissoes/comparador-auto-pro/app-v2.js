@@ -46,6 +46,7 @@ let activeOperation=null;
 let operationSequence=0;
 let currentMarketData=null;
 let lastRefineFocus=null;
+let auctionLocationOverride=null;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
@@ -105,6 +106,27 @@ function sourceName(host){
   if(host==="photo")return "Fotografia IA";
   if(host==="manual")return "Descrição manual";
   return host.replace(/^www\./,"");
+}
+function hostFromUrl(raw){
+  try{return new URL(raw).hostname.replace(/^www\./i,"").toLowerCase()}catch{return ""}
+}
+function sourceContextFor(sourceUrl,market){
+  const host=hostFromUrl(sourceUrl);
+  if(host==="standvirtual.com"||host.endsWith(".standvirtual.com")){
+    return {is_auction:false,vehicle_location:"PT",evidence:"Standvirtual: viatura em Portugal e já matriculada."};
+  }
+  const detected=market?.auction_context&&typeof market.auction_context==="object"?market.auction_context:{};
+  const isAuto1=host==="auto1.com"||host.endsWith(".auto1.com");
+  const isAuction=isAuto1?true:detected.is_auction===true?true:detected.is_auction===false?false:null;
+  const detectedLocation=["PT","foreign","unknown"].includes(detected.vehicle_location)?detected.vehicle_location:"unknown";
+  const vehicleLocation=auctionLocationOverride||detectedLocation;
+  return {
+    is_auction:isAuction,
+    vehicle_location:vehicleLocation,
+    evidence:auctionLocationOverride
+      ?(auctionLocationOverride==="PT"?"Localização confirmada pelo utilizador: viatura já em Portugal.":"Localização confirmada pelo utilizador: viatura fora de Portugal/importada.")
+      :String(detected.evidence||"")
+  };
 }
 function ruleType(text){
   const t=text.toLowerCase();
@@ -269,6 +291,15 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent?"após custos e reserva":"ao teto recomendado";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=result.purchase?.decision||"—";
+  const auctionQuestion=q("auctionLocationQuestion");
+  if(auctionQuestion){
+    const needs=!!result.purchase?.needsLocationConfirmation;
+    auctionQuestion.classList.toggle("hidden",!needs);
+    const note=q("auctionLocationEvidence");
+    if(note)note.textContent=needs
+      ?"Detetei uma viatura de leilão, mas não consegui confirmar se já está em Portugal. Preciso desta resposta antes de aplicar ou excluir os 1 200 €."
+      :"";
+  }
   const gap=Number(result.purchase?.currentPrice)-Number(result.purchase?.maxPurchase);
   q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do recomendado":fmt(Math.abs(gap))+" abaixo do recomendado"):"—";
   const verified=result.market?.verifiedProfessionals??0;
@@ -823,6 +854,7 @@ async function resumePendingAnalysis(){
       source_url:analysis.source_url,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      source_context:sourceContextFor(analysis.source_url,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
@@ -853,7 +885,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
   q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
-  currentAnalysisId=null;currentVehicle=null;currentResult=null;currentMarketData=null;lastAnalysisContext=null;q("chat").innerHTML="";conversation=[];
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;currentMarketData=null;lastAnalysisContext=null;auctionLocationOverride=null;q("chat").innerHTML="";conversation=[];
 
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
@@ -936,6 +968,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       subject,comparables,source_url:url?.toString()||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      source_context:sourceContextFor(url?.toString()||null,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
@@ -1045,6 +1078,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],source_url:lastAnalysisContext.url||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      source_context:sourceContextFor(lastAnalysisContext.url||null,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
@@ -1154,6 +1188,38 @@ q("chatForm").addEventListener("submit",async ev=>{
   }
 });
 
+async function applyAuctionLocationAnswer(vehicleLocation){
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  if(!currentMarketData||!currentVehicle||!currentAnalysisId)return;
+  auctionLocationOverride=vehicleLocation;
+  const operation=beginOperation("auction-location",currentAnalysisId);
+  try{
+    const market=currentMarketData.market;
+    const result=evaluatePurchase({
+      subject:currentVehicle,
+      comparables:Array.isArray(market.comparables)?market.comparables:[],
+      source_url:currentMarketData.marketPayload?.url||null,
+      current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
+      tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
+      costs:DEAL.costs,
+      risk_flags:market.risk_flags||[],
+      target_margin:DEAL.target_margin,
+      minimum_margin:DEAL.minimum_margin
+    });
+    result.market.comment=market.market_comment||"";
+    result.market.dealer_memories=relevantMemories(await loadMemories().catch(()=>[]),currentVehicle);
+    renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    await persistCompletedAnalysis(currentAnalysisId,result,market,currentMarketData.reader,currentMarketData.entry,currentMarketData.marketPayload);
+    toast(vehicleLocation==="PT"?"Confirmado: sem custo adicional de importação.":"Confirmado: acrescentados 1 200 € de importação.");
+  }catch(error){
+    auctionLocationOverride=null;
+    toast(error.message);
+  }finally{finishOperation(operation)}
+}
+q("auctionLocationPtBtn")?.addEventListener("click",()=>applyAuctionLocationAnswer("PT"));
+q("auctionLocationForeignBtn")?.addEventListener("click",()=>applyAuctionLocationAnswer("foreign"));
+
 q("assumptionsForm")?.addEventListener("submit",async ev=>{
   ev.preventDefault();
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
@@ -1169,6 +1235,7 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
         source_url:currentMarketData.marketPayload?.url||null,
         current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
         tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+        source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
         costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
       });
       result.market.comment=market.market_comment||"";
