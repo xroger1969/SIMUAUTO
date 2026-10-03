@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261003-newsearch1">
+  <link rel="stylesheet" href="./styles.css?v=20261003-readout1">
 </head>
 <body>
   <div class="auth-gate" id="authGate">
@@ -93,6 +93,34 @@
           <button class="btn ghost small new-search-btn" type="button" id="newSearchBtn">Nova pesquisa</button>
         </div>
       </div>
+
+      <details class="vehicle-readout" id="vehicleReadout" open>
+        <summary>
+          <span>
+            <strong>Ficha do anúncio lida pela IA</strong>
+            <small>Confirma aqui o que o sistema identificou antes de usar o cálculo.</small>
+          </span>
+          <span class="read-status" id="adReadStatus">A validar leitura…</span>
+        </summary>
+        <div class="vehicle-readout-body">
+          <div class="ad-summary-block">
+            <span class="readout-label">Descrição do anúncio</span>
+            <p id="adSummary">—</p>
+          </div>
+          <div class="vehicle-facts" id="vehicleFacts"></div>
+          <div class="readout-columns">
+            <div>
+              <span class="readout-label">Equipamento identificado</span>
+              <div class="readout-tags" id="vehicleEquipment"></div>
+            </div>
+            <div>
+              <span class="readout-label">Outras indicações do anúncio</span>
+              <div class="readout-tags" id="vehicleHighlights"></div>
+            </div>
+          </div>
+          <div class="vehicle-data-quality" id="vehicleDataQuality">—</div>
+        </div>
+      </details>
 
       <div class="decision-card">
         <div>
@@ -205,7 +233,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261003-engine9"></script>
+  <script type="module" src="./app-v2.js?v=20261003-readout1"></script>
 </body>
 </html>
 
