@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-03.5";
+export const ENGINE_VERSION="2026-10-03.6";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -208,7 +208,14 @@ export function evaluatePurchase(input,custom={}){
     else reason=hardExclusion(s,c);
 
     const sim=reason?0:similarity(s,c);
-    if(!reason&&sim<config.minSimilarity)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
+    const closeVariant=!reason
+      &&same(s.make,c.make)
+      &&same(s.model,c.model)
+      &&(!known(s.fuel)||!known(c.fuel)||fuel(s.fuel)===fuel(c.fuel))
+      &&(!known(s.trim)||!known(c.trim)||trimSimilarity(s.trim,c.trim)>=.9)
+      &&(!known(s.year)||!known(c.year)||Math.abs(num(s.year)-num(c.year))<=1);
+    const similarityFloor=closeVariant?55:config.minSimilarity;
+    if(!reason&&sim<similarityFloor)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
 
     if(reason){
       excluded.push({label:c.label||c.trim||"Comparável",url:c.url||null,reason,comp:c});
