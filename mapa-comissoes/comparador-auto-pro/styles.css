@@ -656,6 +656,9 @@ body::before {
 
 /* Audit 2026-10-03: evidence, quality and editable assumptions */
 .quality-note{margin-top:8px;max-width:620px;color:#d5e7fb!important;line-height:1.45}
+.auction-location-question{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0 0;padding:13px 14px;border:1px solid rgba(245,190,76,.46);border-radius:14px;background:rgba(82,57,16,.42)}
+.auction-location-question strong,.auction-location-question small{display:block}.auction-location-question strong{font-size:12px;color:#fff0bd}.auction-location-question small{margin-top:4px;font-size:10px;line-height:1.45;color:#d7c89a}
+.auction-location-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.auction-location-actions .btn{white-space:nowrap}
 .evidence-details,.assumptions-details{margin-top:14px;border-top:1px solid rgba(255,255,255,.10);padding-top:12px}
 .evidence-details>summary,.assumptions-details>summary{cursor:pointer;color:#a9cff8;font-size:11px;font-weight:800;list-style-position:inside}
 .evidence-section{margin-top:14px}
@@ -675,3 +678,9 @@ body::before {
   .evidence-excluded{display:grid}.evidence-excluded span{text-align:left}
 }
 @media(max-width:420px){.assumptions-form{grid-template-columns:1fr 1fr}}
+
+@media(max-width:560px){
+  .auction-location-question{align-items:stretch;flex-direction:column}
+  .auction-location-actions{display:grid;grid-template-columns:1fr}
+  .auction-location-actions .btn{width:100%;white-space:normal}
+}
