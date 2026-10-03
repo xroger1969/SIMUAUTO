@@ -386,6 +386,8 @@ function renderEvidence(result){
 function renderResult(result,sourceHost,riskFlags=[]){
   currentResult=result||null;
   currentVehicle=result.subject||{};
+  const shareBar=q("valuationShareBar");
+  if(shareBar)shareBar.classList.add("hidden");
   const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
   q("sourceLabel").textContent=sourceName(sourceHost);
@@ -447,7 +449,113 @@ function renderResult(result,sourceHost,riskFlags=[]){
         :result.purchase?.provisionalAbsoluteMax
     ))+"</strong><br>"+
     "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
+  const shareReady=Number.isFinite(Number(result.purchase?.effectiveCeiling))&&Number.isFinite(Number(result.market?.saleFast));
+  if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
+}
+
+function cleanValuationSummary(value){
+  return String(value||"")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,"$1")
+    .replace(/\s+/g," ")
+    .trim();
+}
+function valuationShareData(){
+  if(!currentResult||!currentVehicle)return null;
+  const purchase=Number(currentResult.purchase?.effectiveCeiling);
+  const saleFast=Number(currentResult.market?.saleFast);
+  if(!Number.isFinite(purchase)||!Number.isFinite(saleFast))return null;
+  const advertised=Number(currentResult.purchase?.currentPrice);
+  const title=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
+  const summary=cleanValuationSummary(currentVehicle.ad_summary||"").slice(0,700);
+  return {
+    title,
+    meta:vehicleMeta(currentVehicle),
+    summary,
+    purchase,
+    saleFast,
+    advertised:Number.isFinite(advertised)?advertised:null,
+    source:String(q("sourceLabel")?.textContent||"").trim(),
+    provisional:currentResult.purchase?.eligible!==true,
+    date:new Date().toLocaleDateString("pt-PT")
+  };
+}
+function valuationShareText(data){
+  const lines=[
+    "COMPARADOR AUTO PRO",
+    data.title,
+    data.meta
+  ];
+  if(data.advertised!==null)lines.push("Preço do anúncio: "+fmt(data.advertised));
+  lines.push(
+    (data.provisional?"Cotação de compra provisória: ":"Cotação de compra ideal: ")+fmt(data.purchase),
+    "Cotação de venda ideal para vender rápido: "+fmt(data.saleFast)
+  );
+  if(data.summary)lines.push("Resumo do anúncio: "+data.summary);
+  if(data.source)lines.push("Fonte: "+data.source);
+  lines.push("Análise: "+data.date);
+  return lines.join("\n");
+}
+async function shareValuationSummary(){
+  const data=valuationShareData();
+  if(!data){toast("Ainda não existe uma cotação completa para partilhar.");return}
+  const text=valuationShareText(data);
+  try{
+    if(navigator.share){
+      await navigator.share({title:"Cotação · "+data.title,text});
+      return;
+    }
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(text);
+      toast("Resumo copiado para partilhar.");
+      return;
+    }
+    const area=document.createElement("textarea");
+    area.value=text;area.style.position="fixed";area.style.opacity="0";
+    document.body.appendChild(area);area.select();document.execCommand("copy");area.remove();
+    toast("Resumo copiado para partilhar.");
+  }catch(error){
+    if(error?.name!=="AbortError")toast("Não consegui abrir a partilha.");
+  }
+}
+function printValuationSummary(){
+  const data=valuationShareData();
+  if(!data){toast("Ainda não existe uma cotação completa para imprimir.");return}
+  const popup=window.open("","_blank");
+  if(!popup){toast("O navegador bloqueou a janela de impressão.");return}
+  const purchaseLabel=data.provisional?"Cotação de compra provisória":"Cotação de compra ideal";
+  const advertised=data.advertised!==null
+    ?'<div class="line"><span>Preço do anúncio</span><strong>'+esc(fmt(data.advertised))+'</strong></div>'
+    :"";
+  const summary=data.summary
+    ?'<section><h2>Resumo do anúncio</h2><p>'+esc(data.summary)+'</p></section>'
+    :"";
+  popup.document.open();
+  popup.document.write('<!doctype html><html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cotação · '+esc(data.title)+'</title><style>'+
+    'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#152033;margin:0;background:#fff}'+
+    '.sheet{max-width:760px;margin:0 auto;padding:42px}'+
+    '.brand{font-size:12px;font-weight:800;letter-spacing:.14em;color:#506176;text-transform:uppercase}'+
+    'h1{font-size:28px;margin:8px 0 4px} .meta{color:#627085;margin-bottom:28px}'+
+    '.quotes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0}'+
+    '.quote{border:1px solid #d8dee8;border-radius:16px;padding:18px} .quote span{display:block;color:#627085;font-size:12px;margin-bottom:8px} .quote strong{font-size:28px}'+
+    '.line{display:flex;justify-content:space-between;gap:20px;border-top:1px solid #e5e9ef;padding:14px 0}'+
+    'section{margin-top:26px;border-top:1px solid #e5e9ef;padding-top:20px} h2{font-size:16px;margin:0 0 10px} p{font-size:13px;line-height:1.6;margin:0}'+
+    '.foot{margin-top:30px;color:#7a8798;font-size:11px}'+
+    '@media(max-width:560px){.sheet{padding:24px}.quotes{grid-template-columns:1fr}.quote strong{font-size:24px}}'+
+    '@media print{.sheet{padding:18mm 14mm}.quotes{break-inside:avoid}}'+
+    '</style></head><body><main class="sheet">'+
+    '<div class="brand">Comparador Auto Pro</div>'+
+    '<h1>'+esc(data.title)+'</h1>'+
+    '<div class="meta">'+esc(data.meta)+'</div>'+
+    advertised+
+    '<div class="quotes">'+
+      '<div class="quote"><span>'+esc(purchaseLabel)+'</span><strong>'+esc(fmt(data.purchase))+'</strong></div>'+
+      '<div class="quote"><span>Cotação de venda ideal para vender rápido</span><strong>'+esc(fmt(data.saleFast))+'</strong></div>'+
+    '</div>'+
+    summary+
+    '<div class="foot">'+(data.source?"Fonte: "+esc(data.source)+" · ":"")+'Análise: '+esc(data.date)+' · Valores indicativos com base na evidência disponível no momento da avaliação.</div>'+
+    '</main><script>window.addEventListener("load",()=>{setTimeout(()=>window.print(),180)});<\/script></body></html>');
+  popup.document.close();
 }
 function renderAuto1NeedsPhotos(reader,url){
   currentResult=null;
@@ -467,6 +575,7 @@ function renderAuto1NeedsPhotos(reader,url){
 }
 function renderReaderOnly(reader,url){
   currentResult=null;
+  const shareBar=q("valuationShareBar");if(shareBar)shareBar.classList.add("hidden");
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
   const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
@@ -501,7 +610,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn"]){
+  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","shareValuationBtn","printValuationBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -755,6 +864,7 @@ function resetAnalysisView(){
 
   q("result").classList.add("hidden");
   q("emptyState").classList.add("hidden");
+  q("valuationShareBar")?.classList.add("hidden");
   q("auto1Connection").classList.add("hidden");
   q("chat").innerHTML="";
   q("refineInput").value="";
@@ -959,6 +1069,8 @@ q("removeImage").addEventListener("click",()=>{
 });
 q("resetSearchBtn").addEventListener("click",resetSearchInput);
 q("newSearchBtn").addEventListener("click",resetAnalysisView);
+q("shareValuationBtn").addEventListener("click",shareValuationSummary);
+q("printValuationBtn").addEventListener("click",printValuationSummary);
 q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
 
 async function loadMemories(){
