@@ -214,7 +214,7 @@
     </section>
   </main>
 
-  <div id="auto1Connection" class="panel hidden" style="max-width:760px;margin:20px auto" role="status"><h3>AUTO1 — sem serviços pagos</h3><p>O link AUTO1 é reconhecido pelo código da oferta e o sistema tenta identificar a viatura com a pesquisa já existente.</p><p>Se a ficha privada não puder ser confirmada só pelo link, cola uma captura do anúncio com ⌘V ou usa o clipe. O Comparador junta o link + a imagem e continua a análise sem qualquer API externa paga.</p></div>
+  <div id="auto1Connection" class="panel hidden" style="max-width:760px;margin:20px auto" role="status"><h3>AUTO1 — ficha privada</h3><p>No iPhone, o link AUTO1 sozinho não expõe os dados da viatura. O Comparador deixa de fingir que leu a ficha e não gasta uma pesquisa sem informação suficiente.</p><p>Anexa 1 a 3 capturas da oferta — idealmente topo da ficha, preço/quilómetros e especificações. A IA lê as imagens, identifica a viatura, pesquisa o mercado profissional e continua o cálculo.</p><label class="btn primary small" for="vehiclePhoto">Anexar capturas AUTO1</label></div>
   <div class="refine-dialog hidden" id="refineDialog" role="dialog" aria-modal="true" aria-labelledby="refineDialogTitle">
     <div class="refine-dialog-card">
       <div class="refine-dialog-head">
@@ -233,7 +233,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261003-readout4"></script>
+  <script type="module" src="./app-v2.js?v=20261003-auto1iphone1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
 </body>
