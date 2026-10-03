@@ -251,6 +251,104 @@ function vehicleMeta(v){
   bits.push(originLabel(v.origin));
   return bits.join(" · ")||"Dados ainda incompletos";
 }
+function displayValue(value,fallback="Por confirmar"){
+  if(value===null||value===undefined||value==="")return fallback;
+  return String(value);
+}
+function formatRegistrationDate(value){
+  if(!value)return "Por confirmar";
+  const text=String(value);
+  const match=text.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  if(!match)return text;
+  return match[3]?match[3]+"/"+match[2]+"/"+match[1]:match[2]+"/"+match[1];
+}
+function renderTagList(id,items){
+  const box=q(id);if(!box)return;
+  const unique=[...new Set((items||[]).map(item=>String(item||"").trim()).filter(Boolean))];
+  box.innerHTML="";
+  if(!unique.length){box.innerHTML='<span class="readout-empty">Não identificado no anúncio.</span>';return}
+  unique.forEach(item=>{
+    const tag=document.createElement("span");tag.className="readout-tag";tag.textContent=item;box.appendChild(tag);
+  });
+}
+function renderVehicleReadout(vehicle,context=currentMarketData){
+  const v=vehicle||{};
+  const reader=context?.reader||null;
+  const market=context?.market||null;
+  const page=reader?.page||{};
+  const kind=String(reader?.source_kind||"");
+  const status=q("adReadStatus");
+  if(status){
+    let label="Leitura do anúncio por confirmar",tone="warn";
+    const length=Number(page.text_length)||String(page.text_sample||"").length||0;
+    const chars=length?Number(length).toLocaleString("pt-PT")+" carateres":"";
+    if(kind==="link_only"){
+      label="Leitura direta bloqueada · dados pelo link + pesquisa web";
+    }else if(kind==="photo_fallback"||kind==="auto1_screenshot"){
+      label="Leitura pelas fotografias + contexto do link";tone="ok";
+    }else if(kind==="authenticated_browser"){
+      label="Anúncio lido em sessão autenticada"+(chars?" · "+chars:"");tone="ok";
+    }else if(reader?.status==="ok"){
+      label=(page.text_truncated===true?"Texto público lido parcialmente":"Texto público do anúncio lido")+(chars?" · "+chars:"");tone=page.text_truncated===true?"warn":"ok";
+    }else if(context?.entry?.mode==="manual"){
+      label="Descrição fornecida manualmente";tone="ok";
+    }
+    status.textContent=label;status.className="read-status "+tone;
+  }
+
+  const summary=q("adSummary");
+  if(summary){
+    summary.textContent=String(v.ad_summary||page.description||"O anúncio foi identificado, mas não devolveu uma descrição adicional estruturada.").trim();
+  }
+
+  const facts=[
+    ["Marca",v.make],
+    ["Modelo",v.model],
+    ["Versão",v.trim],
+    ["Geração",v.generation],
+    ["1.ª matrícula",formatRegistrationDate(v.first_registration)],
+    ["Ano",v.year],
+    ["Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
+    ["Preço anunciado",v.price!=null?fmt(v.price):null],
+    ["Combustível",v.fuel],
+    ["Potência",v.power_cv!=null?v.power_cv+" cv":null],
+    ["Bateria",v.battery_kwh!=null?v.battery_kwh+" kWh":null],
+    ["Autonomia",v.range_km!=null?v.range_km+" km":null],
+    ["Cilindrada",v.engine_cc!=null?Number(v.engine_cc).toLocaleString("pt-PT")+" cc":null],
+    ["Tração",v.drivetrain],
+    ["Caixa",v.transmission],
+    ["Carroçaria",v.body_type],
+    ["Cor",v.color],
+    ["Portas",v.doors],
+    ["Lugares",v.seats],
+    ["IVA dedutível",v.vat_deductible===true?"Sim":v.vat_deductible===false?"Não":null],
+    ["Origem",originLabel(v.origin)],
+    ["Garantia",v.warranty_months!=null?v.warranty_months+" meses":null],
+    ["Vendedor",v.seller_name],
+    ["Localização",v.location]
+  ];
+  const factsBox=q("vehicleFacts");
+  if(factsBox){
+    factsBox.innerHTML=facts.map(([label,value])=>'<div class="vehicle-fact"><span>'+esc(label)+'</span><strong>'+esc(displayValue(value))+'</strong></div>').join("");
+  }
+  renderTagList("vehicleEquipment",v.equipment||[]);
+  renderTagList("vehicleHighlights",v.ad_highlights||[]);
+
+  const quality=q("vehicleDataQuality");
+  if(quality){
+    const data=market?.data_quality||{};
+    const completeness=Number.isFinite(Number(data.completeness_pct))?Number(data.completeness_pct):null;
+    const uncertain=Array.isArray(data.uncertain_fields)?data.uncertain_fields.filter(Boolean):[];
+    const notes=String(data.notes||"").trim();
+    const parts=[];
+    if(completeness!==null)parts.push("Completude da ficha: "+completeness+"%");
+    if(uncertain.length)parts.push("Por confirmar: "+uncertain.join(", "));
+    if(notes)parts.push(notes);
+    if(page.text_truncated===true)parts.push("A página tinha mais texto do que o limite de leitura; a ficha acima não deve ser tratada como leitura integral.");
+    quality.textContent=parts.join(" · ")||"Qualidade dos dados ainda não classificada.";
+  }
+}
+
 function renderRisks(flags,warnings){
   const list=q("riskList");if(!list)return;list.innerHTML="";
   const all=[...(flags||[]).map(x=>({text:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))];
@@ -290,6 +388,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("sourceLabel").textContent=sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
+  renderVehicleReadout(currentVehicle,currentMarketData);
   q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":result.purchase?.provisionalEligible?"Provisório ":"Referência ")+(result.market?.confidencePct??0)+"%";
   const rawCeiling=result.purchase?.effectiveCeiling;
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
@@ -355,6 +454,7 @@ function renderReaderOnly(reader,url){
   q("sourceLabel").textContent=sourceName(host);
   q("vehicleTitle").textContent=reader.page?.title||"Anúncio lido";
   q("vehicleMeta").textContent=reader.page?.description||"Leitura concluída; falta normalizar a viatura.";
+  renderVehicleReadout(currentVehicle,{reader,market:null,entry:{mode:url?"url":"manual"}});
   ["maxPurchase","currentPrice","saleLikely","saleFast","expectedMargin"].forEach(id=>q(id).textContent="—");
   q("comparableCount").textContent="0";q("confidencePill").textContent="Confiança —";
   q("decisionText").textContent="Não foi possível confirmar todos os dados da viatura.";
