@@ -24,6 +24,13 @@ Um teto de compra só pode ser emitido quando existem, no mínimo:
 
 Sem estas condições, a aplicação apresenta apenas uma **referência provisória**, limita a confiança e bloqueia o teto recomendado.
 
+## Regra de custos de importação
+
+- Viatura de leilão localizada fora de Portugal/importada: acrescenta 1 200 € aos custos da compra.
+- Viatura de leilão já localizada em Portugal: não acrescenta os 1 200 €.
+- Standvirtual: nunca acrescenta os 1 200 €, porque é tratado como retalho em Portugal e não como leilão.
+- Se a oportunidade for de leilão mas a localização física da viatura não estiver confirmada, o cálculo pede confirmação ao utilizador antes de aplicar ou excluir os 1 200 €.
+
 ## Dados e histórico
 
 As tabelas `cap_*` usam RLS por utilizador. As pesquisas usam `cap_jobs` com chave idempotente e podem ser retomadas. As revisões são guardadas em `cap_revisions` e os anúncios que sustentam cada cálculo em `cap_comparables`.
