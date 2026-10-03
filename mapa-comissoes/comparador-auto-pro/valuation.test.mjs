@@ -160,3 +160,32 @@ test("three professional but unverified adverts produce a provisional ceiling, n
   assert.match(r.purchase.decision,/Teto provisório/);
   assert.ok(r.market.confidencePct<=39);
 });
+
+
+test("photo-identified BMW 425d accepts 425d Pack M professional comparables",()=>{
+  const bmw={
+    make:"BMW",model:"Série 4 Gran Coupé",trim:"425d",fuel:"Diesel",
+    year:2017,mileage_km:170000,origin:"unknown"
+  };
+  const comp=(i,price,km)=>({
+    make:"BMW",model:"Série 4 Gran Coupé",trim:"425d Pack M Auto",fuel:"Diesel",
+    year:2016,mileage_km:km,price,
+    url:"https://standvirtual.com/carros/anuncio/bmw-425d-"+i,
+    seller_type:"professional",seller_name:"Stand "+i,country:"PT",availability:"available",
+    price_basis:"gross",observed_at:observed,
+    evidence:{verified:false,observed_at:observed,source:"model_reported",source_url_verified:false},
+    power_cv:224,transmission:"Automática",origin:"national"
+  });
+  const r=evaluatePurchase({
+    subject:bmw,
+    comparables:[comp(1,25990,141466),comp(2,21900,228000),comp(3,26900,92000)],
+    source_context:{is_auction:false,vehicle_location:"unknown"},
+    costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
+    target_margin:3500,minimum_margin:1200
+  });
+  assert.equal(r.market.comparablesUsed,3);
+  assert.equal(r.market.professionalComparables,3);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
+  assert.ok(r.comparables.every(x=>x.similarity>=62));
+});
