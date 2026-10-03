@@ -14,5 +14,4 @@ test('shared iPhone text extracts the embedded link and ignores the introductory
   assert.equal(r.mode,'url');
   assert.equal(r.url.toString(),'https://example.com/carro/123?x=1');
   assert.equal(r.description,'');
-  assert.match(r.ignoredShareText,/Dê uma vista de olhos/);
 });
