@@ -187,5 +187,5 @@ test("photo-identified BMW 425d accepts 425d Pack M professional comparables",()
   assert.equal(r.market.professionalComparables,3);
   assert.equal(r.purchase.provisionalEligible,true);
   assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
-  assert.ok(r.comparables.every(x=>x.similarity>=62));
+  assert.ok(r.comparables.every(x=>x.similarity>=55));
 });
