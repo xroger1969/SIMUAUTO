@@ -1,18 +1,40 @@
+function embeddedHttpUrl(value){
+  const match=String(value||"").match(/(?:https?:\/\/|www\.)[^\s<>"']+/i);
+  if(!match)return null;
+  let raw=match[0].replace(/[),.;!?]+$/g,"");
+  if(/^www\./i.test(raw))raw="https://"+raw;
+  return raw;
+}
+
 export function parseVehicleInput(raw){
   const value=String(raw||"").trim();
   if(value.length<3||value.length>4000)throw new Error("Cola um link ou descreve a viatura (até 4000 caracteres).");
   const plate=value.toUpperCase().replace(/[\s-]/g,"");
   if(/^(?:[A-Z]{2}\d{4}|\d{4}[A-Z]{2}|\d{2}[A-Z]{2}\d{2}|[A-Z]{2}\d{2}[A-Z]{2})$/.test(plate))return {mode:"manual",registration:plate,url:null,description:value,sourceUrl:"plate:"+plate,sourceDomain:"matricula.co.pt"};
-  const isLink=/^(?:https?:\/\/|www\.)/i.test(value);
-  if(isLink){
-    const url=new URL(/^www\./i.test(value)?"https://"+value:value);
+
+  const extracted=embeddedHttpUrl(value);
+  if(extracted){
+    const url=new URL(extracted);
     if(!["https:","http:"].includes(url.protocol)||url.username||url.password)throw new Error("Usa um link público sem credenciais.");
     if(url.hostname==="auto1.com")url.hostname="www.auto1.com";
-    return {mode:"url",url,description:"",sourceUrl:url.toString(),sourceDomain:url.hostname};
+    return {
+      mode:"url",
+      url,
+      description:"",
+      sourceUrl:url.toString(),
+      sourceDomain:url.hostname,
+      ignoredShareText:value===matchlessUrl(value)?"":value.replace(matchlessUrl(value),"").trim()
+    };
   }
+
   if(/^[a-z][a-z0-9+.-]*:/i.test(value))throw new Error("Esse tipo de link não é suportado.");
   return {mode:"manual",url:null,description:value,sourceUrl:"manual:"+value,sourceDomain:"manual"};
 }
+
+function matchlessUrl(value){
+  return embeddedHttpUrl(value)||"";
+}
+
 export function manualMissing(subject){
   const missing=[];
   if(!subject?.year)missing.push("ano");
