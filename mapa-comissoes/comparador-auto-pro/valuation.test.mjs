@@ -142,3 +142,21 @@ test("uncertain auction location asks for confirmation before issuing a ceiling"
   assert.match(r.purchase.decision,/Confirmar/);
   assert.ok(r.warnings.some(x=>x.includes("1 200 €")));
 });
+
+
+test("three professional but unverified adverts produce a provisional ceiling, not a confident recommendation",()=>{
+  const unverified=[1,2,3].map(i=>professional(i,{evidence:{verified:false,observed_at:observed,source:"model_reported",source_url_verified:false}}));
+  const r=evaluatePurchase({
+    subject,comparables:unverified,source_url:"https://dealer.example/vehicle",
+    current_purchase_price:25000,
+    costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
+    target_margin:3500,minimum_margin:1200
+  });
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isNaN(r.purchase.maxPurchase));
+  assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
+  assert.equal(r.purchase.effectiveCeiling,r.purchase.provisionalMaxPurchase);
+  assert.match(r.purchase.decision,/Teto provisório/);
+  assert.ok(r.market.confidencePct<=39);
+});
