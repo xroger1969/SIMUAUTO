@@ -79,6 +79,7 @@ module.exports=endpoint(async function handler(req,res){
     type:meta(html,"og:type","property")
   };
   const fullText=cleanText(html);
+  const textSampleLimit=30000;
   const originMatch=fullText.match(/\bOrigem\s*[:—-]?\s*(Importado|Nacional)\b/i);
   const originEvidence=originMatch?{
     value:/importado/i.test(originMatch[1])?"imported":"national",
@@ -94,7 +95,9 @@ module.exports=endpoint(async function handler(req,res){
       description:meta(html,"description")||og.description,
       og,
       json_ld:jsonLd(html),
-      text_sample:fullText.slice(0,15000),
+      text_sample:fullText.slice(0,textSampleLimit),
+      text_length:fullText.length,
+      text_truncated:fullText.length>textSampleLimit,
       origin_evidence:originEvidence
     }
   });
