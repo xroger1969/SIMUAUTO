@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-03.7";
+export const ENGINE_VERSION="2026-10-03.8";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -108,6 +108,22 @@ function trimSimilarity(a,b){
   return overlap;
 }
 
+function derivativeCode(v){
+  const model=norm(v?.model),trim=norm(v?.trim),joined=(model+" "+trim).trim();
+  const direct=joined.match(/\b([1-8]\d{2})([a-z]{1,2})\b/);
+  if(direct)return direct[1]+direct[2];
+  const base=model.match(/\b([1-8]\d{2})\b/);
+  const suffix=trim.match(/^([die])\b/);
+  if(base&&suffix)return base[1]+suffix[1];
+  return null;
+}
+
+function variantSimilarity(s,c){
+  const a=derivativeCode(s),b=derivativeCode(c);
+  if(a&&b&&a===b)return 1;
+  return trimSimilarity(s?.trim,c?.trim);
+}
+
 function hardExclusion(s,c){
   if(!same(s.make,c.make))return "marca diferente ou desconhecida";
   if(!sameModel(s,c))return "modelo diferente ou desconhecido";
@@ -125,7 +141,7 @@ export function similarity(s,c){
   const add=(weight,value)=>{total+=weight;score+=weight*clamp(value,0,1)};
 
   add(25,same(s.make,c.make)&&sameModel(s,c)?1:0);
-  if(known(s.trim)&&known(c.trim))add(18,trimSimilarity(s.trim,c.trim));
+  if(known(s.trim)&&known(c.trim))add(18,variantSimilarity(s,c));
   if(known(s.generation)&&known(c.generation))add(7,same(s.generation,c.generation)?1:0);
   if(known(s.fuel)&&known(c.fuel))add(10,fuel(s.fuel)===fuel(c.fuel)?1:0);
   if(known(s.year)&&known(c.year))add(14,1-Math.abs(num(s.year)-num(c.year))/4);
@@ -225,7 +241,7 @@ export function evaluatePurchase(input,custom={}){
       &&same(s.make,c.make)
       &&sameModel(s,c)
       &&(!known(s.fuel)||!known(c.fuel)||fuel(s.fuel)===fuel(c.fuel))
-      &&(!known(s.trim)||!known(c.trim)||trimSimilarity(s.trim,c.trim)>=.9)
+      &&(!known(s.trim)||!known(c.trim)||variantSimilarity(s,c)>=.9)
       &&(!known(s.year)||!known(c.year)||Math.abs(num(s.year)-num(c.year))<=1);
     const similarityFloor=closeVariant?55:config.minSimilarity;
     if(!reason&&sim<similarityFloor)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
