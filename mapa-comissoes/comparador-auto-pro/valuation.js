@@ -1,10 +1,11 @@
-export const ENGINE_VERSION="2026-10-03.2";
+export const ENGINE_VERSION="2026-10-03.3";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
   minVerifiedProfessionals:3,
   targetMargin:3500,
   minimumMargin:1200,
+  auctionImportCost:1200,
   negotiationDiscountPct:.02,
   fastSaleDiscountPct:.035,
   riskReservePct:.006,
@@ -142,6 +143,33 @@ function subjectMissing(s){
   return ["make","model","trim","year","mileage_km","fuel"].filter(k=>!known(s[k]));
 }
 
+function sourceHost(raw){
+  try{return new URL(raw).hostname.replace(/^www\./i,"").toLowerCase()}catch{return ""}
+}
+
+export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
+  const host=sourceHost(input?.source_url);
+  if(host==="standvirtual.com"||host.endsWith(".standvirtual.com")){
+    return {isAuction:false,vehicleLocation:"PT",importCost:0,needsLocationConfirmation:false,reason:"standvirtual_pt"};
+  }
+
+  const supplied=input?.source_context&&typeof input.source_context==="object"?input.source_context:{};
+  let isAuction=supplied.is_auction===true?true:supplied.is_auction===false?false:null;
+  if(host==="auto1.com"||host.endsWith(".auto1.com"))isAuction=true;
+
+  const vehicleLocation=["PT","foreign","unknown"].includes(supplied.vehicle_location)?supplied.vehicle_location:"unknown";
+  if(isAuction!==true){
+    return {isAuction,vehicleLocation,importCost:0,needsLocationConfirmation:false,reason:isAuction===false?"not_auction":"auction_not_detected"};
+  }
+  if(vehicleLocation==="PT"){
+    return {isAuction:true,vehicleLocation,importCost:0,needsLocationConfirmation:false,reason:"auction_vehicle_in_pt"};
+  }
+  if(vehicleLocation==="foreign"){
+    return {isAuction:true,vehicleLocation,importCost:Math.max(0,num(config.auctionImportCost,1200)),needsLocationConfirmation:false,reason:"auction_import"};
+  }
+  return {isAuction:true,vehicleLocation:"unknown",importCost:0,needsLocationConfirmation:true,reason:"auction_location_unknown"};
+}
+
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
   const s=input.subject||{},rows=[],excluded=[],seenUrls=new Set(),seenFingerprints=new Set();
@@ -218,6 +246,7 @@ export function evaluatePurchase(input,custom={}){
   const dispersion=valid.length&&Number.isFinite(marketValue)
     ?Math.max(0,(quantile(valid.map(r=>r.adjustedPrice),.75)-quantile(valid.map(r=>r.adjustedPrice),.25))/(marketValue||1))
     :1;
+  const acquisition=resolveAcquisitionContext(input,config);
   const warnings=[];
   if(missing.length)warnings.push("Falta confirmar: "+missing.join(", ")+".");
   if(verified.length<config.minVerifiedProfessionals)warnings.push("Referência provisória: são necessárias pelo menos "+config.minVerifiedProfessionals+" viaturas profissionais distintas e verificadas.");
@@ -225,8 +254,10 @@ export function evaluatePurchase(input,custom={}){
   if(dispersion>.25)warnings.push("Dispersão de preços demasiado elevada para emitir um teto de compra.");
   if(valid.some(r=>r.comp.price_basis!=="gross"))warnings.push("Existem preços cuja base com IVA incluído não foi confirmada.");
   if(valid.some(r=>r.comp.country!=="PT"))warnings.push("Existem comparáveis cuja localização em Portugal não foi confirmada.");
+  if(acquisition.needsLocationConfirmation)warnings.push("Confirma se esta viatura de leilão já está em Portugal. Só é aplicado o custo adicional de 1 200 € quando a viatura de leilão está fora de Portugal/importada.");
 
-  const eligible=Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
+  const evidenceEligible=Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
+  const eligible=evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
   const completeness=(6-missing.length)/6;
   const rawConfidence=valid.length
@@ -239,8 +270,9 @@ export function evaluatePurchase(input,custom={}){
   const factor=taxMode==="deductible"?1+vatRate:1;
   const saleEconomic=Number.isFinite(saleLikely)?saleLikely/factor:NaN;
   const costs=input.costs||{};
-  const fixedCosts=["auction_fee","transport","registration","reconditioning","warranty_reserve","stock_finance","other"]
+  const baseFixedCosts=["auction_fee","transport","registration","reconditioning","warranty_reserve","stock_finance","other"]
     .reduce((t,k)=>t+Math.max(0,num(costs[k])),0);
+  const fixedCosts=baseFixedCosts+acquisition.importCost;
   const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+Math.max(0,num(r.reserve_eur)),0);
   const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
   const targetMargin=Math.max(0,num(input.target_margin,config.targetMargin));
@@ -257,7 +289,8 @@ export function evaluatePurchase(input,custom={}){
     :NaN;
 
   let decision=valid.length?"Referência provisória — dados por confirmar":"sem dados";
-  if(eligible){
+  if(acquisition.needsLocationConfirmation)decision="Confirmar se a viatura de leilão já está em Portugal";
+  else if(eligible){
     if(!Number.isFinite(currentPrice))decision="Teto estimado — indica o preço de compra";
     else if(currentPrice<=maxPurchase*.97)decision="compra muito interessante";
     else if(currentPrice<=maxPurchase)decision="boa compra";
@@ -281,6 +314,10 @@ export function evaluatePurchase(input,custom={}){
     purchase:{
       currentPrice,
       fixedCosts:Math.round(fixedCosts),
+      baseFixedCosts:Math.round(baseFixedCosts),
+      importCost:Math.round(acquisition.importCost),
+      needsLocationConfirmation:acquisition.needsLocationConfirmation,
+      acquisition,
       riskReserve,
       targetMargin,
       minimumMargin,
@@ -292,7 +329,7 @@ export function evaluatePurchase(input,custom={}){
       eligible
     },
     tax:{mode:taxMode,vatRate},
-    parameters:{...config,costs:{...costs}},
+    parameters:{...config,costs:{...costs},source_context:{...(input.source_context||{})},acquisition},
     comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(r=>({...r.comp,similarity:r.similarity,adjustedPrice:r.adjustedPrice,seller_type:sellerType(r.comp)})),
     excluded,
     warnings
