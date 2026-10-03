@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-03.6";
+export const ENGINE_VERSION="2026-10-03.7";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -32,6 +32,19 @@ const sellerType=c=>{
   if(["private","particular"].includes(t))return "private";
   return "unknown";
 };
+
+function modelKey(make,model){
+  const m=norm(make),v=norm(model);
+  if(!v)return "";
+  if(m==="bmw"){
+    const is4=/\bserie 4\b|\bseries 4\b|\b4\d{2}[a-z]{0,2}\b/.test(v);
+    if(is4&&/\bgran coupe\b/.test(v))return "serie 4 gran coupe";
+    if(is4&&/\bcabrio\b|\bconvertible\b/.test(v))return "serie 4 cabrio";
+    if(is4&&/\bcoupe\b/.test(v))return "serie 4 coupe";
+  }
+  return v;
+}
+const sameModel=(s,c)=>known(s?.model)&&known(c?.model)&&modelKey(s.make,s.model)===modelKey(c.make,c.model);
 
 export function canonicalUrl(raw){
   try{
@@ -97,7 +110,7 @@ function trimSimilarity(a,b){
 
 function hardExclusion(s,c){
   if(!same(s.make,c.make))return "marca diferente ou desconhecida";
-  if(!same(s.model,c.model))return "modelo diferente ou desconhecido";
+  if(!sameModel(s,c))return "modelo diferente ou desconhecido";
   if(known(s.fuel)&&known(c.fuel)&&fuel(s.fuel)!==fuel(c.fuel))return "combustível diferente";
   if(known(s.generation)&&known(c.generation)&&!same(s.generation,c.generation))return "geração diferente";
   if(known(s.drivetrain)&&known(c.drivetrain)&&!same(s.drivetrain,c.drivetrain))return "tração diferente";
@@ -111,7 +124,7 @@ export function similarity(s,c){
   let score=0,total=0;
   const add=(weight,value)=>{total+=weight;score+=weight*clamp(value,0,1)};
 
-  add(25,same(s.make,c.make)&&same(s.model,c.model)?1:0);
+  add(25,same(s.make,c.make)&&sameModel(s,c)?1:0);
   if(known(s.trim)&&known(c.trim))add(18,trimSimilarity(s.trim,c.trim));
   if(known(s.generation)&&known(c.generation))add(7,same(s.generation,c.generation)?1:0);
   if(known(s.fuel)&&known(c.fuel))add(10,fuel(s.fuel)===fuel(c.fuel)?1:0);
@@ -210,7 +223,7 @@ export function evaluatePurchase(input,custom={}){
     const sim=reason?0:similarity(s,c);
     const closeVariant=!reason
       &&same(s.make,c.make)
-      &&same(s.model,c.model)
+      &&sameModel(s,c)
       &&(!known(s.fuel)||!known(c.fuel)||fuel(s.fuel)===fuel(c.fuel))
       &&(!known(s.trim)||!known(c.trim)||trimSimilarity(s.trim,c.trim)>=.9)
       &&(!known(s.year)||!known(c.year)||Math.abs(num(s.year)-num(c.year))<=1);
