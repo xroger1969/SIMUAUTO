@@ -1,6 +1,7 @@
 {
   "private": true,
   "dependencies": {
-    "@vercel/og": "1.0.3"
+    "@vercel/og": "1.0.3",
+    "react": "19.3.0"
   }
 }
