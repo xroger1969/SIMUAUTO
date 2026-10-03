@@ -4,15 +4,24 @@ on:
   push:
     branches:
       - feature/comparador-auto-pro-v1
+      - fix/comparador-audit-21
       - main
     paths:
-      - "comparador-auto-pro/**"
-      - "api/comparador-analyze.js"
+      - "mapa-comissoes/comparador-auto-pro/**"
+      - "mapa-comissoes/api/comparador-*.js"
+      - "mapa-comissoes/lib/access.js"
+      - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/tests/**"
+      - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
   pull_request:
     paths:
-      - "comparador-auto-pro/**"
-      - "api/comparador-analyze.js"
+      - "mapa-comissoes/comparador-auto-pro/**"
+      - "mapa-comissoes/api/comparador-*.js"
+      - "mapa-comissoes/lib/access.js"
+      - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/tests/**"
+      - "mapa-comissoes/database/**"
 
 jobs:
   test:
@@ -22,16 +31,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check public reader syntax
-        run: node --check api/comparador-analyze.js
-      - name: Check application syntax
-        run: node --check comparador-auto-pro/app.js
-      - name: Run valuation regression tests
-        working-directory: comparador-auto-pro
-        run: npm test
+      - name: Check active comparator syntax
+        run: |
+          node --check mapa-comissoes/api/comparador-analyze.js
+          node --check mapa-comissoes/api/comparador-market.js
+          node --check mapa-comissoes/api/comparador-ai.js
+          node --check mapa-comissoes/api/comparador-transcribe.js
+          node --check mapa-comissoes/lib/access.js
+          node --check mapa-comissoes/lib/safe-fetch.js
+          node --check mapa-comissoes/comparador-auto-pro/app-v2.js
+          node --check mapa-comissoes/comparador-auto-pro/valuation.js
+      - name: Run active comparator regressions
+        run: node --test mapa-comissoes/tests/*.cjs mapa-comissoes/comparador-auto-pro/valuation.test.mjs
       - name: Verify critical UI hooks
         run: |
-          grep -q 'id="vehicleUrl"' comparador-auto-pro/index.html
-          grep -q 'id="maxPurchase"' comparador-auto-pro/index.html
-          grep -q 'id="chatInput"' comparador-auto-pro/index.html
-          grep -q 'cap_memory_rules' comparador-auto-pro/app.js
+          grep -q 'id="vehicleUrl"' mapa-comissoes/comparador-auto-pro/index.html
+          grep -q 'id="qualityNote"' mapa-comissoes/comparador-auto-pro/index.html
+          grep -q 'id="allComparableList"' mapa-comissoes/comparador-auto-pro/index.html
+          grep -q 'id="assumptionsForm"' mapa-comissoes/comparador-auto-pro/index.html
+          grep -q '@supabase/supabase-js@2.117.2' mapa-comissoes/comparador-auto-pro/index.html
+          grep -q 'cap_save_analysis' mapa-comissoes/comparador-auto-pro/app-v2.js
+          grep -q 'dealer_memories' mapa-comissoes/comparador-auto-pro/app-v2.js
