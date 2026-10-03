@@ -115,9 +115,18 @@ function sourceContextFor(sourceUrl,market){
   if(host==="standvirtual.com"||host.endsWith(".standvirtual.com")){
     return {is_auction:false,vehicle_location:"PT",evidence:"Standvirtual: viatura em Portugal e já matriculada."};
   }
+
+  const knownAuctionHosts=["auto1.com","openlane.eu","openlane.com","ecarstrade.com","autorola.pt","autorola.com","bca.com","bca-europe.com","manheim.co.uk"];
+  const knownAuction=knownAuctionHosts.some(domain=>host===domain||host.endsWith("."+domain));
   const detected=market?.auction_context&&typeof market.auction_context==="object"?market.auction_context:{};
-  const isAuto1=host==="auto1.com"||host.endsWith(".auto1.com");
-  const isAuction=isAuto1?true:detected.is_auction===true?true:detected.is_auction===false?false:null;
+  const evidence=String(detected.evidence||"");
+  const detectedAuction=detected.is_auction===true&&/(leil[aã]o|auction|remarketing|wholesale|grossista)/i.test(evidence);
+
+  if(!host){
+    return {is_auction:false,vehicle_location:"unknown",evidence:"Sem link de leilão confirmado."};
+  }
+
+  const isAuction=knownAuction?true:detectedAuction?true:detected.is_auction===false?false:null;
   const detectedLocation=["PT","foreign","unknown"].includes(detected.vehicle_location)?detected.vehicle_location:"unknown";
   const vehicleLocation=auctionLocationOverride||detectedLocation;
   return {
@@ -125,7 +134,7 @@ function sourceContextFor(sourceUrl,market){
     vehicle_location:vehicleLocation,
     evidence:auctionLocationOverride
       ?(auctionLocationOverride==="PT"?"Localização confirmada pelo utilizador: viatura já em Portugal.":"Localização confirmada pelo utilizador: viatura fora de Portugal/importada.")
-      :String(detected.evidence||"")
+      :evidence
   };
 }
 function ruleType(text){
@@ -281,8 +290,9 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("sourceLabel").textContent=sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
-  q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":"Referência ")+(result.market?.confidencePct??0)+"%";
-  q("maxPurchase").textContent=fmt(result.purchase?.maxPurchase);
+  q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":result.purchase?.provisionalEligible?"Provisório ":"Referência ")+(result.market?.confidencePct??0)+"%";
+  const displayedCeiling=Number.isFinite(Number(result.purchase?.effectiveCeiling))?Number(result.purchase.effectiveCeiling):NaN;
+  q("maxPurchase").textContent=fmt(displayedCeiling);
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
@@ -300,15 +310,21 @@ function renderResult(result,sourceHost,riskFlags=[]){
       ?"Detetei uma viatura de leilão, mas não consegui confirmar se já está em Portugal. Preciso desta resposta antes de aplicar ou excluir os 1 200 €."
       :"";
   }
-  const gap=Number(result.purchase?.currentPrice)-Number(result.purchase?.maxPurchase);
-  q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do recomendado":fmt(Math.abs(gap))+" abaixo do recomendado"):"—";
+  const gap=Number(result.purchase?.currentPrice)-displayedCeiling;
+  q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do valor-alvo":fmt(Math.abs(gap))+" abaixo do valor-alvo"):"—";
   const verified=result.market?.verifiedProfessionals??0;
   const quality=result.purchase?.eligible
     ?"Teto suportado por "+verified+" comparáveis profissionais verificados."
-    :(result.warnings?.[0]||"Referência provisória: evidência insuficiente para emitir um teto de compra.");
+    :result.purchase?.provisionalEligible
+      ?"Teto provisório calculado com pelo menos 3 comparáveis profissionais. Confirma a evidência antes de fechar a compra."
+      :(result.warnings?.[0]||"Referência provisória: ainda não existe evidência suficiente para calcular um valor de compra.");
   if(q("qualityNote"))q("qualityNote").textContent=quality;
   q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
-    ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible?"A evidência mínima para o teto foi atingida.":"O teto fica bloqueado até existir evidência profissional suficiente.")
+    ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible
+      ?"A evidência mínima para o teto recomendado foi atingida."
+      :result.purchase?.provisionalEligible
+        ?"Existe base suficiente para um teto provisório, mas ainda falta confirmar a evidência profissional."
+        :"Ainda não existe base suficiente para calcular um valor de compra.")
     :"Ainda não existe uma referência de mercado suficiente.";
   renderComparables(result.comparables);
   renderEvidence(result);
@@ -316,7 +332,8 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const calcBox=q("calcBox");
   if(calcBox)calcBox.innerHTML=
     "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
-    "Teto absoluto: <strong>"+esc(fmt(result.purchase?.absoluteMax))+"</strong><br>"+
+    "Custo importação/leilão: <strong>"+esc(fmt(result.purchase?.importCost||0))+"</strong><br>"+
+    "Teto absoluto: <strong>"+esc(fmt(Number.isFinite(Number(result.purchase?.absoluteMax))?result.purchase.absoluteMax:result.purchase?.provisionalAbsoluteMax))+"</strong><br>"+
     "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
   syncDealForm();
 }
@@ -757,8 +774,22 @@ q("vehiclePhoto").addEventListener("change",ev=>attachImageFiles(ev.target.files
 q("vehicleUrl").addEventListener("paste",ev=>{
   const files=Array.from(ev.clipboardData?.files||[]).filter(file=>String(file.type||"").startsWith("image/"));
   if(!files.length){const file=imageFromClipboard(ev);if(file)files.push(file)}
-  if(!files.length)return;
-  ev.preventDefault();attachImageFiles(files);
+  if(files.length){
+    ev.preventDefault();
+    attachImageFiles(files);
+    return;
+  }
+
+  const text=String(ev.clipboardData?.getData("text/plain")||"").trim();
+  if(!text)return;
+  try{
+    const parsed=parseVehicleInput(text);
+    if(parsed.mode==="url"&&parsed.url){
+      ev.preventDefault();
+      q("vehicleUrl").value=parsed.url.toString();
+      toast("Link reconhecido.");
+    }
+  }catch{}
 });
 q("removeImage").addEventListener("click",()=>{
   imageGeneration++;selectedImages=[];selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
@@ -880,6 +911,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   if(!rawInput&&!selectedImageData){toast("Escreve uma matrícula, cola um link, dita ou anexa uma fotografia.");return}
   try{entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"}}
   catch(error){toast(error.message);return}
+  if(entry.mode==="url"&&entry.url)q("vehicleUrl").value=entry.url.toString();
 
   const operation=beginOperation("analysis");
   const url=entry.url;
@@ -988,7 +1020,9 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,marketPayload);
     const completion=result.purchase?.eligible
       ?"Análise concluída com evidência profissional suficiente para emitir o teto."
-      :"Pesquisa concluída como referência provisória. O teto fica bloqueado até confirmares a evidência indicada.";
+      :result.purchase?.provisionalEligible
+        ?"Pesquisa concluída com teto provisório. Confirma a evidência antes de fechar a compra."
+        :"Pesquisa concluída sem base suficiente para calcular um valor de compra.";
     addMsg("assistant",completion);await storeMessage("assistant",completion);
   }catch(err){
     q("emptyState").classList.remove("hidden");
@@ -1094,9 +1128,13 @@ q("refineForm").addEventListener("submit",async ev=>{
 
     const refinementAI=await learnFromRefinement(text);
     q("refineInput").value="";
-    const reply=(result.purchase?.eligible?"Análise refeita com evidência suficiente para o teto.":"Análise refeita; continua como referência provisória enquanto faltar evidência verificada.")
+    const reply=(result.purchase?.eligible
+      ?"Análise refeita com evidência suficiente para o teto."
+      :result.purchase?.provisionalEligible
+        ?"Análise refeita com teto provisório; confirma a evidência antes de fechar a compra."
+        :"Análise refeita; ainda não existe base suficiente para calcular um valor de compra.")
       +(refinementAI.learned?" A orientação ficou guardada como hipótese para pesquisas futuras.":"");
-    const priceSummary=Number.isFinite(Number(result.purchase?.maxPurchase))?"\n\nNovo máximo recomendado: "+fmt(result.purchase.maxPurchase)+".":"";
+    const priceSummary=Number.isFinite(Number(result.purchase?.effectiveCeiling))?"\n\nValor-alvo de compra: "+fmt(result.purchase.effectiveCeiling)+".":"";
     const visibleReply=(refinementAI.reply?refinementAI.reply+"\n\n":"")+reply+priceSummary;
     addMsg("assistant",reply);await storeMessage("assistant",reply);
     q("saveStatus").textContent="IA ativa";q("refineInlineStatus").textContent="Análise atualizada pela IA.";
