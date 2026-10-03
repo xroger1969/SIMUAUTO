@@ -321,9 +321,9 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  q("analyzeBtn").disabled=!!busy;
-  if(q("refineBtn"))q("refineBtn").disabled=!!busy;
-  if(q("logoutBtn"))q("logoutBtn").disabled=!!busy;
+  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn"]){
+    if(q(id))q(id).disabled=!!busy;
+  }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
   if(chatButton)chatButton.disabled=!!busy;
 }
@@ -904,7 +904,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 
     await updateAnalysis({
       status:"searching",reader,vehicle:{page_title:reader.page?.title||""},source_snapshot:reader.page||{},
-      source_last_seen_at:new Date().toISOString(),source_available:entry.mode==="manual"?null:true
+      source_last_seen_at:new Date().toISOString(),source_available:entry.mode==="manual"?null:reader.source_kind==="photo_fallback"?false:true
     },operation.analysisId);
 
     let allRules=[],memoryWarning="";
