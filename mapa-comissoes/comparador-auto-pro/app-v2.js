@@ -534,6 +534,9 @@ function printValuationSummary(){
   popup.document.write('<!doctype html><html lang="pt"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cotação · '+esc(data.title)+'</title><style>'+
     'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#152033;margin:0;background:#fff}'+
     '.sheet{max-width:760px;margin:0 auto;padding:42px}'+
+    '.screen-actions{display:flex;justify-content:flex-start;margin:0 0 24px}'+
+    '.back-btn{appearance:none;-webkit-appearance:none;border:1px solid #d8dee8;background:#f7f9fb;color:#152033;border-radius:13px;padding:12px 16px;font:700 14px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(21,32,51,.04)}'+
+    '.back-btn:active{transform:translateY(1px);background:#eef2f6}'+
     '.brand{font-size:12px;font-weight:800;letter-spacing:.14em;color:#506176;text-transform:uppercase}'+
     'h1{font-size:28px;margin:8px 0 4px} .meta{color:#627085;margin-bottom:28px}'+
     '.quotes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0}'+
@@ -541,9 +544,10 @@ function printValuationSummary(){
     '.line{display:flex;justify-content:space-between;gap:20px;border-top:1px solid #e5e9ef;padding:14px 0}'+
     'section{margin-top:26px;border-top:1px solid #e5e9ef;padding-top:20px} h2{font-size:16px;margin:0 0 10px} p{font-size:13px;line-height:1.6;margin:0}'+
     '.foot{margin-top:30px;color:#7a8798;font-size:11px}'+
-    '@media(max-width:560px){.sheet{padding:24px}.quotes{grid-template-columns:1fr}.quote strong{font-size:24px}}'+
-    '@media print{.sheet{padding:18mm 14mm}.quotes{break-inside:avoid}}'+
+    '@media(max-width:560px){.sheet{padding:24px}.quotes{grid-template-columns:1fr}.quote strong{font-size:24px}.back-btn{width:100%;padding:13px 16px}}'+
+    '@media print{.screen-actions{display:none!important}.sheet{padding:18mm 14mm}.quotes{break-inside:avoid}}'+
     '</style></head><body><main class="sheet">'+
+    '<div class="screen-actions"><button class="back-btn" id="backToComparator" type="button">← Voltar ao Comparador</button></div>'+
     '<div class="brand">Comparador Auto Pro</div>'+
     '<h1>'+esc(data.title)+'</h1>'+
     '<div class="meta">'+esc(data.meta)+'</div>'+
@@ -554,7 +558,10 @@ function printValuationSummary(){
     '</div>'+
     summary+
     '<div class="foot">'+(data.source?"Fonte: "+esc(data.source)+" · ":"")+'Análise: '+esc(data.date)+' · Valores indicativos com base na evidência disponível no momento da avaliação.</div>'+
-    '</main><script>window.addEventListener("load",()=>{setTimeout(()=>window.print(),180)});<\/script></body></html>');
+    '</main><script>'+
+      'document.getElementById("backToComparator")?.addEventListener("click",()=>{try{if(window.opener&&!window.opener.closed){window.opener.focus();window.close();return}}catch(e){}window.location.href="/comparador-auto-pro/"});'+
+      'window.addEventListener("load",()=>{setTimeout(()=>window.print(),180)});'+
+    '<\/script></body></html>');
   popup.document.close();
 }
 function renderAuto1NeedsPhotos(reader,url){
