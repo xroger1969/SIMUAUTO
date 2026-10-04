@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261004-average-km";
+import { evaluatePurchase } from "./valuation.js?v=20261004-v2-market-value";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -373,6 +373,9 @@ function missingVehicleFields(vehicle,market={}){
   if(market.valuation_blocked||(market.risk_flags||[]).some(r=>r.code==="registration_unconfirmed"))missing.unshift({key:"registration",label:"matrícula e identificação da viatura"});
   return missing;
 }
+function blockingVehicleFields(missing=[]){
+  return missing.filter(item=>item.key==="registration"||item.key==="make_model");
+}
 function followupQuestion(vehicle,missing){
   if(missing.some(item=>item.key==="registration"))return "Não consegui validar a matrícula com a viatura identificada. Confirma a matrícula e a marca/modelo, ou envia uma fotografia mais nítida. A avaliação está bloqueada até esclarecer esta identificação.";
   const labels=missing.map(item=>item.label);
@@ -393,10 +396,16 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
   const panel=q("vehicleFollowup");
   if(!panel)return;
   const labels=missing.map(item=>item.label);
-  q("vehicleFollowupTitle").textContent=missing.some(item=>item.key==="make_model")
-    ?"Ajuda-me a identificar melhor a viatura"
-    :"Faltam "+labels.length+" dados para fechar a avaliação";
-  q("vehicleFollowupText").textContent=followupQuestion(vehicle,missing);
+  const optional=!!currentResult&&Number.isFinite(Number(currentResult.market?.marketValue));
+  q("vehicleFollowupTitle").textContent=optional
+    ?"Podes melhorar a avaliação"
+    :missing.some(item=>item.key==="make_model")
+      ?"Ajuda-me a identificar melhor a viatura"
+      :"Faltam "+labels.length+" dados para fechar a avaliação";
+  q("vehicleFollowupText").textContent=optional
+    ?"Já calculei uma avaliação provisória. Para aumentar a confiança, confirma "+labels.join(", ")+"."
+    :followupQuestion(vehicle,missing);
+  if(q("vehicleFollowupBtn"))q("vehicleFollowupBtn").textContent=optional?"Atualizar avaliação":"Continuar análise";
   const tags=q("vehicleFollowupMissing");tags.replaceChildren();
   labels.forEach(label=>{const tag=document.createElement("span");tag.textContent=label;tags.appendChild(tag)});
   const count=q("vehicleFollowupPhotoCount");
@@ -487,20 +496,18 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":result.purchase?.provisionalEligible?"Provisório ":"Referência ")+(result.market?.confidencePct??0)+"%";
   const rawCeiling=result.purchase?.effectiveCeiling;
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
-  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent=result.purchase?.eligible
-    ?"Máximo de compra recomendado"
-    :result.purchase?.provisionalEligible
-      ?"Valor de compra provisório"
-      :"Máximo de compra recomendado";
-  q("maxPurchase").textContent=fmt(displayedCeiling);
+  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="Venda recomendada";
+  q("maxPurchase").textContent=fmt(result.market?.saleLikely);
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
-  q("saleLikely").textContent=fmt(result.market?.saleLikely);
+  q("saleLikely").textContent=fmt(displayedCeiling);
   q("saleFast").textContent=fmt(result.market?.saleFast);
   const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
   q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
   if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent?"após custos e reserva":"ao teto recomendado";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
-  q("decisionText").textContent=result.purchase?.decision||"—";
+  q("decisionText").textContent=Number.isFinite(Number(result.market?.saleLikely))
+    ?(result.purchase?.eligible?"Referência de mercado confirmada":"Estimativa de mercado · "+(result.market?.confidencePct??0)+"% confiança")
+    :(result.purchase?.decision||"—");
   const auctionQuestion=q("auctionLocationQuestion");
   if(auctionQuestion){
     const needs=!!result.purchase?.needsLocationConfirmation;
@@ -514,10 +521,10 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do valor-alvo":fmt(Math.abs(gap))+" abaixo do valor-alvo"):"—";
   const verified=result.market?.verifiedProfessionals??0;
   const quality=result.purchase?.eligible
-    ?"Teto suportado por "+verified+" comparáveis profissionais verificados."
-    :result.purchase?.provisionalEligible
-      ?"Estimativa indicativa com "+(result.market?.comparablesUsed??0)+" comparável(is) aceite(s). "+(result.market?.marketBasis!=="professional"?"Sem base profissional confirmada. ":"")+"Baixa confiança: confirma estado e preços antes de comprar."
-      :(result.warnings?.[0]||"Referência provisória: ainda não existe evidência suficiente para calcular um valor de compra.");
+    ?"Avaliação suportada por "+verified+" comparáveis profissionais verificados."
+    :Number.isFinite(Number(result.market?.marketValue))
+      ?"Avaliação provisória com "+(result.market?.comparablesUsed??0)+" comparável(is). Dados em falta reduzem a confiança, mas não escondem o valor de mercado."
+      :(result.warnings?.[0]||"Ainda não existe base de mercado suficiente.");
   if(q("qualityNote"))q("qualityNote").textContent=quality;
   q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
     ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible
@@ -1277,12 +1284,14 @@ async function resumePendingAnalysis(){
     currentMarketData={market,reader,entry,sourceHost:analysis.source_domain||"manual",marketPayload,allRules};
     lastAnalysisContext=currentMarketData;
     const missing=missingVehicleFields(subject,market);
-    if(missing.length){
-      renderNeedsVehicleInfo(subject,market,reader,currentMarketData.sourceHost,missing);
-      await updateAnalysis({vehicle:subject,reader,risks:market.risk_flags||[],error_message:"A aguardar confirmação da viatura."},job.analysis_id);
+    const blocking=blockingVehicleFields(missing);
+    if(blocking.length){
+      renderNeedsVehicleInfo(subject,market,reader,currentMarketData.sourceHost,blocking);
+      await updateAnalysis({vehicle:subject,reader,risks:market.risk_flags||[],error_message:"A aguardar confirmação da identidade da viatura."},job.analysis_id);
       return;
     }
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    if(missing.length)showVehicleFollowup(subject,missing,{scroll:false});
     await persistCompletedAnalysis(job.analysis_id,result,market,reader,entry,marketPayload);
     addMsg("assistant","Retomei e concluí a pesquisa que tinha ficado pendente.");
   }catch(error){console.warn("Retoma CAP:",error);toast(error.message)}
@@ -1389,11 +1398,12 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     currentMarketData={market,reader,entry,sourceHost,marketPayload,allRules};
     lastAnalysisContext=currentMarketData;
     const missing=missingVehicleFields(subject,market);
-    if(missing.length){
-      renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing);
+    const blocking=blockingVehicleFields(missing);
+    if(blocking.length){
+      renderNeedsVehicleInfo(subject,market,reader,sourceHost,blocking);
       await updateAnalysis({
         vehicle:subject,reader,risks:market.risk_flags||[],
-        error_message:"A aguardar dados essenciais: "+missing.map(item=>item.key).join(", ")
+        error_message:"A aguardar confirmação da identidade: "+blocking.map(item=>item.key).join(", ")
       },operation.analysisId);
       return;
     }
@@ -1418,6 +1428,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     currentMarketData={market,reader,entry,sourceHost,marketPayload,allRules};
     lastAnalysisContext=currentMarketData;
     renderResult(result,sourceHost,market.risk_flags||[]);
+    if(missing.length)showVehicleFollowup(subject,missing,{scroll:false});
     if(reader.source_kind==="authenticated_browser")q("sourceLabel").textContent="AUTO1 · Sessão autenticada · "+reader.vehicle_code;
     if(reader.source_kind==="auto1_link_only")q("sourceLabel").textContent="AUTO1 · Link · "+(reader.vehicle_code||"");
     if(reader.source_kind==="auto1_screenshot")q("sourceLabel").textContent="AUTO1 · Link + fotografia · "+(reader.vehicle_code||"");
@@ -1528,24 +1539,25 @@ q("refineForm").addEventListener("submit",async ev=>{
     }
     const entry=lastAnalysisContext.entry,reader=lastAnalysisContext.reader;
     const missing=missingVehicleFields(subject,market);
-    if(missing.length){
+    const blocking=blockingVehicleFields(missing);
+    if(blocking.length){
       const nextPayload={...payload,previous_subject:subject,registration_data:market.registration_data||payload.registration_data||null};
       currentMarketData={market,reader,entry,sourceHost:lastAnalysisContext.sourceHost,marketPayload:nextPayload,allRules:memories};
       lastAnalysisContext=currentMarketData;
       currentVehicle=subject;
-      renderNeedsVehicleInfo(subject,market,reader,currentMarketData.sourceHost,missing);
+      renderNeedsVehicleInfo(subject,market,reader,currentMarketData.sourceHost,blocking);
       await updateAnalysis({
         vehicle:subject,reader,risks:market.risk_flags||[],
-        error_message:"A aguardar dados essenciais: "+missing.map(item=>item.key).join(", ")
+        error_message:"A aguardar confirmação da identidade: "+blocking.map(item=>item.key).join(", ")
       },operation.analysisId);
       q("refineInput").value="";
       if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
-      showRefineDialog("Preciso de mais informação",followupQuestion(subject,missing),"loading");
-      toast("Ainda faltam alguns dados da viatura.");
+      showRefineDialog("Preciso de confirmar a viatura",followupQuestion(subject,blocking),"loading");
+      toast("Ainda preciso de confirmar a identidade da viatura.");
       return;
     }
 
-    progress("A recalcular a compra…","A validar a nova evidência e as premissas comerciais.");
+    progress("A recalcular a avaliação…","A atualizar mercado, venda e compra recomendada.");
     const result=evaluatePurchase({
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],source_url:lastAnalysisContext.url||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
@@ -1561,6 +1573,7 @@ q("refineForm").addEventListener("submit",async ev=>{
     currentMarketData={market,reader,entry,sourceHost:lastAnalysisContext.sourceHost,marketPayload:nextPayload,allRules:memories};
     lastAnalysisContext=currentMarketData;
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    if(missing.length)showVehicleFollowup(subject,missing,{scroll:false});
     await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,nextPayload);
 
     const refinementAI=wasVehicleFollowup?{learned:false,reply:""}:await learnFromRefinement(text);
