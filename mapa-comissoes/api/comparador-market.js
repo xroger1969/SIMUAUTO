@@ -142,6 +142,30 @@ function mergeRegistration(subject,registration){
   return result;
 }
 
+function estimateMileage(result){
+  const subject=result.subject||{};
+  if(result.valuation_blocked||!normalizeRegistration(subject.registration)||subject.mileage_km!==null&&subject.mileage_km!==undefined)return result;
+  const seen=new Set();
+  let candidates=(result.comparables||[]).filter(c=>{
+    const url=canonicalUrl(c.url);
+    if(!url||seen.has(url))return false;
+    const host=new URL(url).hostname;
+    if(!(host==="standvirtual.com"||host.endsWith(".standvirtual.com"))||c.evidence?.source_url_verified!==true||c.country!=="PT"||c.availability!=="available")return false;
+    if(!c.make||!c.model||!registrationCompatible(subject,c)||!c.fuel||normalizeIdentity(c.fuel)!==normalizeIdentity(subject.fuel))return false;
+    if(!Number.isInteger(c.year)||Math.abs(c.year-subject.year)>1||!Number.isFinite(c.mileage_km)||c.mileage_km<0)return false;
+    if(normalizeIdentity(c.trim)!==normalizeIdentity(subject.trim)&&!(Number(subject.power_cv)>0&&Number(c.power_cv)===Number(subject.power_cv)))return false;
+    seen.add(url);return true;
+  });
+  const professionals=candidates.filter(c=>c.seller_type==="professional");
+  if(professionals.length)candidates=professionals;
+  if(!candidates.length)return result;
+  const mean=Math.round(candidates.reduce((sum,c)=>sum+c.mileage_km,0)/candidates.length);
+  result.subject={...subject,mileage_km:mean,mileage_estimated:true,mileage_estimate:{method:"mean",source:"Standvirtual",sample_size:candidates.length,urls:candidates.map(c=>c.url)}};
+  result.data_quality=result.data_quality||{};
+  result.data_quality.notes=[result.data_quality.notes,"Quilómetros estimados pela média de "+candidates.length+" anúncio(s) comparável(is) do Standvirtual; não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
+  return result;
+}
+
 async function finalizeMarketResponse(data,registrationData=null,token=null){
   const parsed=structuredResult(data);
   if(!parsed.subject||!Array.isArray(parsed.comparables))throw appError("Resposta de mercado sem ficha válida.",502,"invalid_market_result");
@@ -168,6 +192,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
     registration=null;
   }
   parsed.subject=mergeRegistration(parsed.subject,registration);
+  parsed.subject.mileage_estimated=parsed.subject.mileage_estimated===true;
   if(registrationWarning){
     parsed.valuation_blocked=true;
     parsed.comparables=[];
@@ -247,7 +272,7 @@ function boundedContext(body,registrationData){
     manual_description:body.mode==="manual"?clip(body.description,4000):null,
     input_mode:body.mode==="manual"?"manual":"url",
     registration_data:registrationData,
-    previous_subject:body.previous_subject&&typeof body.previous_subject==="object"?body.previous_subject:null,
+    previous_subject:body.previous_subject&&typeof body.previous_subject==="object"?{...body.previous_subject,...(body.previous_subject.mileage_estimated?{mileage_km:null,mileage_estimated:false,mileage_estimate:null}:{})}:null,
     dealer_memories:memories.slice(0,12).map(rule=>({
       rule_type:clip(rule?.rule_type,60),
       statement:clip(rule?.statement,420),
@@ -336,6 +361,7 @@ const instructions=[
   "Preenche color, doors, seats, engine_cc, range_km, warranty_months, seller_name e location apenas quando houver evidência no anúncio analisado. Caso contrário usa null.",
   "Se o contexto indicar text_truncated=true, reconhece que a leitura textual foi parcial; nunca afirmes que leste o anúncio completo.",
   "Pesquisa obrigatoriamente a web antes de devolver comparáveis.",
+  "Se existir matrícula identificada e faltarem apenas quilómetros, pesquisa anúncios ativos no Standvirtual da mesma marca, modelo, motorização e ano próximo (até 1 ano de diferença). Recolhe quilómetros e URLs reais. Mantém subject.mileage_km=null: o servidor calculará a média dos comparáveis elegíveis. Dá prioridade a profissionais.",
   "A referência principal é retalho profissional em Portugal: Standvirtual, PiscaPisca, OLX Automóveis quando o vendedor for stand/comerciante, concessionários e sites próprios de stands.",
   "Abre páginas de anúncios sempre que possível. Cada comparável deve representar uma viatura disponível, ter URL real, preço observado e tipo de vendedor.",
   "Define seller_type=professional apenas com evidência de stand, comerciante ou concessionário; private para particular; unknown se não conseguires confirmar.",
@@ -421,11 +447,13 @@ module.exports=endpoint(async function handler(req,res){
     const resultData=job.context?.stage==="market"&&job.context.previous_subject
       ?{...data,output_text:JSON.stringify({...structuredResult(data),subject:job.context.previous_subject})}:data;
     const result=await finalizeMarketResponse(resultData,registration,token);
+    if(job.context?.stage==="market")estimateMileage(result);
     if(job.context?.stage==="identify"){
       result.comparables=[];
       result.search_sources=[];
       result.missing_fields=missingIdentity(result.subject);
-      if(!result.valuation_blocked&&!result.missing_fields.length){
+      const canEstimateMileage=normalizeRegistration(result.subject.registration)&&result.missing_fields.length===1&&result.missing_fields[0]==="mileage_km";
+      if(!result.valuation_blocked&&(!result.missing_fields.length||canEstimateMileage)){
         const nextContext={...job.context,stage:"market_pending",previous_subject:result.subject,registration_data:result.registration_data};
         // Claim this transition atomically: overlapping polls must not launch duplicate searches.
         const claimed=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage=eq.identify&response_id=eq."+encodeURIComponent(job.response_id),{
@@ -508,4 +536,4 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,finalizeMarketResponse,startResponse};
+module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,finalizeMarketResponse,startResponse,estimateMileage,boundedContext};

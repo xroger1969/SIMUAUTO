@@ -314,7 +314,7 @@ export function evaluatePurchase(input,custom={}){
   const identityBlocked=input.valuation_blocked===true||(input.risk_flags||[]).some(r=>r.code==="registration_unconfirmed");
   if(identityBlocked)warnings.push("Confirma a matrícula e a identificação da viatura antes de avaliar.");
   const professionalCount=valid.filter(r=>sellerType(r.comp)==="professional").length;
-  const evidenceEligible=Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
+  const evidenceEligible=!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
   const provisionalEligible=!identityBlocked&&Number.isFinite(marketValue)&&!missing.length&&valid.length>=1&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
   const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
@@ -323,6 +323,7 @@ export function evaluatePurchase(input,custom={}){
     ?Math.min(95,Math.min(verified.length/8,1)*35+(avgSim/100)*35+(1-clamp(dispersion/.25,0,1))*15+completeness*15)
     :0;
   const confidencePct=Math.round(Math.min(eligible?95:valid.length===1?20:marketBasis!=="professional"?25:39,rawConfidence));
+  if(s.mileage_estimated)warnings.push("Quilómetros estimados pela média dos anúncios do Standvirtual. Indica os quilómetros reais para atualizar a avaliação.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
 
   const tax=input.tax||{},vatRate=num(tax.vat_rate,.23);

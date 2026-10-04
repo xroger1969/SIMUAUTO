@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261004-provisional-buy";
+import { evaluatePurchase } from "./valuation.js?v=20261004-average-km";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -246,7 +246,7 @@ function vehicleMeta(v){
   const bits=[];
   if(v.first_registration)bits.push(v.first_registration.slice(0,7).split("-").reverse().join("/"));
   else if(v.year)bits.push(v.year);
-  if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km");
+  if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km"+(v.mileage_estimated?" estimados · média Standvirtual":""));
   if(v.power_cv)bits.push(v.power_cv+" cv");
   if(v.battery_kwh)bits.push(v.battery_kwh+" kWh");
   bits.push(originLabel(v.origin));
@@ -312,7 +312,7 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Geração",v.generation],
     ["1.ª matrícula",formatRegistrationDate(v.first_registration)],
     ["Ano",v.year],
-    ["Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
+    [v.mileage_estimated?"Quilómetros estimados (média Standvirtual)":"Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
     ["Preço anunciado",v.price!=null?fmt(v.price):null],
     ["Combustível",v.fuel],
     ["Potência",v.power_cv!=null?v.power_cv+" cv":null],

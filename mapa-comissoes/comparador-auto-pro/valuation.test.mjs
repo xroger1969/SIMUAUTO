@@ -222,3 +222,8 @@ test('registration conflict blocks both verified and provisional purchase ceilin
     assert.ok(!Number.isFinite(r.purchase.provisionalMaxPurchase));
   }
 });
+
+test('estimated mileage never becomes a confirmed purchase recommendation',()=>{
+  const r=evaluatePurchase({subject:{...subject,mileage_estimated:true},comparables:[1,2,3].map(i=>professional(i))});
+  assert.equal(r.purchase.eligible,false);assert.equal(r.purchase.provisionalEligible,true);assert.ok(Number.isFinite(r.purchase.effectiveCeiling));assert.ok(r.market.confidencePct<=39);
+});

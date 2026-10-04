@@ -67,3 +67,24 @@ test('previously supplied registration is also checked against vehicle',async()=
   const h=harness();const result=await h.ctx.module.exports._test.finalizeMarketResponse({status:'completed',output_text:JSON.stringify({subject,comparables:[]})},{make:'BMW',model:'320d'});
   assert.equal(result.valuation_blocked,true);assert.equal(result.subject.make,'Tesla');
 });
+
+test('Standvirtual mileage mean is labelled estimated and ignores duplicates and other portals',()=>{
+  const {estimateMileage}=require('../api/comparador-market')._test;
+  const car={...subject,registration:'AA-00-AA',mileage_km:null};
+  const ad=(id,km)=>({...subject,url:'https://www.standvirtual.com/carros/anuncio/'+id,mileage_km:km,seller_type:'professional',country:'PT',availability:'available',evidence:{source_url_verified:true}});
+  const a=ad('one',80000),b=ad('two',120000);
+  const r=estimateMileage({subject:car,comparables:[a,b,a,{...ad('other',900000),url:'https://olx.pt/car/1'}]});
+  assert.equal(r.subject.mileage_km,100000);assert.equal(r.subject.mileage_estimated,true);assert.equal(r.subject.mileage_estimate.sample_size,2);
+  assert.equal(estimateMileage({subject:{...car,mileage_km:90000},comparables:[a,b]}).subject.mileage_km,90000);
+});
+test('incompatible or unverified adverts cannot supply estimated km',()=>{
+  const {estimateMileage}=require('../api/comparador-market')._test;
+  const car={...subject,registration:'AA-00-AA',mileage_km:null};
+  const base={...subject,url:'https://www.standvirtual.com/carros/anuncio/1',mileage_km:80000,country:'PT',availability:'available',evidence:{source_url_verified:true}};
+  for(const patch of [{year:2010},{make:'BMW'},{model:'Model 3'},{fuel:'diesel'},{trim:'RWD'},{mileage_km:null},{evidence:{}},{availability:'sold'}])assert.equal(estimateMileage({subject:car,comparables:[{...base,...patch}]}).subject.mileage_km,null);
+});
+test('estimated mileage is removed before asking AI to read later real mileage',()=>{
+  const {boundedContext}=require('../api/comparador-market')._test;
+  const ctx=boundedContext({previous_subject:{...subject,mileage_km:100000,mileage_estimated:true}},null);
+  assert.equal(ctx.previous_subject.mileage_km,null);assert.equal(ctx.previous_subject.mileage_estimated,false);
+});
