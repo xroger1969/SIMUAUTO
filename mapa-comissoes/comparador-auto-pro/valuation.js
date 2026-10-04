@@ -152,8 +152,10 @@ export function similarity(s,c){
   const equip=equipmentSimilarity(s.equipment,c.equipment);
   if(equip>0)add(1,equip);
 
+  if(!total)return 0;
   const completeness=total/100;
-  return Math.round(clamp((score/100)*(.72+.28*completeness),0,1)*1000)/10;
+  const normalized=score/total;
+  return Math.round(clamp(normalized*(.45+.55*completeness),0,1)*1000)/10;
 }
 
 function adjustedPrice(s,c,config){
@@ -314,16 +316,19 @@ export function evaluatePurchase(input,custom={}){
   const identityBlocked=input.valuation_blocked===true||(input.risk_flags||[]).some(r=>r.code==="registration_unconfirmed");
   if(identityBlocked)warnings.push("Confirma a matrícula e a identificação da viatura antes de avaliar.");
   const professionalCount=valid.filter(r=>sellerType(r.comp)==="professional").length;
+  const criticalMissing=missing.filter(k=>k==="make"||k==="model");
   const evidenceEligible=!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
-  const provisionalEligible=!identityBlocked&&Number.isFinite(marketValue)&&!missing.length&&valid.length>=1&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
+  const provisionalEligible=!identityBlocked&&!criticalMissing.length&&Number.isFinite(marketValue)&&valid.length>=1&&dispersion<=.45&&!acquisition.needsLocationConfirmation;
   const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
   const completeness=(6-missing.length)/6;
+  const reportedEvidence=valid.filter(r=>r.comp?.evidence?.reported_url===true||r.comp?.evidence?.source_url_verified===true).length;
   const rawConfidence=valid.length
-    ?Math.min(95,Math.min(verified.length/8,1)*35+(avgSim/100)*35+(1-clamp(dispersion/.25,0,1))*15+completeness*15)
+    ?Math.min(95,Math.min((verified.length+reportedEvidence*.35)/8,1)*35+(avgSim/100)*35+(1-clamp(dispersion/.45,0,1))*15+completeness*15)
     :0;
-  const confidencePct=Math.round(Math.min(eligible?95:valid.length===1?20:marketBasis!=="professional"?25:39,rawConfidence));
-  if(s.mileage_estimated)warnings.push("Quilómetros estimados pela média dos anúncios do Standvirtual. Indica os quilómetros reais para atualizar a avaliação.");
+  const provisionalCap=valid.length===1?20:marketBasis!=="professional"?30:missing.length?45:55;
+  const confidencePct=Math.round(Math.min(eligible?95:provisionalCap,rawConfidence));
+  if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
 
   const tax=input.tax||{},vatRate=num(tax.vat_rate,.23);
