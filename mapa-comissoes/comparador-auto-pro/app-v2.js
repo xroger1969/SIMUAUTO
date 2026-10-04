@@ -128,11 +128,14 @@ function sourceContextFor(sourceUrl,market){
   }
 
   const isAuction=knownAuction?true:detectedAuction?true:detected.is_auction===false?false:null;
-  const detectedLocation=["PT","foreign","unknown"].includes(detected.vehicle_location)?detected.vehicle_location:"unknown";
+  const originCountry=String(detected.origin_country||"").trim().toUpperCase();
+  const countryLocation=originCountry==="PT"?"PT":/^[A-Z]{2}$/.test(originCountry)?"foreign":"unknown";
+  const detectedLocation=["PT","foreign"].includes(detected.vehicle_location)?detected.vehicle_location:countryLocation;
   const vehicleLocation=auctionLocationOverride||detectedLocation;
   return {
     is_auction:isAuction,
     vehicle_location:vehicleLocation,
+    origin_country:auctionLocationOverride==="PT"?"PT":auctionLocationOverride==="foreign"?(originCountry||null):(originCountry||null),
     evidence:auctionLocationOverride
       ?(auctionLocationOverride==="PT"?"Localização confirmada pelo utilizador: viatura já em Portugal.":"Localização confirmada pelo utilizador: viatura fora de Portugal/importada.")
       :evidence
