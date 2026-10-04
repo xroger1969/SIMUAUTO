@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-04-purchase-first-v2";
+export const ENGINE_VERSION="2026-10-05-auto1-country-cost";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -207,7 +207,9 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
   let isAuction=supplied.is_auction===true?true:supplied.is_auction===false?false:null;
   if(host==="auto1.com"||host.endsWith(".auto1.com"))isAuction=true;
 
-  const vehicleLocation=["PT","foreign","unknown"].includes(supplied.vehicle_location)?supplied.vehicle_location:"unknown";
+  const originCountry=String(supplied.origin_country||"").trim().toUpperCase();
+  const countryLocation=originCountry==="PT"?"PT":/^[A-Z]{2}$/.test(originCountry)?"foreign":"unknown";
+  const vehicleLocation=["PT","foreign"].includes(supplied.vehicle_location)?supplied.vehicle_location:countryLocation;
   if(isAuction!==true){
     return {isAuction,vehicleLocation,priceRole:"asking_price",importCost:0,needsLocationConfirmation:false,reason:isAuction===false?"not_auction":"auction_not_detected"};
   }
