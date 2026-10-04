@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-03.8";
+export const ENGINE_VERSION="2026-10-04-purchase-first-v2";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -200,7 +200,7 @@ function sourceHost(raw){
 export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
   const host=sourceHost(input?.source_url);
   if(host==="standvirtual.com"||host.endsWith(".standvirtual.com")){
-    return {isAuction:false,vehicleLocation:"PT",importCost:0,needsLocationConfirmation:false,reason:"standvirtual_pt"};
+    return {isAuction:false,vehicleLocation:"PT",priceRole:"asking_price",importCost:0,needsLocationConfirmation:false,reason:"standvirtual_pt"};
   }
 
   const supplied=input?.source_context&&typeof input.source_context==="object"?input.source_context:{};
@@ -209,15 +209,15 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
 
   const vehicleLocation=["PT","foreign","unknown"].includes(supplied.vehicle_location)?supplied.vehicle_location:"unknown";
   if(isAuction!==true){
-    return {isAuction,vehicleLocation,importCost:0,needsLocationConfirmation:false,reason:isAuction===false?"not_auction":"auction_not_detected"};
+    return {isAuction,vehicleLocation,priceRole:"asking_price",importCost:0,needsLocationConfirmation:false,reason:isAuction===false?"not_auction":"auction_not_detected"};
   }
   if(vehicleLocation==="PT"){
-    return {isAuction:true,vehicleLocation,importCost:0,needsLocationConfirmation:false,reason:"auction_vehicle_in_pt"};
+    return {isAuction:true,vehicleLocation,priceRole:"acquisition_price",importCost:0,needsLocationConfirmation:false,reason:"auction_vehicle_in_pt"};
   }
   if(vehicleLocation==="foreign"){
-    return {isAuction:true,vehicleLocation,importCost:Math.max(0,num(config.auctionImportCost,1200)),needsLocationConfirmation:false,reason:"auction_import"};
+    return {isAuction:true,vehicleLocation,priceRole:"acquisition_price",importCost:Math.max(0,num(config.auctionImportCost,1200)),needsLocationConfirmation:false,reason:"auction_import"};
   }
-  return {isAuction:true,vehicleLocation:"unknown",importCost:0,needsLocationConfirmation:true,reason:"auction_location_unknown"};
+  return {isAuction:true,vehicleLocation:"unknown",priceRole:"acquisition_price",importCost:0,needsLocationConfirmation:true,reason:"auction_location_unknown"};
 }
 
 export function evaluatePurchase(input,custom={}){

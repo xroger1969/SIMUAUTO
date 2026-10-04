@@ -237,3 +237,15 @@ test('V2 can value a vehicle with make model year fuel but no trim or mileage',(
   assert.ok(Number.isFinite(r.market.saleLikely));
   assert.equal(r.purchase.provisionalEligible,true);
 });
+
+test('Standvirtual asking price is not treated as an auction acquisition reference',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],source_url:'https://www.standvirtual.com/carros/anuncio/teste',current_purchase_price:19000});
+  assert.equal(r.purchase.acquisition.isAuction,false);
+  assert.equal(r.purchase.acquisition.priceRole,'asking_price');
+  assert.ok(Number.isFinite(r.purchase.effectiveCeiling));
+});
+test('auction price is classified as acquisition price for direct bid comparison',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],source_url:'https://www.auto1.com/pt/vehicle/123',source_context:{is_auction:true,vehicle_location:'PT'},current_purchase_price:14000});
+  assert.equal(r.purchase.acquisition.isAuction,true);
+  assert.equal(r.purchase.acquisition.priceRole,'acquisition_price');
+});
