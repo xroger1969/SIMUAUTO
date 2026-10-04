@@ -1,6 +1,6 @@
 {
-  "name": "Comparador Auto Pro",
-  "short_name": "Comparador",
+  "name": "Avaliador Auto Pro",
+  "short_name": "Avaliador",
   "description": "Motor de decisão de compra automóvel.",
   "start_url": "/comparador-auto-pro/",
   "scope": "/comparador-auto-pro/",

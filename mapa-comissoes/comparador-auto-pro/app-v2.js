@@ -69,7 +69,7 @@ async function boot(){
   if(!session){showAuth();return}
   try{
     if(!await validateMember()){
-      setAuthMessage("Nesta V1 o Comparador Auto Pro está reservado a administradores.");
+      setAuthMessage("Nesta V1 o Avaliador Auto Pro está reservado a administradores.");
       await db.auth.signOut();session=null;showAuth();return;
     }
     showApp();
@@ -589,7 +589,7 @@ function valuationShareData(){
 }
 function valuationShareText(data){
   const lines=[
-    "COMPARADOR AUTO PRO",
+    "AVALIADOR AUTO PRO",
     data.title,
     data.meta
   ];
@@ -654,8 +654,8 @@ function printValuationSummary(){
     '@media(max-width:560px){.sheet{padding:24px}.quotes{grid-template-columns:1fr}.quote strong{font-size:24px}.back-btn{width:100%;padding:13px 16px}}'+
     '@media print{.screen-actions{display:none!important}.sheet{padding:18mm 14mm}.quotes{break-inside:avoid}}'+
     '</style></head><body><main class="sheet">'+
-    '<div class="screen-actions"><button class="back-btn" id="backToComparator" type="button">← Voltar ao Comparador</button></div>'+
-    '<div class="brand">Comparador Auto Pro</div>'+
+    '<div class="screen-actions"><button class="back-btn" id="backToComparator" type="button">← Voltar ao Avaliador</button></div>'+
+    '<div class="brand">Avaliador Auto Pro</div>'+
     '<h1>'+esc(data.title)+'</h1>'+
     '<div class="meta">'+esc(data.meta)+'</div>'+
     advertised+

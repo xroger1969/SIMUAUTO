@@ -3,7 +3,7 @@ const sharp = require('sharp');
 module.exports = async function handler(req, res) {
   try {
     const heroUrl = 'https://mapa-comercial-sand.vercel.app/comparador-auto-pro/assets/car-sunset.webp';
-    const heroResp = await fetch(heroUrl, { headers: { 'User-Agent': 'Comparador-Auto-Pro-OG/1.0' } });
+    const heroResp = await fetch(heroUrl, { headers: { 'User-Agent': 'Avaliador-Auto-Pro-OG/1.0' } });
     if (!heroResp.ok) throw new Error('hero fetch failed: ' + heroResp.status);
     const hero = Buffer.from(await heroResp.arrayBuffer());
 
@@ -29,7 +29,7 @@ module.exports = async function handler(req, res) {
           <circle cx="48" cy="48" r="42" fill="none" stroke="#f7fbfc" stroke-width="10"/>
           <line x1="49" y1="50" x2="79" y2="25" stroke="#35e6a5" stroke-width="11" stroke-linecap="round"/>
           <circle cx="49" cy="50" r="8" fill="#35e6a5"/>
-          <text x="112" y="45" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="58" font-weight="800" letter-spacing="-2">Comparador</text>
+          <text x="112" y="45" fill="#ffffff" font-family="Arial,Helvetica,sans-serif" font-size="58" font-weight="800" letter-spacing="-2">Avaliador</text>
           <text x="112" y="105" fill="#35e6a5" font-family="Arial,Helvetica,sans-serif" font-size="62" font-weight="800" letter-spacing="-2">Auto Pro</text>
         </g>
 
@@ -56,7 +56,7 @@ module.exports = async function handler(req, res) {
           <rect x="0" y="0" width="565" height="455" rx="28" fill="#f6fafc" stroke="#d7e3e9" stroke-width="2"/>
           <circle cx="32" cy="33" r="13" fill="none" stroke="#0b2237" stroke-width="4"/>
           <line x1="32" y1="33" x2="42" y2="24" stroke="#35e6a5" stroke-width="4" stroke-linecap="round"/>
-          <text x="55" y="40" fill="#0b2237" font-size="21" font-weight="800">Comparador <tspan fill="#12bd79">Auto Pro</tspan></text>
+          <text x="55" y="40" fill="#0b2237" font-size="21" font-weight="800">Avaliador <tspan fill="#12bd79">Auto Pro</tspan></text>
           <text x="423" y="38" fill="#0b2237" font-size="14" font-weight="700">Analisar</text>
           <rect x="421" y="47" width="55" height="3" rx="2" fill="#35e6a5"/>
           <rect x="24" y="72" width="517" height="62" rx="16" fill="#ffffff" stroke="#d7e3e9"/>
