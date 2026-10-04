@@ -1,0 +1,18 @@
+{
+  "name": "Comparador Auto Pro",
+  "short_name": "Comparador",
+  "description": "Motor de decisão de compra automóvel.",
+  "start_url": "/comparador-auto-pro/",
+  "scope": "/comparador-auto-pro/",
+  "display": "standalone",
+  "background_color": "#061426",
+  "theme_color": "#10243a",
+  "icons": [
+    {
+      "src": "/api/comparador-app-icon?v=20261004-2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
