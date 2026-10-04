@@ -54,10 +54,12 @@ test('no comparables still cannot produce a purchase estimate',()=>{
   assert.equal(r.purchase.provisionalEligible,false);
   assert.ok(!Number.isFinite(r.purchase.effectiveCeiling));
 });
-test('missing mileage still blocks provisional purchase estimates',()=>{
+test('missing mileage lowers confidence but does not hide a provisional market or purchase estimate',()=>{
   const r=evaluatePurchase({subject:{...subject,mileage_km:null},comparables:[professional(1)]});
-  assert.equal(r.purchase.provisionalEligible,false);
-  assert.ok(!Number.isFinite(r.purchase.effectiveCeiling));
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isFinite(r.market.saleLikely));
+  assert.ok(Number.isFinite(r.purchase.effectiveCeiling));
+  assert.ok(r.market.confidencePct<=45);
 });
 
 test("unknown fields do not score as matching data",()=>{
@@ -226,4 +228,12 @@ test('registration conflict blocks both verified and provisional purchase ceilin
 test('estimated mileage never becomes a confirmed purchase recommendation',()=>{
   const r=evaluatePurchase({subject:{...subject,mileage_estimated:true},comparables:[1,2,3].map(i=>professional(i))});
   assert.equal(r.purchase.eligible,false);assert.equal(r.purchase.provisionalEligible,true);assert.ok(Number.isFinite(r.purchase.effectiveCeiling));assert.ok(r.market.confidencePct<=39);
+});
+
+test('V2 can value a vehicle with make model year fuel but no trim or mileage',()=>{
+  const thin={...subject,trim:null,mileage_km:null};
+  const r=evaluatePurchase({subject:thin,comparables:[professional(1),professional(2)]});
+  assert.ok(Number.isFinite(r.market.marketValue));
+  assert.ok(Number.isFinite(r.market.saleLikely));
+  assert.equal(r.purchase.provisionalEligible,true);
 });
