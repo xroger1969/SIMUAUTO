@@ -315,14 +315,15 @@ export function evaluatePurchase(input,custom={}){
   if(identityBlocked)warnings.push("Confirma a matrícula e a identificação da viatura antes de avaliar.");
   const professionalCount=valid.filter(r=>sellerType(r.comp)==="professional").length;
   const evidenceEligible=Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
-  const provisionalEligible=!identityBlocked&&Number.isFinite(marketValue)&&!missing.length&&professionalCount>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
+  const provisionalEligible=!identityBlocked&&Number.isFinite(marketValue)&&!missing.length&&valid.length>=1&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
   const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
   const completeness=(6-missing.length)/6;
   const rawConfidence=valid.length
     ?Math.min(95,Math.min(verified.length/8,1)*35+(avgSim/100)*35+(1-clamp(dispersion/.25,0,1))*15+completeness*15)
     :0;
-  const confidencePct=Math.round(Math.min(eligible?95:39,rawConfidence));
+  const confidencePct=Math.round(Math.min(eligible?95:valid.length===1?20:marketBasis!=="professional"?25:39,rawConfidence));
+  if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
 
   const tax=input.tax||{},vatRate=num(tax.vat_rate,.23);
   const taxMode=tax.mode==="deductible"?"deductible":"gross";

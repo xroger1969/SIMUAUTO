@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261004-identity-fix";
+import { evaluatePurchase } from "./valuation.js?v=20261004-provisional-buy";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -516,14 +516,14 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const quality=result.purchase?.eligible
     ?"Teto suportado por "+verified+" comparáveis profissionais verificados."
     :result.purchase?.provisionalEligible
-      ?"Teto provisório calculado com pelo menos 3 comparáveis profissionais. Confirma a evidência antes de fechar a compra."
+      ?"Estimativa indicativa com "+(result.market?.comparablesUsed??0)+" comparável(is) aceite(s). "+(result.market?.marketBasis!=="professional"?"Sem base profissional confirmada. ":"")+"Baixa confiança: confirma estado e preços antes de comprar."
       :(result.warnings?.[0]||"Referência provisória: ainda não existe evidência suficiente para calcular um valor de compra.");
   if(q("qualityNote"))q("qualityNote").textContent=quality;
   q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
     ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible
       ?"A evidência mínima para o teto recomendado foi atingida."
       :result.purchase?.provisionalEligible
-        ?"Existe base suficiente para um teto provisório, mas ainda falta confirmar a evidência profissional."
+        ?"Compra estimada após custos, reserva e margem objetivo. Valor provisório; a amostra é limitada ou não está verificada."
         :"Ainda não existe base suficiente para calcular um valor de compra.")
     :"Ainda não existe uma referência de mercado suficiente.";
   renderComparables(result.comparables);
@@ -1726,4 +1726,3 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
 
 db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data){activeOperation=null;showAuth()}});
 boot();
-

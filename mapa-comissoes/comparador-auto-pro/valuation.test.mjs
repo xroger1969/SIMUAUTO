@@ -29,13 +29,35 @@ const professional=(i,overrides={})=>({
   ...overrides
 });
 
-test("one private advert can never issue a buying ceiling",()=>{
+test("one private advert issues only a low-confidence provisional buying estimate",()=>{
   const privateAd={...subject,url:"https://classifieds.example/1",seller_type:"private",price:32000};
   const r=evaluatePurchase({subject,comparables:[privateAd],current_purchase_price:22000,source_url:"https://auction.example/x"});
   assert.equal(r.purchase.eligible,false);
   assert.ok(Number.isNaN(r.purchase.maxPurchase));
   assert.ok(r.market.confidencePct<=39);
-  assert.match(r.purchase.decision,/Referência provisória/);
+  assert.match(r.purchase.decision,/Teto provisório/);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
+  assert.ok(r.market.confidencePct<=20);
+});
+
+test('one professional comparable can produce an indicative purchase value',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1)],costs:{reconditioning:450},target_margin:3500});
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isFinite(r.purchase.effectiveCeiling));
+  assert.ok(r.market.confidencePct<=20);
+  assert.equal(r.purchase.provisionalMaxPurchase,Math.max(0,Math.floor(r.market.saleLikely-r.purchase.fixedCosts-r.purchase.riskReserve-3500)));
+});
+test('no comparables still cannot produce a purchase estimate',()=>{
+  const r=evaluatePurchase({subject,comparables:[]});
+  assert.equal(r.purchase.provisionalEligible,false);
+  assert.ok(!Number.isFinite(r.purchase.effectiveCeiling));
+});
+test('missing mileage still blocks provisional purchase estimates',()=>{
+  const r=evaluatePurchase({subject:{...subject,mileage_km:null},comparables:[professional(1)]});
+  assert.equal(r.purchase.provisionalEligible,false);
+  assert.ok(!Number.isFinite(r.purchase.effectiveCeiling));
 });
 
 test("unknown fields do not score as matching data",()=>{
