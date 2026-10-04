@@ -305,6 +305,7 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
   }
 
   const facts=[
+    ["Matrícula",v.registration],
     ["Marca",v.make],
     ["Modelo",v.model],
     ["Versão",v.trim],
