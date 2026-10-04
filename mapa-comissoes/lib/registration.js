@@ -42,8 +42,7 @@ function decodeVehicleJson(xml){
       .replace(/&amp;/g,'&');
   try{return JSON.parse(raw)}catch{throw failure('Resposta inválida do fornecedor de matrículas.');}
 }
-function parseRegistration(xml){
-  const data=decodeVehicleJson(xml);
+function parseRegistrationData(data,provider='matricula.co.pt'){
   const make=field(data.CarMake)||field(data.MakeDescription);
   const model=field(data.CarModel)||field(data.ModelDescription);
   if(!make||!model)throw failure('Não foi possível identificar a viatura por esta matrícula.');
@@ -66,16 +65,46 @@ function parseRegistration(xml){
     seats:Number.isInteger(seats)&&seats>0&&seats<20?seats:null,
     color:field(data.Colour)||field(data.Color)||null,
     origin:[1,'1',true].includes(data.Imported)?'imported':[0,'0',false].includes(data.Imported)?'national':'unknown',
-    provider:'regcheck_portugal'
+    provider
   };
 }
-async function lookupRegistration(value,{username=process.env.REGISTRATION_API_USERNAME,fetcher=fetch}={}){
+
+function parseRegistration(xml){
+  return parseRegistrationData(decodeVehicleJson(xml),'matricula.co.pt');
+}
+async function lookupRegistration(value,{
+ username=process.env.REGISTRATION_API_USERNAME,
+ apiKey=process.env.REGISTRATION_API_KEY,
+ fetcher=fetch
+}={}){
   const plate=normalizeRegistration(value);
   if(!plate)throw failure('Matrícula portuguesa inválida.',400);
   if(!username)throw failure('A consulta por matrícula está preparada, mas falta ativar a conta do fornecedor. Entretanto, escreve a marca, modelo, ano e quilómetros.',503);
+
+  if(apiKey){
+    try{
+      const auth=Buffer.from(username.trim()+':'+apiKey.trim()).toString('base64');
+      const response=await fetcher(
+        'https://www.regcheck.org.uk/api/json.aspx/CheckPortugal/'+encodeURIComponent(plate),
+        {headers:{authorization:'Basic '+auth,accept:'application/json'},signal:AbortSignal.timeout(12000)}
+      );
+      if(response.ok){
+        const data=await response.json();
+        const result=parseRegistrationData(data,'regcheck_rest');
+        result.registration=displayRegistration(plate);
+        return result;
+      }
+      if(response.status===401||response.status===403){
+        console.warn('registration_rest_auth_failure',{status:response.status});
+      }
+    }catch(error){
+      console.warn('registration_rest_failure',{kind:error?.name||'unknown'});
+    }
+  }
+
   const endpoints=[
-    'https://www.regcheck.org.uk/api/reg.asmx/CheckPortugal',
-    'https://www.matricula.co.pt/api/reg.asmx/CheckPortugal'
+    'https://www.matricula.co.pt/api/reg.asmx/CheckPortugal',
+    'https://www.regcheck.org.uk/api/reg.asmx/CheckPortugal'
   ];
   let transportError=null,httpError=null;
   for(const endpoint of endpoints){
@@ -103,4 +132,4 @@ async function lookupRegistration(value,{username=process.env.REGISTRATION_API_U
   if(transportError)throw failure('Não foi possível ligar ao serviço de matrículas. Tenta novamente dentro de instantes.');
   throw failure('Não foi possível consultar esta matrícula.');
 }
-module.exports={lookupRegistration,parseRegistration,normalizeRegistration,displayRegistration};
+module.exports={lookupRegistration,parseRegistration,parseRegistrationData,normalizeRegistration,displayRegistration};
