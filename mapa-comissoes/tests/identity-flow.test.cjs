@@ -77,14 +77,25 @@ test('Standvirtual mileage mean is labelled estimated and ignores duplicates and
   assert.equal(r.subject.mileage_km,100000);assert.equal(r.subject.mileage_estimated,true);assert.equal(r.subject.mileage_estimate.sample_size,2);
   assert.equal(estimateMileage({subject:{...car,mileage_km:90000},comparables:[a,b]}).subject.mileage_km,90000);
 });
-test('incompatible or unverified adverts cannot supply estimated km',()=>{
+test('reported Standvirtual URLs can supply provisional km while incompatible adverts cannot',()=>{
   const {estimateMileage}=require('../api/comparador-market')._test;
   const car={...subject,registration:'AA-00-AA',mileage_km:null};
-  const base={...subject,url:'https://www.standvirtual.com/carros/anuncio/1',mileage_km:80000,country:'PT',availability:'available',evidence:{source_url_verified:true}};
-  for(const patch of [{year:2010},{make:'BMW'},{model:'Model 3'},{fuel:'diesel'},{trim:'RWD'},{mileage_km:null},{evidence:{}},{availability:'sold'}])assert.equal(estimateMileage({subject:car,comparables:[{...base,...patch}]}).subject.mileage_km,null);
+  const base={...subject,url:'https://www.standvirtual.com/carros/anuncio/1',mileage_km:80000,country:'PT',availability:'available',evidence:{}};
+  assert.equal(estimateMileage({subject:car,comparables:[base]}).subject.mileage_km,80000);
+  for(const patch of [{make:'BMW'},{model:'Model 3'},{fuel:'diesel'},{mileage_km:null},{availability:'sold'}])assert.equal(estimateMileage({subject:car,comparables:[{...base,...patch}]}).subject.mileage_km,null);
 });
 test('estimated mileage is removed before asking AI to read later real mileage',()=>{
   const {boundedContext}=require('../api/comparador-market')._test;
   const ctx=boundedContext({previous_subject:{...subject,mileage_km:100000,mileage_estimated:true}},null);
   assert.equal(ctx.previous_subject.mileage_km,null);assert.equal(ctx.previous_subject.mileage_estimated,false);
+});
+
+test('V2 market readiness allows missing trim fuel and mileage once plate identifies make model and year',()=>{
+  const {marketReady}=require('../api/comparador-market')._test;
+  assert.equal(marketReady({registration:'24-GV-85',make:'Citroen',model:'Berlingo',year:2008,trim:null,fuel:null,mileage_km:null}),true);
+});
+test('search source extraction walks nested response structures',()=>{
+  const {searchSources}=require('../api/comparador-market')._test;
+  const rows=searchSources({output:[{type:'web_search_call',action:{results:[{sources:[{url:'https://www.standvirtual.com/carros/anuncio/x',title:'Berlingo'}]}]}}]});
+  assert.equal(rows.length,1);assert.match(rows[0].url,/standvirtual/);
 });
