@@ -190,3 +190,13 @@ test("photo-identified BMW 425d accepts inconsistent portal naming for the same 
   assert.equal(r.purchase.provisionalEligible,true);
   assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
 });
+
+test('registration conflict blocks both verified and provisional purchase ceilings',()=>{
+  for(const verified of [true,false]){
+    const r=evaluatePurchase({subject,comparables:[1,2,3].map(i=>professional(i,{evidence:{verified,observed_at:observed,source_url_verified:verified}})),risk_flags:[{code:'registration_unconfirmed',severity:'medium',reserve_eur:0}]});
+    assert.equal(r.purchase.eligible,false);
+    assert.ok(!r.purchase.provisionalEligible);
+    assert.ok(!Number.isFinite(r.purchase.maxPurchase));
+    assert.ok(!Number.isFinite(r.purchase.provisionalMaxPurchase));
+  }
+});

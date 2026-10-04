@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261003-8";
+import { evaluatePurchase } from "./valuation.js?v=20261004-identity-fix";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -356,8 +356,8 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
 const VALUATION_REQUIRED_FIELDS=[
   {key:"make_model",label:"marca e modelo",present:v=>confirmedText(v?.make)&&confirmedText(v?.model)},
   {key:"trim",label:"versão",present:v=>confirmedText(v?.trim)},
-  {key:"year",label:"ano / 1.ª matrícula",present:v=>validVehicleYear(v?.year)||confirmedText(v?.first_registration)},
-  {key:"mileage_km",label:"quilómetros",present:v=>Number.isFinite(Number(v?.mileage_km))&&Number(v?.mileage_km)>=0},
+  {key:"year",label:"ano / 1.ª matrícula",present:v=>validVehicleYear(v?.year)},
+  {key:"mileage_km",label:"quilómetros",present:v=>v?.mileage_km!==null&&v?.mileage_km!==undefined&&String(v.mileage_km).trim()!==""&&Number.isFinite(Number(v.mileage_km))&&Number(v.mileage_km)>=0},
   {key:"fuel",label:"combustível",present:v=>confirmedText(v?.fuel)}
 ];
 function confirmedText(value){
@@ -368,16 +368,19 @@ function validVehicleYear(value){
   const year=Number(value),maxYear=new Date().getFullYear()+1;
   return Number.isInteger(year)&&year>=1950&&year<=maxYear;
 }
-function missingVehicleFields(vehicle){
-  return VALUATION_REQUIRED_FIELDS.filter(field=>!field.present(vehicle||{}));
+function missingVehicleFields(vehicle,market={}){
+  const missing=VALUATION_REQUIRED_FIELDS.filter(field=>!field.present(vehicle||{}));
+  if(market.valuation_blocked||(market.risk_flags||[]).some(r=>r.code==="registration_unconfirmed"))missing.unshift({key:"registration",label:"matrícula e identificação da viatura"});
+  return missing;
 }
 function followupQuestion(vehicle,missing){
+  if(missing.some(item=>item.key==="registration"))return "Não consegui validar a matrícula com a viatura identificada. Confirma a matrícula e a marca/modelo, ou envia uma fotografia mais nítida. A avaliação está bloqueada até esclarecer esta identificação.";
   const labels=missing.map(item=>item.label);
   const title=[vehicle?.make,vehicle?.model,vehicle?.trim].filter(confirmedText).join(" ");
   if(missing.some(item=>item.key==="make_model")){
     return "Ainda não consegui identificar a viatura com segurança. Envia outra fotografia onde se veja melhor a frente/traseira ou o emblema do modelo, ou escreve a marca, modelo, ano, quilómetros e combustível.";
   }
-  const prefix=title?"Já identifiquei "+title+" e fiz uma primeira pesquisa de mercado. ":"Já fiz uma primeira pesquisa de mercado. ";
+  const prefix=title?"Já identifiquei "+title+". ":"Já li os dados enviados. ";
   return prefix+"Para fechar a avaliação sem inventar dados, confirma "+labels.join(", ")+". Podes escrever o que souber ou enviar mais fotografias do anúncio, documento, quadrante ou emblema da versão.";
 }
 function hideVehicleFollowup(){
@@ -1273,6 +1276,12 @@ async function resumePendingAnalysis(){
     const marketPayload={url:analysis.source_url,dealer_memories:allRules.slice(0,12),registration_data:market.registration_data||job.context?.registration_data||null,refinement_history:job.context?.refinement_history||[]};
     currentMarketData={market,reader,entry,sourceHost:analysis.source_domain||"manual",marketPayload,allRules};
     lastAnalysisContext=currentMarketData;
+    const missing=missingVehicleFields(subject,market);
+    if(missing.length){
+      renderNeedsVehicleInfo(subject,market,reader,currentMarketData.sourceHost,missing);
+      await updateAnalysis({vehicle:subject,reader,risks:market.risk_flags||[],error_message:"A aguardar confirmação da viatura."},job.analysis_id);
+      return;
+    }
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
     await persistCompletedAnalysis(job.analysis_id,result,market,reader,entry,marketPayload);
     addMsg("assistant","Retomei e concluí a pesquisa que tinha ficado pendente.");
@@ -1379,7 +1388,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
     currentMarketData={market,reader,entry,sourceHost,marketPayload,allRules};
     lastAnalysisContext=currentMarketData;
-    const missing=missingVehicleFields(subject);
+    const missing=missingVehicleFields(subject,market);
     if(missing.length){
       renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing);
       await updateAnalysis({
@@ -1518,7 +1527,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       if(value!==null&&value!==undefined&&value!=="")subject[key]=value;
     }
     const entry=lastAnalysisContext.entry,reader=lastAnalysisContext.reader;
-    const missing=missingVehicleFields(subject);
+    const missing=missingVehicleFields(subject,market);
     if(missing.length){
       const nextPayload={...payload,previous_subject:subject,registration_data:market.registration_data||payload.registration_data||null};
       currentMarketData={market,reader,entry,sourceHost:lastAnalysisContext.sourceHost,marketPayload:nextPayload,allRules:memories};

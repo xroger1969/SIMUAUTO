@@ -311,10 +311,12 @@ export function evaluatePurchase(input,custom={}){
   if(valid.some(r=>r.comp.country!=="PT"))warnings.push("Existem comparáveis cuja localização em Portugal não foi confirmada.");
   if(acquisition.needsLocationConfirmation)warnings.push("Confirma se esta viatura de leilão já está em Portugal. Só é aplicado o custo adicional de 1 200 € quando a viatura de leilão está fora de Portugal/importada.");
 
+  const identityBlocked=input.valuation_blocked===true||(input.risk_flags||[]).some(r=>r.code==="registration_unconfirmed");
+  if(identityBlocked)warnings.push("Confirma a matrícula e a identificação da viatura antes de avaliar.");
   const professionalCount=valid.filter(r=>sellerType(r.comp)==="professional").length;
   const evidenceEligible=Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
-  const provisionalEligible=Number.isFinite(marketValue)&&!missing.length&&professionalCount>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
-  const eligible=evidenceEligible&&!acquisition.needsLocationConfirmation;
+  const provisionalEligible=!identityBlocked&&Number.isFinite(marketValue)&&!missing.length&&professionalCount>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.30&&!acquisition.needsLocationConfirmation;
+  const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
   const completeness=(6-missing.length)/6;
   const rawConfidence=valid.length

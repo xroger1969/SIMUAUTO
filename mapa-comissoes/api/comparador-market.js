@@ -106,19 +106,27 @@ function registrationFromMetadata(meta={}){
 function normalizeIdentity(value){
   return String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
 }
+function canonicalMake(value){
+  const make=normalizeIdentity(value);
+  return ({vw:"volkswagen","mercedes benz":"mercedes","mercedesbenz":"mercedes"})[make]||make;
+}
 function modelCompatible(a,b){
-  const A=normalizeIdentity(a),B=normalizeIdentity(b);
+  const A=normalizeIdentity(a).replace(/\s+/g,""),B=normalizeIdentity(b).replace(/\s+/g,"");
   if(!A||!B)return true;
-  if(A===B||A.includes(B)||B.includes(A))return true;
-  const tokens=value=>new Set(value.split(/\s+/).filter(token=>token.length>=2));
-  const ta=tokens(A),tb=tokens(B);
-  return [...ta].some(token=>tb.has(token));
+  return A===B;
 }
 function registrationCompatible(subject,registration){
-  const subjectMake=normalizeIdentity(subject?.make),regMake=normalizeIdentity(registration?.make);
-  if(subjectMake&&regMake&&subjectMake!==regMake)return false;
-  if(subject?.model&&registration?.model&&!modelCompatible(subject.model,registration.model))return false;
-  return true;
+  const a=canonicalMake(subject?.make),b=canonicalMake(registration?.make);
+  if(a&&b&&a!==b)return false;
+  return modelCompatible(subject?.model,registration?.model);
+}
+function missingIdentity(subject={}){
+  const known=v=>v!==null&&v!==undefined&&String(v).trim()!==""&&!/^(unknown|desconhecido|por confirmar|n\/a)$/i.test(String(v).trim());
+  const missing=["make","model","trim","fuel"].filter(k=>!known(subject[k]));
+  const year=Number(subject.year);
+  if(!known(subject.year)||!Number.isInteger(year)||year<1950||year>new Date().getFullYear()+1)missing.push("year");
+  if(!known(subject.mileage_km)||!Number.isFinite(Number(subject.mileage_km))||Number(subject.mileage_km)<0)missing.push("mileage_km");
+  return missing;
 }
 function mergeRegistration(subject,registration){
   if(!registration)return subject;
@@ -155,7 +163,15 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
       }
     }
   }
+  if(registration&&!registrationCompatible(parsed.subject,registration)){
+    registrationWarning="A matrícula não coincide com a marca/modelo identificados. Confirma a matrícula e a viatura antes de avaliar.";
+    registration=null;
+  }
   parsed.subject=mergeRegistration(parsed.subject,registration);
+  if(registrationWarning){
+    parsed.valuation_blocked=true;
+    parsed.comparables=[];
+  }
   if(registrationWarning){
     parsed.risk_flags=Array.isArray(parsed.risk_flags)?parsed.risk_flags:[];
     parsed.risk_flags.unshift({code:"registration_unconfirmed",label:registrationWarning,severity:"medium",reserve_eur:0});
@@ -340,6 +356,37 @@ const instructions=[
   "O teu resultado alimenta um motor determinístico. Não emitas a decisão final de compra."
 ].join("\n");
 
+async function startResponse(context,imageDataUrls,metadata,identify){
+  const response=await fetch("https://api.openai.com/v1/responses",{
+      method:"POST",
+      signal:AbortSignal.timeout(35000),
+      headers:{"content-type":"application/json",authorization:"Bearer "+process.env.OPENAI_API_KEY},
+      body:JSON.stringify({
+        model:process.env.OPENAI_MODEL||"gpt-6-sol",
+        background:true,
+        store:false,
+        metadata,
+        instructions:identify?instructions.replace("Pesquisa obrigatoriamente a web antes de devolver comparáveis.","Nesta fase não pesquises comparáveis.")+"\nFASE DE IDENTIFICAÇÃO: identifica apenas a viatura a partir das fontes fornecidas. Se necessário consulta apenas o anúncio original. Devolve comparables vazio. Não pesquises preços de mercado. Lê a identidade visual independentemente de registration_data; diferenças serão validadas pelo servidor. Dados em falta ficam null.":instructions,
+        input:imageDataUrls.length?[{
+          role:"user",
+          content:[
+            {type:"input_text",text:"ANÚNCIO A ANALISAR:\n"+JSON.stringify(context)+"\n\n"+(identify?"Identifica a viatura, sem comparáveis.":"Pesquisa o mercado português.")},
+            ...imageDataUrls.map(image_url=>({type:"input_image",image_url,detail:"high"}))
+          ]
+        }]:"ANÚNCIO A ANALISAR:\n"+JSON.stringify(context)+"\n\n"+(identify?"Identifica a viatura, sem comparáveis.":"Pesquisa o mercado português e devolve comparáveis atuais."),
+        ...(identify?(imageDataUrls.length||context.text_sample||!context.original_url?{tools:[]}:{tools:[{type:"web_search"}],tool_choice:"auto"}):{tools:[{type:"web_search"}],tool_choice:"required"}),
+        max_tool_calls:10,
+        include:["web_search_call.action.sources"],
+        text:{format:{type:"json_schema",name:"comparador_market_result",strict:true,schema:marketSchema},verbosity:"low"},
+        max_output_tokens:10000
+      })
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw appError(data?.error?.message||"Falha no radar de mercado.",502,"openai_market_error");
+    if(!data.id)throw appError("A pesquisa foi iniciada sem identificador de acompanhamento.",502,"openai_market_error");
+  return data;
+}
+
 module.exports=endpoint(async function handler(req,res){
   if(!["GET","POST"].includes(req.method))return res.status(405).json({error:"method_not_allowed"});
   if(!process.env.OPENAI_API_KEY)throw appError("OpenAI não configurada.",503,"openai_not_configured");
@@ -369,8 +416,32 @@ module.exports=endpoint(async function handler(req,res){
       throw appError(message,502,"openai_market_failed");
     }
 
+    if(job.context?.stage==="market_pending")return res.status(202).json({ok:true,status:"in_progress",job_id:job.id});
     const registration=job.context?.registration_data||null;
-    const result=await finalizeMarketResponse(data,registration,token);
+    const resultData=job.context?.stage==="market"&&job.context.previous_subject
+      ?{...data,output_text:JSON.stringify({...structuredResult(data),subject:job.context.previous_subject})}:data;
+    const result=await finalizeMarketResponse(resultData,registration,token);
+    if(job.context?.stage==="identify"){
+      result.comparables=[];
+      result.search_sources=[];
+      result.missing_fields=missingIdentity(result.subject);
+      if(!result.valuation_blocked&&!result.missing_fields.length){
+        const nextContext={...job.context,stage:"market_pending",previous_subject:result.subject,registration_data:result.registration_data};
+        // Claim this transition atomically: overlapping polls must not launch duplicate searches.
+        const claimed=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage=eq.identify&response_id=eq."+encodeURIComponent(job.response_id),{
+          method:"PATCH",body:{context:nextContext,status:"in_progress"},headers:{Prefer:"return=representation"}
+        });
+        if(!claimed?.length)return res.status(202).json({ok:true,status:"in_progress",job_id:job.id});
+        try{
+          const next=await startResponse(nextContext,[],{cap_job_id:job.id,cap_source_url:clip(nextContext.original_url,480)},false);
+          await updateJob(token,job.id,{response_id:next.id,status:next.status||"queued",context:{...nextContext,stage:"market"}});
+          return res.status(202).json({ok:true,status:next.status||"queued",job_id:job.id});
+        }catch(error){
+          await updateJob(token,job.id,{status:"failed",error_message:String(error.message||error)});
+          throw error;
+        }
+      }
+    }
     result.job_id=job.id;
     await updateJob(token,job.id,{status:"completed",result,error_message:null});
     return res.status(200).json(result);
@@ -390,13 +461,15 @@ module.exports=endpoint(async function handler(req,res){
   if(mode==="manual"?(description.length<3):!url)return res.status(400).json({error:"invalid_vehicle_input"});
 
   const registration=clip(req.body?.registration,20).trim();
-  let registrationData=req.body?.registration_data&&typeof req.body.registration_data==="object"?req.body.registration_data:null;
+  let registrationData=null;
+  const suppliedPlate=normalizeRegistration(registration||req.body?.registration_data?.registration);
+  if(suppliedPlate)registrationData=await lookupRegistrationCached(token,suppliedPlate);
   if(registration&&!registrationData){
     try{registrationData=await lookupRegistrationCached(token,registration)}
     catch(error){throw appError(error.message,error.status||502,"registration_lookup_failed")}
   }
 
-  const context=boundedContext(req.body,registrationData);
+  const context={...boundedContext(req.body,registrationData),stage:"identify"};
   const claim=await rest(token,"rpc/cap_claim_job",{method:"POST",body:{p_analysis:analysisId,p_request:requestKey,p_context:context}});
   const job=claim?.job;
   if(!job?.id)throw appError("Não foi possível criar a pesquisa.",503,"job_create_failed");
@@ -426,34 +499,7 @@ module.exports=endpoint(async function handler(req,res){
   }
 
   try{
-    const response=await fetch("https://api.openai.com/v1/responses",{
-      method:"POST",
-      signal:AbortSignal.timeout(35000),
-      headers:{"content-type":"application/json",authorization:"Bearer "+process.env.OPENAI_API_KEY},
-      body:JSON.stringify({
-        model:process.env.OPENAI_MODEL||"gpt-6-sol",
-        background:true,
-        store:false,
-        metadata,
-        instructions,
-        input:imageDataUrls.length?[{
-          role:"user",
-          content:[
-            {type:"input_text",text:"ANÚNCIO A ANALISAR:\n"+JSON.stringify(context)+"\n\nLê as fotografias em conjunto e pesquisa o mercado português."},
-            ...imageDataUrls.map(image_url=>({type:"input_image",image_url,detail:"high"}))
-          ]
-        }]:"ANÚNCIO A ANALISAR:\n"+JSON.stringify(context)+"\n\nPesquisa o mercado português e devolve a ficha normalizada e comparáveis atuais.",
-        tools:[{type:"web_search"}],
-        tool_choice:"required",
-        max_tool_calls:10,
-        include:["web_search_call.action.sources"],
-        text:{format:{type:"json_schema",name:"comparador_market_result",strict:true,schema:marketSchema},verbosity:"low"},
-        max_output_tokens:10000
-      })
-    });
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw appError(data?.error?.message||"Falha no radar de mercado.",502,"openai_market_error");
-    if(!data.id)throw appError("A pesquisa foi iniciada sem identificador de acompanhamento.",502,"openai_market_error");
+    const data=await startResponse(context,imageDataUrls,metadata,true);
     await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:{...context,registration_data:registrationData}});
     return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData});
   }catch(error){
@@ -461,3 +507,5 @@ module.exports=endpoint(async function handler(req,res){
     throw error;
   }
 });
+
+module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,finalizeMarketResponse,startResponse};
