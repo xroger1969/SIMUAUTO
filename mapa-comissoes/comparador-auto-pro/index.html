@@ -36,6 +36,33 @@
   <link rel="stylesheet" href="./styles.css?v=20261004-photo-followup1">
 </head>
 <body>
+  <script id="rogue-literal-newline-cleanup">
+    (() => {
+      const rogueNewlineOnly = /^(?:\s*\\n\s*)+$/;
+      const clean = root => {
+        if (!root) return;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const remove = [];
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (rogueNewlineOnly.test(node.nodeValue || "")) remove.push(node);
+        }
+        remove.forEach(node => node.remove());
+      };
+      clean(document.body);
+      new MutationObserver(mutations => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType === Node.TEXT_NODE) {
+              if (rogueNewlineOnly.test(node.nodeValue || "")) node.remove();
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+              clean(node);
+            }
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    })();
+  </script>
   <div class="auth-gate" id="authGate">
     <div class="auth-card">
       <div class="logo">CAP</div>
