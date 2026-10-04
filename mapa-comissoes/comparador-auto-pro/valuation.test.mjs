@@ -249,3 +249,16 @@ test('auction price is classified as acquisition price for direct bid comparison
   assert.equal(r.purchase.acquisition.isAuction,true);
   assert.equal(r.purchase.acquisition.priceRole,'acquisition_price');
 });
+
+test('AUTO1 France automatically applies the foreign-auction logistics cost',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],source_url:'https://www.auto1.com/pt/vehicle/FR123',source_context:{is_auction:true,vehicle_location:'unknown',origin_country:'FR'},current_purchase_price:14000});
+  assert.equal(r.purchase.acquisition.isAuction,true);
+  assert.equal(r.purchase.acquisition.vehicleLocation,'foreign');
+  assert.equal(r.purchase.importCost,1200);
+  assert.equal(r.purchase.needsLocationConfirmation,false);
+});
+test('AUTO1 Portugal does not apply the foreign-auction logistics cost',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],source_url:'https://www.auto1.com/pt/vehicle/PT123',source_context:{is_auction:true,vehicle_location:'unknown',origin_country:'PT'},current_purchase_price:14000});
+  assert.equal(r.purchase.acquisition.vehicleLocation,'PT');
+  assert.equal(r.purchase.importCost,0);
+});
