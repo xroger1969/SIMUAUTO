@@ -167,7 +167,7 @@ function estimateMileage(result){
     if(!(host==="standvirtual.com"||host.endsWith(".standvirtual.com"))||c.country!=="PT"||c.availability!=="available")return false;
     if(!c.make||!c.model||!registrationCompatible(subject,c))return false;
     if(subject.fuel&&c.fuel&&normalizeIdentity(c.fuel)!==normalizeIdentity(subject.fuel))return false;
-    if(!Number.isFinite(Number(c.mileage_km))||Number(c.mileage_km)<0)return false;
+    if(c.mileage_km===null||c.mileage_km===undefined||c.mileage_km===""||!Number.isFinite(Number(c.mileage_km))||Number(c.mileage_km)<0)return false;
     seen.add(url);return true;
   });
   if(!base.length)return result;
