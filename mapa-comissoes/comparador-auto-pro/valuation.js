@@ -326,7 +326,7 @@ export function evaluatePurchase(input,custom={}){
   const rawConfidence=valid.length
     ?Math.min(95,Math.min((verified.length+reportedEvidence*.35)/8,1)*35+(avgSim/100)*35+(1-clamp(dispersion/.45,0,1))*15+completeness*15)
     :0;
-  const provisionalCap=valid.length===1?20:marketBasis!=="professional"?30:missing.length?45:55;
+  const provisionalCap=valid.length===1?20:s.mileage_estimated||verified.length===0?39:marketBasis!=="professional"?30:missing.length?45:55;
   const confidencePct=Math.round(Math.min(eligible?95:provisionalCap,rawConfidence));
   if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
