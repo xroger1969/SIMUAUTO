@@ -47,6 +47,7 @@ let operationSequence=0;
 let currentMarketData=null;
 let lastRefineFocus=null;
 let auctionLocationOverride=null;
+let awaitingVehicleDetails=false;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
@@ -351,6 +352,90 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
   }
 }
 
+const VALUATION_REQUIRED_FIELDS=[
+  {key:"make_model",label:"marca e modelo",present:v=>confirmedText(v?.make)&&confirmedText(v?.model)},
+  {key:"trim",label:"versão",present:v=>confirmedText(v?.trim)},
+  {key:"year",label:"ano / 1.ª matrícula",present:v=>validVehicleYear(v?.year)||confirmedText(v?.first_registration)},
+  {key:"mileage_km",label:"quilómetros",present:v=>Number.isFinite(Number(v?.mileage_km))&&Number(v?.mileage_km)>=0},
+  {key:"fuel",label:"combustível",present:v=>confirmedText(v?.fuel)}
+];
+function confirmedText(value){
+  const text=String(value??"").trim();
+  return !!text&&!/^(unknown|desconhecido|por confirmar|n\/a|nao identificado|não identificado)$/i.test(text);
+}
+function validVehicleYear(value){
+  const year=Number(value),maxYear=new Date().getFullYear()+1;
+  return Number.isInteger(year)&&year>=1950&&year<=maxYear;
+}
+function missingVehicleFields(vehicle){
+  return VALUATION_REQUIRED_FIELDS.filter(field=>!field.present(vehicle||{}));
+}
+function followupQuestion(vehicle,missing){
+  const labels=missing.map(item=>item.label);
+  const title=[vehicle?.make,vehicle?.model,vehicle?.trim].filter(confirmedText).join(" ");
+  if(missing.some(item=>item.key==="make_model")){
+    return "Ainda não consegui identificar a viatura com segurança. Envia outra fotografia onde se veja melhor a frente/traseira ou o emblema do modelo, ou escreve a marca, modelo, ano, quilómetros e combustível.";
+  }
+  const prefix=title?"Já identifiquei "+title+" e fiz uma primeira pesquisa de mercado. ":"Já fiz uma primeira pesquisa de mercado. ";
+  return prefix+"Para fechar a avaliação sem inventar dados, confirma "+labels.join(", ")+". Podes escrever o que souber ou enviar mais fotografias do anúncio, documento, quadrante ou emblema da versão.";
+}
+function hideVehicleFollowup(){
+  awaitingVehicleDetails=false;
+  q("vehicleFollowup")?.classList.add("hidden");
+  if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
+}
+function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
+  awaitingVehicleDetails=true;
+  const panel=q("vehicleFollowup");
+  if(!panel)return;
+  const labels=missing.map(item=>item.label);
+  q("vehicleFollowupTitle").textContent=missing.some(item=>item.key==="make_model")
+    ?"Ajuda-me a identificar melhor a viatura"
+    :"Faltam "+labels.length+" dados para fechar a avaliação";
+  q("vehicleFollowupText").textContent=followupQuestion(vehicle,missing);
+  const tags=q("vehicleFollowupMissing");tags.replaceChildren();
+  labels.forEach(label=>{const tag=document.createElement("span");tag.textContent=label;tags.appendChild(tag)});
+  const count=q("vehicleFollowupPhotoCount");
+  if(count)count.textContent=selectedImages.length
+    ?selectedImages.length+" fotografia"+(selectedImages.length===1?"":"s")+" anexada"+(selectedImages.length===1?"":"s")+" · podes acrescentar mais antes de continuar."
+    :"Podes enviar fotos do anúncio, documento, quadrante ou emblema da versão.";
+  panel.classList.remove("hidden");
+  if(scroll)setTimeout(()=>panel.scrollIntoView({behavior:"smooth",block:"center"}),120);
+}
+function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
+  currentResult=null;
+  currentVehicle=subject||{};
+  q("valuationShareBar")?.classList.add("hidden");
+  q("auctionLocationQuestion")?.classList.add("hidden");
+  q("emptyState").classList.add("hidden");
+  q("result").classList.remove("hidden");
+  q("sourceLabel").textContent=sourceName(sourceHost);
+  q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(confirmedText).join(" ")||reader?.page?.title||"Viatura por identificar";
+  q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
+  const readout=q("vehicleReadout");if(readout)readout.open=false;
+  renderVehicleReadout(currentVehicle,currentMarketData);
+  q("confidencePill").textContent="A confirmar";
+  q("maxPurchase").textContent="—";
+  q("currentPrice").textContent=fmt(currentVehicle.price);
+  q("saleLikely").textContent="—";
+  q("saleFast").textContent="—";
+  q("expectedMargin").textContent="—";
+  if(q("expectedMarginNote"))q("expectedMarginNote").textContent="aguarda dados da viatura";
+  q("comparableCount").textContent="0";
+  q("decisionText").textContent="Preciso de confirmar a viatura antes de calcular.";
+  q("gapText").textContent="—";
+  if(q("qualityNote"))q("qualityNote").textContent="A IA não vai inventar ano, quilómetros, combustível ou versão para emitir uma cotação.";
+  q("marketSummary").textContent="A pesquisa de mercado já foi iniciada, mas os comparáveis só entram no cálculo depois de a viatura ficar suficientemente identificada.";
+  q("comparableList").innerHTML="";
+  q("allComparableList").innerHTML="";
+  q("excludedList").innerHTML='<div class="evidence-empty">A aguardar confirmação dos dados essenciais da viatura.</div>';
+  if(q("evidenceSummary"))q("evidenceSummary").textContent="Evidência ainda não usada no cálculo";
+  renderRisks(market?.risk_flags||[],["Faltam dados essenciais da viatura: "+missing.map(item=>item.label).join(", ")+"."]);
+  const calcBox=q("calcBox");if(calcBox)calcBox.textContent="O cálculo fica bloqueado até confirmar os dados essenciais. Assim evitamos uma cotação falsa com base numa versão, ano ou quilometragem errados.";
+  syncDealForm();
+  showVehicleFollowup(currentVehicle,missing);
+}
+
 function renderRisks(flags,warnings){
   const list=q("riskList");if(!list)return;list.innerHTML="";
   const all=[...(flags||[]).map(x=>({text:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))];
@@ -384,6 +469,7 @@ function renderEvidence(result){
   if(summary)summary.textContent="Ver evidência completa · "+(result.comparables?.length||0)+" usados · "+(result.excluded?.length||0)+" excluídos";
 }
 function renderResult(result,sourceHost,riskFlags=[]){
+  hideVehicleFollowup();
   currentResult=result||null;
   currentVehicle=result.subject||{};
   const shareBar=q("valuationShareBar");
@@ -581,6 +667,7 @@ function renderAuto1NeedsPhotos(reader,url){
   }
 }
 function renderReaderOnly(reader,url){
+  hideVehicleFollowup();
   currentResult=null;
   const shareBar=q("valuationShareBar");if(shareBar)shareBar.classList.add("hidden");
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
@@ -617,7 +704,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","shareValuationBtn","printValuationBtn"]){
+  for(const id of ["analyzeBtn","refineBtn","logoutBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -818,6 +905,12 @@ function setImageStatus(name){
   }else{
     q("attachmentStatus").classList.add("hidden");
   }
+  const followupCount=q("vehicleFollowupPhotoCount");
+  if(followupCount&&awaitingVehicleDetails){
+    followupCount.textContent=selectedImages.length
+      ?selectedImages.length+" fotografia"+(selectedImages.length===1?"":"s")+" anexada"+(selectedImages.length===1?"":"s")+" · toca em Continuar análise quando estiveres pronto."
+      :"Podes enviar fotos do anúncio, documento, quadrante ou emblema da versão.";
+  }
 }
 function resetSearchInput({announce=true,focus=true}={}){
   const input=q("vehicleUrl");
@@ -867,6 +960,7 @@ function resetAnalysisView(){
   currentMarketData=null;
   lastAnalysisContext=null;
   auctionLocationOverride=null;
+  hideVehicleFollowup();
   conversation=[];
 
   q("result").classList.add("hidden");
@@ -1282,10 +1376,15 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 
     const subject=mergeAuto1AuthenticatedFacts(market.subject||{},reader);
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
-    if(!subject.make||!subject.model){
-      renderReaderOnly(reader,url?.toString()||null);currentVehicle=subject;
-      addMsg("assistant","Ainda falta identificar marca/modelo com segurança. Acrescenta informação ou fotografias mais legíveis.");
-      await updateAnalysis({status:"failed",vehicle:subject,reader,error_message:"Dados insuficientes após normalização"},operation.analysisId);
+    currentMarketData={market,reader,entry,sourceHost,marketPayload,allRules};
+    lastAnalysisContext=currentMarketData;
+    const missing=missingVehicleFields(subject);
+    if(missing.length){
+      renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing);
+      await updateAnalysis({
+        vehicle:subject,reader,risks:market.risk_flags||[],
+        error_message:"A aguardar dados essenciais: "+missing.map(item=>item.key).join(", ")
+      },operation.analysisId);
       return;
     }
 
@@ -1366,6 +1465,20 @@ q("refineDialogClose").addEventListener("click",closeRefineDialog);
 q("refineDialog").addEventListener("click",ev=>{if(ev.target===q("refineDialog"))closeRefineDialog()});
 document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!q("refineDialog").classList.contains("hidden"))closeRefineDialog()});
 
+q("vehicleFollowupForm")?.addEventListener("submit",ev=>{
+  ev.preventDefault();
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  const text=q("vehicleFollowupInput")?.value.trim()||"";
+  const usedImages=Array.isArray(lastAnalysisContext?.marketPayload?.image_data_urls)?lastAnalysisContext.marketPayload.image_data_urls.length:0;
+  const hasNewPhotos=selectedImages.length>usedImages;
+  if(!text&&!hasNewPhotos){
+    toast("Escreve os dados que souberes ou adiciona outra fotografia.");
+    return;
+  }
+  q("refineInput").value=text||"Analisa também as novas fotografias anexadas e tenta confirmar os dados em falta da viatura.";
+  q("refineForm").requestSubmit();
+});
+
 q("refineForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   const text=q("refineInput").value.trim();
@@ -1373,6 +1486,7 @@ q("refineForm").addEventListener("submit",async ev=>{
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
   if(!session||!lastAnalysisContext||!currentVehicle){toast("Faz primeiro uma análise.");return}
 
+  const wasVehicleFollowup=awaitingVehicleDetails;
   const operation=beginOperation("refine",currentAnalysisId);
   const button=q("refineBtn"),originalButtonText=button.textContent;
   q("refineInput").disabled=true;button.textContent="A analisar…";
@@ -1391,6 +1505,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       refinement_history:history,
       previous_subject:currentVehicle||null,
       dealer_memories:memories,
+      image_data_urls:selectedImages.map(image=>image.data),
       registration_data:lastAnalysisContext.marketPayload?.registration_data||null
     };
     const market=await runMarketAnalysis(payload,operation);
@@ -1401,7 +1516,24 @@ q("refineForm").addEventListener("submit",async ev=>{
     for(const [key,value] of Object.entries(market.subject||{})){
       if(value!==null&&value!==undefined&&value!=="")subject[key]=value;
     }
-    if(!subject.make||!subject.model)throw new Error("O refinamento não deixou a viatura suficientemente identificada.");
+    const entry=lastAnalysisContext.entry,reader=lastAnalysisContext.reader;
+    const missing=missingVehicleFields(subject);
+    if(missing.length){
+      const nextPayload={...payload,previous_subject:subject,registration_data:market.registration_data||payload.registration_data||null};
+      currentMarketData={market,reader,entry,sourceHost:lastAnalysisContext.sourceHost,marketPayload:nextPayload,allRules:memories};
+      lastAnalysisContext=currentMarketData;
+      currentVehicle=subject;
+      renderNeedsVehicleInfo(subject,market,reader,currentMarketData.sourceHost,missing);
+      await updateAnalysis({
+        vehicle:subject,reader,risks:market.risk_flags||[],
+        error_message:"A aguardar dados essenciais: "+missing.map(item=>item.key).join(", ")
+      },operation.analysisId);
+      q("refineInput").value="";
+      if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
+      showRefineDialog("Preciso de mais informação",followupQuestion(subject,missing),"loading");
+      toast("Ainda faltam alguns dados da viatura.");
+      return;
+    }
 
     progress("A recalcular a compra…","A validar a nova evidência e as premissas comerciais.");
     const result=evaluatePurchase({
@@ -1415,15 +1547,15 @@ q("refineForm").addEventListener("submit",async ev=>{
     for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
     appendRefineDialogMessage("assistant","Cálculo atualizado. A preparar a resposta final…");
 
-    const entry=lastAnalysisContext.entry,reader=lastAnalysisContext.reader;
     const nextPayload={...payload,previous_subject:subject,registration_data:market.registration_data||payload.registration_data||null};
     currentMarketData={market,reader,entry,sourceHost:lastAnalysisContext.sourceHost,marketPayload:nextPayload,allRules:memories};
     lastAnalysisContext=currentMarketData;
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
     await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,nextPayload);
 
-    const refinementAI=await learnFromRefinement(text);
+    const refinementAI=wasVehicleFollowup?{learned:false,reply:""}:await learnFromRefinement(text);
     q("refineInput").value="";
+    if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
     const reply=(result.purchase?.eligible
       ?"Análise refeita com evidência suficiente para o teto."
       :result.purchase?.provisionalEligible
