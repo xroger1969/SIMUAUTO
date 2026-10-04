@@ -31,6 +31,57 @@ function searchSources(data){
   return [...found.values()].slice(0,40);
 }
 
+async function cachedRegistration(token,value){
+  const plate=normalizeRegistration(value);
+  if(!plate)return null;
+  try{
+    const rows=await rest(
+      token,
+      "cap_registration_cache?select=data,expires_at&registration=eq."+encodeURIComponent(plate)+
+      "&expires_at=gt."+encodeURIComponent(nowIso())+"&limit=1"
+    );
+    const row=Array.isArray(rows)?rows[0]:null;
+    return row?.data&&typeof row.data==="object"?row.data:null;
+  }catch(error){
+    console.warn("registration_cache_read_failed",{code:error?.code||"unknown"});
+    return null;
+  }
+}
+
+async function storeRegistrationCache(token,value,data){
+  const plate=normalizeRegistration(value);
+  if(!plate||!data||typeof data!=="object")return;
+  try{
+    await rest(
+      token,
+      "cap_registration_cache?on_conflict=user_id,registration",
+      {
+        method:"POST",
+        body:{
+          registration:plate,
+          data,
+          provider:data.provider||null,
+          fetched_at:nowIso(),
+          expires_at:new Date(Date.now()+365*86400000).toISOString()
+        },
+        headers:{Prefer:"resolution=merge-duplicates,return=minimal"}
+      }
+    );
+  }catch(error){
+    console.warn("registration_cache_write_failed",{code:error?.code||"unknown"});
+  }
+}
+
+async function lookupRegistrationCached(token,value){
+  const plate=normalizeRegistration(value);
+  if(!plate)throw appError("Matrícula portuguesa inválida.",400,"invalid_registration");
+  const cached=await cachedRegistration(token,plate);
+  if(cached)return {...cached,cache_hit:true};
+  const fresh=await lookupRegistration(plate);
+  await storeRegistrationCache(token,plate,fresh);
+  return {...fresh,cache_hit:false};
+}
+
 function registrationFromMetadata(meta={}){
   if(!meta.cap_reg_make||!meta.cap_reg_model)return null;
   const year=Number(meta.cap_reg_year);
@@ -83,7 +134,7 @@ function mergeRegistration(subject,registration){
   return result;
 }
 
-async function finalizeMarketResponse(data,registrationData=null){
+async function finalizeMarketResponse(data,registrationData=null,token=null){
   const parsed=structuredResult(data);
   if(!parsed.subject||!Array.isArray(parsed.comparables))throw appError("Resposta de mercado sem ficha válida.",502,"invalid_market_result");
 
@@ -93,7 +144,7 @@ async function finalizeMarketResponse(data,registrationData=null){
     const photoPlate=normalizeRegistration(parsed.subject?.registration);
     if(photoPlate){
       try{
-        const lookedUp=await lookupRegistration(photoPlate);
+        const lookedUp=token?await lookupRegistrationCached(token,photoPlate):await lookupRegistration(photoPlate);
         if(registrationCompatible(parsed.subject,lookedUp)){
           registration=lookedUp;
         }else{
@@ -319,7 +370,7 @@ module.exports=endpoint(async function handler(req,res){
     }
 
     const registration=job.context?.registration_data||null;
-    const result=await finalizeMarketResponse(data,registration);
+    const result=await finalizeMarketResponse(data,registration,token);
     result.job_id=job.id;
     await updateJob(token,job.id,{status:"completed",result,error_message:null});
     return res.status(200).json(result);
@@ -341,7 +392,7 @@ module.exports=endpoint(async function handler(req,res){
   const registration=clip(req.body?.registration,20).trim();
   let registrationData=req.body?.registration_data&&typeof req.body.registration_data==="object"?req.body.registration_data:null;
   if(registration&&!registrationData){
-    try{registrationData=await lookupRegistration(registration)}
+    try{registrationData=await lookupRegistrationCached(token,registration)}
     catch(error){throw appError(error.message,error.status||502,"registration_lookup_failed")}
   }
 
