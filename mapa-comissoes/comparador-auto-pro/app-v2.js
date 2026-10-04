@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261004-v2-market-value";
+import { evaluatePurchase } from "./valuation.js?v=20261004-purchase-first-v2";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -496,17 +496,23 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":result.purchase?.provisionalEligible?"Provisório ":"Referência ")+(result.market?.confidencePct??0)+"%";
   const rawCeiling=result.purchase?.effectiveCeiling;
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
-  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="Venda recomendada";
-  q("maxPurchase").textContent=fmt(result.market?.saleLikely);
+  const acquisition=result.purchase?.acquisition||{};
+  const askingPrice=acquisition.priceRole!=="acquisition_price";
+  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="Valor comercial de compra";
+  q("maxPurchase").textContent=fmt(displayedCeiling);
+  const currentLabel=q("currentPrice")?.previousElementSibling;
+  if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
-  q("saleLikely").textContent=fmt(displayedCeiling);
+  q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
   const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
   q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
-  if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent?"após custos e reserva":"ao teto recomendado";
+  if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent
+    ?(askingPrice?"se comprasses ao preço pedido":"se comprares ao preço/licitação atual")
+    :"comprando ao teto comercial";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
-  q("decisionText").textContent=Number.isFinite(Number(result.market?.saleLikely))
-    ?(result.purchase?.eligible?"Referência de mercado confirmada":"Estimativa de mercado · "+(result.market?.confidencePct??0)+"% confiança")
+  q("decisionText").textContent=Number.isFinite(displayedCeiling)
+    ?(result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
     :(result.purchase?.decision||"—");
   const auctionQuestion=q("auctionLocationQuestion");
   if(auctionQuestion){
@@ -518,12 +524,16 @@ function renderResult(result,sourceHost,riskFlags=[]){
       :"";
   }
   const gap=hasCurrent&&Number.isFinite(displayedCeiling)?Number(result.purchase.currentPrice)-displayedCeiling:NaN;
-  q("gapText").textContent=Number.isFinite(gap)?(gap>0?fmt(gap)+" acima do valor-alvo":fmt(Math.abs(gap))+" abaixo do valor-alvo"):"—";
+  q("gapText").textContent=Number.isFinite(gap)
+    ?(gap>0
+      ?(askingPrice?"Negociar pelo menos "+fmt(gap):fmt(gap)+" acima do teto comercial")
+      :(askingPrice?fmt(Math.abs(gap))+" abaixo do teto comercial":fmt(Math.abs(gap))+" de margem até ao teto"))
+    :"—";
   const verified=result.market?.verifiedProfessionals??0;
   const quality=result.purchase?.eligible
-    ?"Avaliação suportada por "+verified+" comparáveis profissionais verificados."
+    ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
     :Number.isFinite(Number(result.market?.marketValue))
-      ?"Avaliação provisória com "+(result.market?.comparablesUsed??0)+" comparável(is). Dados em falta reduzem a confiança, mas não escondem o valor de mercado."
+      ?"Teto de compra provisório calculado a partir de "+(result.market?.comparablesUsed??0)+" comparável(is), valor de revenda e margem comercial. Dados em falta reduzem a confiança."
       :(result.warnings?.[0]||"Ainda não existe base de mercado suficiente.");
   if(q("qualityNote"))q("qualityNote").textContent=quality;
   q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
