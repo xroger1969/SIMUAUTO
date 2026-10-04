@@ -20,15 +20,24 @@ function canonicalUrl(raw){
 }
 
 function searchSources(data){
-  const found=new Map();
+  const found=new Map(),seen=new Set();
   const add=source=>{
-    const url=canonicalUrl(source?.url);
-    if(url&&!found.has(url))found.set(url,{url,title:clip(source?.title,240)});
+    const url=canonicalUrl(source?.url||source?.link);
+    if(url&&!found.has(url))found.set(url,{url,title:clip(source?.title||source?.name,240)});
   };
-  for(const item of data?.output||[]){
-    if(item?.type==="web_search_call")for(const source of item?.action?.sources||[])add(source);
-  }
-  return [...found.values()].slice(0,40);
+  const visit=(node,depth=0)=>{
+    if(!node||depth>9)return;
+    if(Array.isArray(node)){for(const item of node)visit(item,depth+1);return}
+    if(typeof node!=="object")return;
+    if(seen.has(node))return;seen.add(node);
+    if(node.url||node.link)add(node);
+    for(const [key,value] of Object.entries(node)){
+      if(key==="output_text"||key==="text"||key==="content_text")continue;
+      if(value&&typeof value==="object")visit(value,depth+1);
+    }
+  };
+  visit(data);
+  return [...found.values()].slice(0,80);
 }
 
 async function cachedRegistration(token,value){
@@ -128,6 +137,11 @@ function missingIdentity(subject={}){
   if(!known(subject.mileage_km)||!Number.isFinite(Number(subject.mileage_km))||Number(subject.mileage_km)<0)missing.push("mileage_km");
   return missing;
 }
+function marketReady(subject={}){
+  const make=normalizeIdentity(subject.make),model=normalizeIdentity(subject.model);
+  const year=Number(subject.year);
+  return !!(make&&model&&(normalizeRegistration(subject.registration)||(Number.isInteger(year)&&year>=1950&&year<=new Date().getFullYear()+1)));
+}
 function mergeRegistration(subject,registration){
   if(!registration)return subject;
   const result={...subject};
@@ -146,23 +160,42 @@ function estimateMileage(result){
   const subject=result.subject||{};
   if(result.valuation_blocked||!normalizeRegistration(subject.registration)||subject.mileage_km!==null&&subject.mileage_km!==undefined)return result;
   const seen=new Set();
-  let candidates=(result.comparables||[]).filter(c=>{
+  const base=(result.comparables||[]).filter(c=>{
     const url=canonicalUrl(c.url);
     if(!url||seen.has(url))return false;
-    const host=new URL(url).hostname;
-    if(!(host==="standvirtual.com"||host.endsWith(".standvirtual.com"))||c.evidence?.source_url_verified!==true||c.country!=="PT"||c.availability!=="available")return false;
-    if(!c.make||!c.model||!registrationCompatible(subject,c)||!c.fuel||normalizeIdentity(c.fuel)!==normalizeIdentity(subject.fuel))return false;
-    if(!Number.isInteger(c.year)||Math.abs(c.year-subject.year)>1||!Number.isFinite(c.mileage_km)||c.mileage_km<0)return false;
-    if(normalizeIdentity(c.trim)!==normalizeIdentity(subject.trim)&&!(Number(subject.power_cv)>0&&Number(c.power_cv)===Number(subject.power_cv)))return false;
+    let host="";try{host=new URL(url).hostname}catch{return false}
+    if(!(host==="standvirtual.com"||host.endsWith(".standvirtual.com"))||c.country!=="PT"||c.availability!=="available")return false;
+    if(!c.make||!c.model||!registrationCompatible(subject,c))return false;
+    if(subject.fuel&&c.fuel&&normalizeIdentity(c.fuel)!==normalizeIdentity(subject.fuel))return false;
+    if(!Number.isFinite(Number(c.mileage_km))||Number(c.mileage_km)<0)return false;
     seen.add(url);return true;
   });
+  if(!base.length)return result;
+  const subjectYear=Number(subject.year);
+  const yearBand=(rows,years)=>Number.isInteger(subjectYear)?rows.filter(c=>Number.isInteger(Number(c.year))&&Math.abs(Number(c.year)-subjectYear)<=years):rows;
+  const variantMatch=c=>{
+    const sameTrim=subject.trim&&c.trim&&normalizeIdentity(c.trim)===normalizeIdentity(subject.trim);
+    const samePower=Number(subject.power_cv)>0&&Number(c.power_cv)>0&&Math.abs(Number(c.power_cv)-Number(subject.power_cv))<=5;
+    return sameTrim||samePower;
+  };
+  let candidates=yearBand(base,1).filter(variantMatch);
+  let level="mesma versão/motor e ano ±1";
+  if(!candidates.length){candidates=yearBand(base,1);level="mesmo modelo/motor e ano ±1"}
+  if(!candidates.length){candidates=yearBand(base,2);level="mesmo modelo/motor e ano ±2"}
+  if(!candidates.length){candidates=base;level="mesmo modelo/motor"}
   const professionals=candidates.filter(c=>c.seller_type==="professional");
   if(professionals.length)candidates=professionals;
-  if(!candidates.length)return result;
-  const mean=Math.round(candidates.reduce((sum,c)=>sum+c.mileage_km,0)/candidates.length);
-  result.subject={...subject,mileage_km:mean,mileage_estimated:true,mileage_estimate:{method:"mean",source:"Standvirtual",sample_size:candidates.length,urls:candidates.map(c=>c.url)}};
+  const values=candidates.map(c=>Number(c.mileage_km)).filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!values.length)return result;
+  const mid=Math.floor(values.length/2);
+  const median=Math.round(values.length%2?values[mid]:(values[mid-1]+values[mid])/2);
+  const verifiedCount=candidates.filter(c=>c.evidence?.source_url_verified===true).length;
+  result.subject={...subject,mileage_km:median,mileage_estimated:true,mileage_estimate:{
+    method:"median",source:"Standvirtual",sample_size:candidates.length,verified_urls:verifiedCount,matching_level:level,
+    min_km:values[0],max_km:values.at(-1),urls:candidates.map(c=>c.url)
+  }};
   result.data_quality=result.data_quality||{};
-  result.data_quality.notes=[result.data_quality.notes,"Quilómetros estimados pela média de "+candidates.length+" anúncio(s) comparável(is) do Standvirtual; não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
+  result.data_quality.notes=[result.data_quality.notes,"Quilómetros estimados pela mediana de "+candidates.length+" anúncio(s) comparável(is) do Standvirtual ("+level+"). Não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
   return result;
 }
 
@@ -224,7 +257,9 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
         verified,
         observed_at:observed,
         source:verified?"web_search_source":"model_reported",
-        source_url_verified:sourceUrls.has(url)
+        source_url_verified:sourceUrls.has(url),
+        reported_url:true,
+        confidence:verified?"verified":"reported"
       }
     }];
   });
@@ -452,8 +487,7 @@ module.exports=endpoint(async function handler(req,res){
       result.comparables=[];
       result.search_sources=[];
       result.missing_fields=missingIdentity(result.subject);
-      const canEstimateMileage=normalizeRegistration(result.subject.registration)&&result.missing_fields.length===1&&result.missing_fields[0]==="mileage_km";
-      if(!result.valuation_blocked&&(!result.missing_fields.length||canEstimateMileage)){
+      if(!result.valuation_blocked&&marketReady(result.subject)){
         const nextContext={...job.context,stage:"market_pending",previous_subject:result.subject,registration_data:result.registration_data};
         // Claim this transition atomically: overlapping polls must not launch duplicate searches.
         const claimed=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage=eq.identify&response_id=eq."+encodeURIComponent(job.response_id),{
@@ -527,6 +561,14 @@ module.exports=endpoint(async function handler(req,res){
   }
 
   try{
+    const registrationOnly=!!registrationData&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
+    if(registrationOnly){
+      const subject=mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData);
+      const marketContext={...context,stage:"market",previous_subject:subject,registration_data:registrationData};
+      const data=await startResponse(marketContext,[],metadata,false);
+      await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
+      return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true});
+    }
     const data=await startResponse(context,imageDataUrls,metadata,true);
     await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:{...context,registration_data:registrationData}});
     return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData});
@@ -536,4 +578,4 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,finalizeMarketResponse,startResponse,estimateMileage,boundedContext};
+module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,marketReady,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources};
