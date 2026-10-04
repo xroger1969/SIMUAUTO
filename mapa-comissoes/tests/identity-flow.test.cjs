@@ -37,9 +37,10 @@ test('photo mismatch blocks before any research is launched',async()=>{
   const h=harness({vehicle:{...subject,registration:'AA-00-AA'}});const r=await h.poll();
   assert.equal(r.result.valuation_blocked,true);assert.equal(r.result.comparables.length,0);assert.equal(h.counts().researchCalls,0);
 });
-test('missing km returns a follow-up without research',async()=>{
+test('missing km launches market research so V2 can estimate it',async()=>{
   const h=harness({vehicle:{...subject,mileage_km:null}});const r=await h.poll();
-  assert.ok(r.result.missing_fields.includes('mileage_km'));assert.equal(h.counts().researchCalls,0);
+  assert.equal(r.status,202);assert.equal(h.counts().researchCalls,1);assert.equal(h.job.context.stage,'market');
+  assert.equal(h.job.context.previous_subject.mileage_km,null);
 });
 test('complete identity launches research as the second stage',async()=>{
   const h=harness();const r=await h.poll();assert.equal(r.status,202);assert.equal(h.counts().researchCalls,1);assert.equal(h.job.context.stage,'market');assert.equal(h.job.context.previous_subject.price,30000);
