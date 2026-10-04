@@ -62,8 +62,6 @@
 
     <section class="hero">
       <span class="eyebrow">Motor de decisão de compra</span>
-      <h1>Cola o link, faz upload de fotografias com informação ou descreve a viatura.</h1>
-
       <form id="analyzeForm" class="analyze-bar">
         <div class="vehicle-input-shell">
           <input aria-label="Link, matrícula ou descrição da viatura" id="vehicleUrl" type="text" maxlength="4000" placeholder="Link, matrícula ou descreve a viatura">
@@ -242,7 +240,7 @@
     </section>
   </main>
 
-  <div id="auto1Connection" class="panel hidden" style="max-width:760px;margin:20px auto" role="status"><h3>AUTO1 — ficha privada</h3><p>No iPhone, o link AUTO1 sozinho não expõe os dados da viatura. O Comparador deixa de fingir que leu a ficha e não gasta uma pesquisa sem informação suficiente.</p><p>Anexa 1 a 3 capturas da oferta — idealmente topo da ficha, preço/quilómetros e especificações. A IA lê as imagens, identifica a viatura, pesquisa o mercado profissional e continua o cálculo.</p><label class="btn primary small" for="vehiclePhoto">Anexar capturas AUTO1</label></div>
+  <div id="auto1Connection" class="hidden" style="max-width:760px;margin:16px auto 20px;text-align:center" role="status"><label class="btn primary small" for="vehiclePhoto">Anexar capturas AUTO1</label></div>
   <div class="refine-dialog hidden" id="refineDialog" role="dialog" aria-modal="true" aria-labelledby="refineDialogTitle">
     <div class="refine-dialog-card">
       <div class="refine-dialog-head">
@@ -261,7 +259,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261004-back1"></script>
+  <script type="module" src="./app-v2.js?v=20261004-clean1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
