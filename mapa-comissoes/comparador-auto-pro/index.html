@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261003-share1">
+  <link rel="stylesheet" href="./styles.css?v=20261004-photo-followup1">
 </head>
 <body>
   <div class="auth-gate" id="authGate">
@@ -142,6 +142,23 @@
           <div class="vehicle-data-quality" id="vehicleDataQuality">—</div>
         </div>
       </details>
+
+      <section class="vehicle-followup hidden" id="vehicleFollowup" aria-live="polite">
+        <div class="vehicle-followup-copy">
+          <span class="eyebrow">Comprador IA</span>
+          <strong id="vehicleFollowupTitle">Preciso de mais informação</strong>
+          <p id="vehicleFollowupText">Antes de calcular a compra, vou confirmar os dados essenciais da viatura.</p>
+          <div class="vehicle-followup-missing" id="vehicleFollowupMissing"></div>
+        </div>
+        <form class="vehicle-followup-form" id="vehicleFollowupForm">
+          <input id="vehicleFollowupInput" type="text" maxlength="1200" autocomplete="off" placeholder="Ex.: 2018 · 126 000 km · 1.7 CRDi · diesel">
+          <div class="vehicle-followup-actions">
+            <label class="btn ghost small" for="vehiclePhoto">Adicionar fotos</label>
+            <button class="btn primary small" type="submit" id="vehicleFollowupBtn">Continuar análise</button>
+          </div>
+          <small id="vehicleFollowupPhotoCount">Podes enviar fotos do anúncio, documento, quadrante ou emblema da versão.</small>
+        </form>
+      </section>
 
       <div class="decision-card">
         <div>
@@ -265,7 +282,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261004-clean1"></script>
+  <script type="module" src="./app-v2.js?v=20261004-photo-followup1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
