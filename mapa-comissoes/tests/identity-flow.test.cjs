@@ -69,6 +69,44 @@ test('previously supplied registration is also checked against vehicle',async()=
   assert.equal(result.valuation_blocked,true);assert.equal(result.subject.make,'Tesla');
 });
 
+test('provider outage keeps explicit plate and does not block a visually identified vehicle',async()=>{
+  const h=harness();
+  const result=await h.ctx.module.exports._test.finalizeMarketResponse({
+    status:'completed',
+    metadata:{cap_registration:'14-ID-91',cap_registration_lookup:'unavailable'},
+    output_text:JSON.stringify({subject:{...subject,registration:'14-ID-91'},comparables:[],risk_flags:[],data_quality:{completeness_pct:80,uncertain_fields:[],notes:''}})
+  },null,'test');
+  assert.notEqual(result.valuation_blocked,true);
+  assert.equal(result.subject.registration,'14-ID-91');
+  assert.ok(result.risk_flags.some(r=>r.code==='registration_lookup_unavailable'));
+});
+
+test('typed plate mismatch with photographed plate still blocks',async()=>{
+  const h=harness();
+  const result=await h.ctx.module.exports._test.finalizeMarketResponse({
+    status:'completed',
+    metadata:{cap_registration:'14-ID-91',cap_registration_lookup:'unavailable'},
+    output_text:JSON.stringify({subject:{...subject,registration:'AA-00-AA'},comparables:[],risk_flags:[],data_quality:{completeness_pct:80,uncertain_fields:[],notes:''}})
+  },null,'test');
+  assert.equal(result.valuation_blocked,true);
+  assert.ok(result.risk_flags.some(r=>r.code==='registration_unconfirmed'));
+});
+
+test('bounded context preserves plate when supplier lookup fails',()=>{
+  const {boundedContext}=require('../api/comparador-market')._test;
+  const ctx=boundedContext({registration:'14-ID-91'},null,'supplier unavailable');
+  assert.equal(ctx.registration_input,'14-ID-91');
+  assert.equal(ctx.registration_lookup_warning,'supplier unavailable');
+});
+
+test('registration-only identification may use web search when provider is unavailable',async()=>{
+  const h=harness();let body;
+  h.ctx.fetch=async(u,o)=>{body=JSON.parse(o.body);return {ok:true,json:async()=>({id:'resp_plate'})};};
+  await h.ctx.module.exports._test.startResponse({registration_input:'14-ID-91',original_url:null,text_sample:''},[],{},true);
+  assert.deepEqual(body.tools,[{type:'web_search'}]);
+  assert.equal(body.tool_choice,'auto');
+});
+
 test('Standvirtual mileage mean is labelled estimated and ignores duplicates and other portals',()=>{
   const {estimateMileage}=require('../api/comparador-market')._test;
   const car={...subject,registration:'AA-00-AA',mileage_km:null};
