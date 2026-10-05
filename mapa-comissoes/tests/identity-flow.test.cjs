@@ -138,3 +138,29 @@ test('search source extraction walks nested response structures',()=>{
   const rows=searchSources({output:[{type:'web_search_call',action:{results:[{sources:[{url:'https://www.standvirtual.com/carros/anuncio/x',title:'Berlingo'}]}]}}]});
   assert.equal(rows.length,1);assert.match(rows[0].url,/standvirtual/);
 });
+
+
+test('MyCarPlate Portugal response maps the useful technical fields',()=>{
+  const {parseMyCarPlateData}=require('../lib/registration');
+  const r=parseMyCarPlateData({success:true,data:{
+    plate:'14ID91',country:'PT',make:'Renault',model:'Megane',version:'1.5 dCi',
+    year:2009,engineSize:'1461',fuelType:'Diesel',horsePower:106,powerKw:78,
+    doors:5,color:'Grey',firstRegistration:'2009-08-12',bodyClass:'Hatchback'
+  }});
+  assert.equal(r.registration,'14-ID-91');
+  assert.equal(r.make,'Renault');
+  assert.equal(r.model,'Megane');
+  assert.equal(r.trim,'1.5 dCi');
+  assert.equal(r.year,2009);
+  assert.equal(r.engine_cc,1461);
+  assert.equal(r.power_cv,106);
+  assert.equal(r.fuel,'Diesel');
+  assert.equal(r.provider,'mycarplate');
+});
+
+test('registration merge fills power from a plate provider without overwriting confirmed power',()=>{
+  const missing=mergeRegistration({...subject,power_cv:null},{make:'Tesla',model:'Model Y',power_cv:351});
+  const confirmed=mergeRegistration({...subject,power_cv:299},{make:'Tesla',model:'Model Y',power_cv:351});
+  assert.equal(missing.power_cv,351);
+  assert.equal(confirmed.power_cv,299);
+});
