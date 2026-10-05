@@ -1,21 +1,21 @@
 module.exports=async function handler(req,res){
-  const url='https://mycarplate.online/api/v1/vehicle?plate=14ID91&country=PT&withVin=true';
   try{
-    const response=await fetch(url,{headers:{accept:'application/json','user-agent':'AvaliadorAutoPro/1.0'},signal:AbortSignal.timeout(20000)});
-    const text=await response.text();
-    let body=null;try{body=JSON.parse(text)}catch{}
-    const data=body?.data||null;
-    return res.status(200).json({
-      ok:response.ok,status:response.status,
-      vehicle:data?{
-        plate:data.plate,make:data.make,model:data.model,version:data.version,year:data.year,
-        fuelType:data.fuelType,engineSize:data.engineSize,horsePower:data.horsePower,powerKw:data.powerKw,
-        firstRegistration:data.firstRegistration,bodyClass:data.bodyClass,engineCode:data.engineCode,
-        hasVin:!!data.vin,vinLength:data.vin?String(data.vin).length:0,
-        keys:Object.keys(data).sort()
-      }:null,
-      error:body?.error||null
+    const first=await fetch('https://mycarplate.online/api/v1/vehicle?plate=14ID91&country=PT&withVin=true',{
+      headers:{accept:'application/json','user-agent':'AvaliadorAutoPro/1.0'},signal:AbortSignal.timeout(20000)
     });
+    const body=await first.json().catch(()=>null);
+    const data=body?.data||null;
+    const out={
+      plate:{ok:first.ok,status:first.status,make:data?.make||null,model:data?.model||null,version:data?.version||null,year:data?.year||null,fuelType:data?.fuelType||null,hasVin:!!data?.vin}
+    };
+    if(data?.vin){
+      const vp='https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValuesExtended/'+encodeURIComponent(data.vin)+'?format=json'+(data.year?'&modelyear='+encodeURIComponent(data.year):'');
+      const vr=await fetch(vp,{headers:{accept:'application/json','user-agent':'AvaliadorAutoPro/1.0'},signal:AbortSignal.timeout(20000)});
+      const vj=await vr.json().catch(()=>null);
+      const v=Array.isArray(vj?.Results)?vj.Results[0]:null;
+      out.vinDecode={ok:vr.ok,status:vr.status,make:v?.Make||null,model:v?.Model||null,modelYear:v?.ModelYear||null,trim:v?.Trim||null,series:v?.Series||null,fuelType:v?.FuelTypePrimary||null,engineModel:v?.EngineModel||null,displacementL:v?.DisplacementL||null,engineHP:v?.EngineHP||null,errorCode:v?.ErrorCode||null,errorText:v?.ErrorText||null};
+    }
+    return res.status(200).json(out);
   }catch(error){
     return res.status(200).json({ok:false,error:error?.message||String(error),name:error?.name||null,cause:error?.cause?.message||error?.cause?.code||null});
   }
