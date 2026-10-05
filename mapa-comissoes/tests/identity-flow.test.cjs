@@ -164,3 +164,38 @@ test('registration merge fills power from a plate provider without overwriting c
   assert.equal(missing.power_cv,351);
   assert.equal(confirmed.power_cv,299);
 });
+
+
+test('MyCarPlate can infer a shared model from ambiguous Portuguese version options',()=>{
+  const {parseMyCarPlateData}=require('../lib/registration');
+  const r=parseMyCarPlateData({success:true,data:{
+    plate:'14ID91',make:'Renault',model:null,year:2009,fuelType:'Diesel',firstRegistration:'2009-08-31',
+    transmission:'Manual',confidence:0.9,
+    versionOptions:[
+      'Mégane II Break Diesel Fase II 1.5 dCi SE Exclusive | 105cv | 5P | 5L',
+      'Mégane III Sport Tourer Diesel 1.5 dCi Dynamique | 110cv | 5P | 5L',
+      'Mégane III Coupé Diesel 1.5 dCi Dynamique | 105cv | 2P | 5L'
+    ]
+  }});
+  assert.equal(r.registration,'14-ID-91');
+  assert.equal(r.make,'Renault');
+  assert.equal(r.model,'Mégane');
+  assert.equal(r.year,2009);
+  assert.equal(r.fuel,'Diesel');
+  assert.equal(r.transmission,'Manual');
+  assert.equal(r.version_options.length,3);
+});
+
+test('plate-only manual text is eligible for identity web search',()=>{
+  const {plateOnlyIdentityText}=require('../api/comparador-market')._test;
+  assert.equal(plateOnlyIdentityText({registration_input:'14-ID-91',text_sample:'14-ID-91'}),true);
+  assert.equal(plateOnlyIdentityText({registration_input:'14-ID-91',text_sample:'Renault Mégane 2009'}),false);
+});
+
+test('plate-only identification uses web search even when the text sample is the plate',async()=>{
+  const h=harness();let body;
+  h.ctx.fetch=async(u,o)=>{body=JSON.parse(o.body);return {ok:true,json:async()=>({id:'resp_plate_text'})};};
+  await h.ctx.module.exports._test.startResponse({registration_input:'14-ID-91',original_url:null,text_sample:'14-ID-91',manual_description:'14-ID-91'},[],{},true);
+  assert.deepEqual(body.tools,[{type:'web_search'}]);
+  assert.equal(body.tool_choice,'auto');
+});
