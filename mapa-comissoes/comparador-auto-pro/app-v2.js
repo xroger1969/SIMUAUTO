@@ -106,6 +106,8 @@ function sourceName(host){
   if(/piscapisca\.pt$/i.test(host))return "PiscaPisca";
   if(host==="photo")return "Fotografia IA";
   if(host==="manual")return "Descrição manual";
+  if(host==="mycarplate")return "MyCarPlate";
+  if(host==="Matrícula")return "Matrícula";
   return host.replace(/^www\./,"");
 }
 function hostFromUrl(raw){
@@ -1400,11 +1402,13 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,
       page:reader.page||{},image_data_urls:imagesForAnalysis,dealer_memories:allRules.slice(0,20),refinement_history:[]
     };
-    const sourceHost=entry.registration?"Matrícula.co.pt":reader?.source_kind==="authenticated_browser"?url.hostname:imagesForAnalysis.length?"photo":entry.mode==="manual"?"manual":url.hostname;
+    let sourceHost=entry.registration?"Matrícula":reader?.source_kind==="authenticated_browser"?url.hostname:imagesForAnalysis.length?"photo":entry.mode==="manual"?"manual":url.hostname;
     lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload,allRules};
     const market=await runMarketAnalysis(marketPayload,operation);
     assertOperation(operation);
     if(market.registration_data)marketPayload.registration_data=market.registration_data;
+    if(entry.registration&&market.registration_data?.provider==="mycarplate")sourceHost="mycarplate";
+    else if(entry.registration&&/matricula|regcheck/i.test(String(market.registration_data?.provider||"")))sourceHost="matricula.co.pt";
 
     const subject=mergeAuto1AuthenticatedFacts(market.subject||{},reader);
     const comparables=Array.isArray(market.comparables)?market.comparables:[];
