@@ -104,6 +104,7 @@ function registrationFromMetadata(meta={}){
     fuel:meta.cap_reg_fuel||null,
     body_type:meta.cap_reg_body_type||null,
     engine_cc:Number(meta.cap_reg_engine_cc)||null,
+    power_cv:Number(meta.cap_reg_power_cv)||null,
     transmission:meta.cap_reg_transmission||null,
     doors:Number(meta.cap_reg_doors)||null,
     seats:Number(meta.cap_reg_seats)||null,
@@ -149,7 +150,7 @@ function mergeRegistration(subject,registration){
   for(const key of ["make","model"]){
     if(registration[key])result[key]=registration[key];
   }
-  for(const key of ["trim","year","first_registration","fuel","body_type","engine_cc","transmission","doors","seats","color"]){
+  for(const key of ["trim","year","first_registration","fuel","body_type","engine_cc","power_cv","transmission","doors","seats","color"]){
     if((result[key]===null||result[key]===undefined||result[key]==="")&&registration[key]!==null&&registration[key]!==undefined&&registration[key]!=="")result[key]=registration[key];
   }
   if((!result.origin||result.origin==="unknown")&&registration.origin)result.origin=registration.origin;
@@ -582,6 +583,7 @@ module.exports=endpoint(async function handler(req,res){
     if(registrationData.fuel)metadata.cap_reg_fuel=clip(registrationData.fuel,40);
     if(registrationData.body_type)metadata.cap_reg_body_type=clip(registrationData.body_type,60);
     if(registrationData.engine_cc)metadata.cap_reg_engine_cc=String(registrationData.engine_cc);
+    if(registrationData.power_cv)metadata.cap_reg_power_cv=String(registrationData.power_cv);
     if(registrationData.transmission)metadata.cap_reg_transmission=clip(registrationData.transmission,60);
     if(registrationData.doors)metadata.cap_reg_doors=String(registrationData.doors);
     if(registrationData.seats)metadata.cap_reg_seats=String(registrationData.seats);
