@@ -1,21 +1,30 @@
+const {lookupRegistration}=require("../lib/registration");
+
 module.exports=async function handler(req,res){
   try{
-    const first=await fetch('https://mycarplate.online/api/v1/vehicle?plate=14ID91&country=PT&withVin=true',{
-      headers:{accept:'application/json','user-agent':'AvaliadorAutoPro/1.0'},signal:AbortSignal.timeout(20000)
+    const data=await lookupRegistration("14-ID-91",{
+      username:null,
+      apiKey:null,
+      myCarPlateApiKey:process.env.MYCARPLATE_API_KEY,
+      fetcher:fetch
     });
-    const body=await first.json().catch(()=>null);
-    const d=body?.data||null;
     return res.status(200).json({
-      ok:first.ok,status:first.status,
-      vehicle:d?{
-        plate:d.plate,make:d.make,model:d.model,version:d.version,year:d.year,fuelType:d.fuelType,
-        engineSize:d.engineSize,horsePower:d.horsePower,powerKw:d.powerKw,firstRegistration:d.firstRegistration,
-        bodyClass:d.bodyClass,engineCode:d.engineCode,transmission:d.transmission,doors:d.doors,
-        versionOptions:d.versionOptions||null,doorsOptions:d.doorsOptions||null,base7Code:d.base7Code||null,
-        confidence:d.confidence||null,hasVin:!!d.vin
-      }:null,error:body?.error||null
+      ok:true,
+      vehicle:{
+        registration:data.registration,
+        make:data.make,
+        model:data.model,
+        trim:data.trim,
+        year:data.year,
+        fuel:data.fuel,
+        first_registration:data.first_registration,
+        transmission:data.transmission,
+        power_cv:data.power_cv,
+        provider:data.provider,
+        version_options:data.version_options
+      }
     });
   }catch(error){
-    return res.status(200).json({ok:false,error:error?.message||String(error),name:error?.name||null,cause:error?.cause?.message||error?.cause?.code||null});
+    return res.status(200).json({ok:false,error:error?.message||String(error),status:error?.status||null});
   }
 };
