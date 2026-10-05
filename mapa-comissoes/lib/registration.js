@@ -95,27 +95,6 @@ function inferModelFromOptions(make,options){
   if(generic.has(firstKey)||firstKey.length<2)return '';
   return prefix.join(' ').trim();
 }
-function parseMyCarPlateData(payload){');
-  const tokenRows=rows.map(row=>{
-    const stripped=makeText?row.replace(new RegExp('^'+escape(makeText)+'\\s+','i'),''):row;
-    return stripped.split(/\\s+/).filter(Boolean);
-  }).filter(parts=>parts.length);
-  if(!tokenRows.length)return '';
-  const first=tokenRows[0],prefix=[];
-  for(let i=0;i<first.length;i++){
-    const key=first[i].normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
-    if(!key||!tokenRows.every(parts=>{
-      const p=parts[i];
-      return p&&p.normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'')===key;
-    }))break;
-    prefix.push(first[i]);
-  }
-  if(!prefix.length)return '';
-  const generic=new Set(['model','modelo','series','serie','class','classe','diesel','petrol','gasolina','hybrid','hibrido','electric','eletrico']);
-  const firstKey=prefix[0].normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
-  if(generic.has(firstKey)||firstKey.length<2)return '';
-  return prefix.join(' ').trim();
-}
 function parseMyCarPlateData(payload){
   const data=payload&&typeof payload==='object'&&payload.data&&typeof payload.data==='object'?payload.data:payload;
   if(!data||typeof data!=='object')throw failure('O MyCarPlate não devolveu uma ficha válida para esta matrícula.');
@@ -132,8 +111,8 @@ function parseMyCarPlateData(payload){
   const co2=numberField(data.co2Emissions);
   return {
     registration:displayRegistration(data.plate)||null,
-    make,
-    model,
+    make:make||null,
+    model:model||null,
     trim:field(data.version)||null,
     version_options:versionOptions,
     confidence:Number.isFinite(Number(data.confidence))?Number(data.confidence):null,
@@ -186,7 +165,12 @@ async function lookupRegistration(value,{
     }
   }catch(error){
     myCarPlateTransportError=error;
-    console.warn('mycarplate_transport_failure',{kind:error?.name||'unknown',message:error?.message||'',cause:error?.cause?.message||error?.cause?.code||'',code:error?.cause?.code||error?.code||'unknown'});
+    console.warn('mycarplate_transport_failure',{
+      kind:error?.name||'unknown',
+      message:error?.message||'',
+      cause:error?.cause?.message||error?.cause?.code||'',
+      code:error?.cause?.code||error?.code||'unknown'
+    });
   }
 
   if(!username){
