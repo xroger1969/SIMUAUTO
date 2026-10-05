@@ -343,6 +343,14 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
   };
 }
 
+function plateOnlyIdentityText(context={}){
+  const plate=normalizeRegistration(context.registration_input);
+  if(!plate)return false;
+  const text=String(context.text_sample||context.manual_description||'').trim();
+  if(!text)return true;
+  return text.toUpperCase().replace(/[^A-Z0-9]/g,'')===plate;
+}
+
 const marketSchema={
   type:"object",
   additionalProperties:false,
@@ -460,7 +468,7 @@ async function startResponse(context,imageDataUrls,metadata,identify){
             ...imageDataUrls.map(image_url=>({type:"input_image",image_url,detail:"high"}))
           ]
         }]:"ANÚNCIO A ANALISAR:\n"+JSON.stringify(context)+"\n\n"+(identify?"Identifica a viatura, sem comparáveis.":"Pesquisa o mercado português e devolve comparáveis atuais."),
-        ...(identify?(imageDataUrls.length||context.text_sample?{tools:[]}:(context.original_url||context.registration_input?{tools:[{type:"web_search"}],tool_choice:"auto"}:{tools:[]})):{tools:[{type:"web_search"}],tool_choice:"required"}),
+        ...(identify?(imageDataUrls.length?{tools:[]}:((context.original_url||context.registration_input)&&(!context.text_sample||plateOnlyIdentityText(context))?{tools:[{type:"web_search"}],tool_choice:"auto"}:{tools:[]})):{tools:[{type:"web_search"}],tool_choice:"required"}),
         max_tool_calls:10,
         include:["web_search_call.action.sources"],
         text:{format:{type:"json_schema",name:"comparador_market_result",strict:true,schema:marketSchema},verbosity:"low"},
@@ -592,9 +600,10 @@ module.exports=endpoint(async function handler(req,res){
   }
 
   try{
-    const registrationOnly=!!registrationData&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
+    const registrationSubject=registrationData?mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData):null;
+    const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
     if(registrationOnly){
-      const subject=mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData);
+      const subject=registrationSubject;
       const marketContext={...context,stage:"market",previous_subject:subject,registration_data:registrationData};
       const data=await startResponse(marketContext,[],metadata,false);
       await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
@@ -609,4 +618,4 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,marketReady,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources};
+module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,marketReady,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
