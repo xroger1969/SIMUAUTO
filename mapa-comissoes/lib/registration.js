@@ -75,9 +75,25 @@ function parseRegistration(xml){
 function inferModelFromOptions(make,options){
   const rows=(Array.isArray(options)?options:[]).map(v=>field(v)).filter(Boolean).slice(0,20);
   if(!rows.length)return '';
-  const makeText=field(make);
-  const escape=s=>s.replace(/[|\\{}()[\]^$+*?.-]/g,'\\function parseRegistration(xml){
-  return parseRegistrationData(decodeVehicleJson(xml),'matricula.co.pt');
+  const key=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const makeParts=field(make).split(/\s+/).filter(Boolean);
+  const tokenRows=rows.map(row=>{
+    let parts=row.split(/\s+/).filter(Boolean);
+    if(makeParts.length&&parts.length>=makeParts.length&&makeParts.every((p,i)=>key(parts[i])===key(p)))parts=parts.slice(makeParts.length);
+    return parts;
+  }).filter(parts=>parts.length);
+  if(!tokenRows.length)return '';
+  const first=tokenRows[0],prefix=[];
+  for(let i=0;i<first.length;i++){
+    const tokenKey=key(first[i]);
+    if(!tokenKey||!tokenRows.every(parts=>parts[i]&&key(parts[i])===tokenKey))break;
+    prefix.push(first[i]);
+  }
+  if(!prefix.length)return '';
+  const generic=new Set(['model','modelo','series','serie','class','classe','diesel','petrol','gasolina','hybrid','hibrido','electric','eletrico']);
+  const firstKey=key(prefix[0]);
+  if(generic.has(firstKey)||firstKey.length<2)return '';
+  return prefix.join(' ').trim();
 }
 function parseMyCarPlateData(payload){');
   const tokenRows=rows.map(row=>{
