@@ -1,4 +1,4 @@
-const {lookupRegistration,normalizeRegistration}=require("../lib/registration");
+const {lookupRegistration,normalizeRegistration,displayRegistration}=require("../lib/registration");
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 
@@ -203,39 +203,58 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
   const parsed=structuredResult(data);
   if(!parsed.subject||!Array.isArray(parsed.comparables))throw appError("Resposta de mercado sem ficha válida.",502,"invalid_market_result");
 
-  let registration=registrationData||registrationFromMetadata(data.metadata||{});
-  let registrationWarning="";
-  if(!registration){
-    const photoPlate=normalizeRegistration(parsed.subject?.registration);
-    if(photoPlate){
-      try{
-        const lookedUp=token?await lookupRegistrationCached(token,photoPlate):await lookupRegistration(photoPlate);
-        if(registrationCompatible(parsed.subject,lookedUp)){
-          registration=lookedUp;
-        }else{
-          registrationWarning="A matrícula lida na fotografia não coincide com a marca/modelo identificados visualmente. Confirma a matrícula ou envia outra fotografia.";
-        }
-      }catch(error){
-        registrationWarning="A matrícula parece legível, mas não foi possível validá-la automaticamente: "+String(error?.message||error);
+  const metadata=data.metadata||{};
+  const submittedPlate=normalizeRegistration(metadata.cap_registration);
+  const observedPlate=normalizeRegistration(parsed.subject?.registration);
+  let registration=registrationData||registrationFromMetadata(metadata);
+  let registrationConflictWarning="";
+  let registrationLookupWarning=metadata.cap_registration_lookup==="unavailable"
+    ?"A matrícula foi mantida, mas o fornecedor externo de matrícula está indisponível. A avaliação continua com a identificação pelas fotografias/anúncio e pela pesquisa de mercado."
+    :"";
+
+  if(submittedPlate&&observedPlate&&submittedPlate!==observedPlate){
+    registrationConflictWarning="A matrícula indicada ("+displayRegistration(submittedPlate)+") não coincide com a matrícula lida nas fotografias ("+displayRegistration(observedPlate)+"). Confirma a matrícula ou envia outra fotografia.";
+  }else if(submittedPlate&&!observedPlate){
+    parsed.subject.registration=displayRegistration(submittedPlate);
+  }
+
+  const plateToValidate=normalizeRegistration(parsed.subject?.registration)||submittedPlate;
+  if(!registration&&plateToValidate&&!registrationConflictWarning&&!registrationLookupWarning){
+    try{
+      const lookedUp=token?await lookupRegistrationCached(token,plateToValidate):await lookupRegistration(plateToValidate);
+      if(registrationCompatible(parsed.subject,lookedUp)){
+        registration=lookedUp;
+      }else{
+        registrationConflictWarning="A matrícula validada não coincide com a marca/modelo identificados visualmente. Confirma a matrícula ou envia outra fotografia.";
       }
+    }catch(error){
+      registrationLookupWarning="A matrícula "+displayRegistration(plateToValidate)+" não pôde ser confirmada automaticamente. A avaliação continua com as restantes fontes. "+String(error?.message||error);
     }
   }
   if(registration&&!registrationCompatible(parsed.subject,registration)){
-    registrationWarning="A matrícula não coincide com a marca/modelo identificados. Confirma a matrícula e a viatura antes de avaliar.";
+    registrationConflictWarning="A matrícula não coincide com a marca/modelo identificados. Confirma a matrícula e a viatura antes de avaliar.";
     registration=null;
   }
+
   parsed.subject=mergeRegistration(parsed.subject,registration);
+  if(submittedPlate&&!normalizeRegistration(parsed.subject.registration))parsed.subject.registration=displayRegistration(submittedPlate);
   parsed.subject.mileage_estimated=parsed.subject.mileage_estimated===true;
-  if(registrationWarning){
+
+  if(registrationConflictWarning){
     parsed.valuation_blocked=true;
     parsed.comparables=[];
   }
-  if(registrationWarning){
+  if(registrationConflictWarning||registrationLookupWarning){
     parsed.risk_flags=Array.isArray(parsed.risk_flags)?parsed.risk_flags:[];
-    parsed.risk_flags.unshift({code:"registration_unconfirmed",label:registrationWarning,severity:"medium",reserve_eur:0});
     parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
     parsed.data_quality.uncertain_fields=[...new Set([...(parsed.data_quality.uncertain_fields||[]),"registration"])];
-    parsed.data_quality.notes=[parsed.data_quality.notes,registrationWarning].filter(Boolean).join(" ");
+    if(registrationConflictWarning){
+      parsed.risk_flags.unshift({code:"registration_unconfirmed",label:registrationConflictWarning,severity:"medium",reserve_eur:0});
+      parsed.data_quality.notes=[parsed.data_quality.notes,registrationConflictWarning].filter(Boolean).join(" ");
+    }else{
+      parsed.risk_flags.unshift({code:"registration_lookup_unavailable",label:registrationLookupWarning,severity:"low",reserve_eur:0});
+      parsed.data_quality.notes=[parsed.data_quality.notes,registrationLookupWarning].filter(Boolean).join(" ");
+    }
   }
   const original=canonicalUrl(data.metadata?.cap_source_url||"");
   const sources=searchSources(data);
@@ -291,7 +310,7 @@ async function updateJob(token,id,patch){
   });
 }
 
-function boundedContext(body,registrationData){
+function boundedContext(body,registrationData,registrationLookupWarning=""){
   const page=body.page&&typeof body.page==="object"?body.page:{};
   const memories=Array.isArray(body.dealer_memories)?body.dealer_memories:[];
   const refinements=Array.isArray(body.refinement_history)?body.refinement_history:[];
@@ -306,6 +325,8 @@ function boundedContext(body,registrationData){
     original_url:body.url||null,
     manual_description:body.mode==="manual"?clip(body.description,4000):null,
     input_mode:body.mode==="manual"?"manual":"url",
+    registration_input:displayRegistration(body.registration||body.registration_data?.registration)||null,
+    registration_lookup_warning:clip(registrationLookupWarning,500)||null,
     registration_data:registrationData,
     previous_subject:body.previous_subject&&typeof body.previous_subject==="object"?{...body.previous_subject,...(body.previous_subject.mileage_estimated?{mileage_km:null,mileage_estimated:false,mileage_estimate:null}:{})}:null,
     dealer_memories:memories.slice(0,12).map(rule=>({
@@ -386,6 +407,8 @@ const instructions=[
   "És o radar de mercado do Comparador Auto Pro para comerciantes profissionais de automóveis usados em Portugal.",
   "Identifica primeiro a viatura analisada. Nunca inventes versão, quilómetros, preço, potência, bateria, IVA ou origem.",
   "Se registration_data existir, usa-a para identificação, mas nunca apagues nem substituas preço, quilómetros ou versão confirmados por outra fonte independente.",
+  "Se registration_input existir mas registration_data não existir, mantém essa matrícula como dado fornecido pelo utilizador. Não deduzas marca/modelo pelos caracteres da matrícula. Usa fotografias, anúncio e pesquisa para identificar a viatura.",
+  "Uma indisponibilidade do fornecedor externo de matrícula não é, por si só, um conflito de identidade e não deve bloquear a avaliação. Só um conflito real entre matrícula, fotografias/anúncio e marca/modelo deve bloquear.",
   "Se previous_subject existir, preserva campos previamente confirmados quando não houver evidência nova e melhor.",
   "dealer_memories contém observações anteriores do comerciante. Trata-as como hipóteses a testar, não como factos. Pesquisa para as confirmar, contrariar ou deixar não confirmadas. Nunca alteres um preço apenas para concordar com uma memória.",
   "refinement_history contém indicações desta análise. Usa-as sem repetir ou acumular texto arbitrariamente.",
@@ -428,7 +451,7 @@ async function startResponse(context,imageDataUrls,metadata,identify){
         background:true,
         store:false,
         metadata,
-        instructions:identify?instructions.replace("Pesquisa obrigatoriamente a web antes de devolver comparáveis.","Nesta fase não pesquises comparáveis.")+"\nFASE DE IDENTIFICAÇÃO: identifica apenas a viatura a partir das fontes fornecidas. Se necessário consulta apenas o anúncio original. Devolve comparables vazio. Não pesquises preços de mercado. Lê a identidade visual independentemente de registration_data; diferenças serão validadas pelo servidor. Dados em falta ficam null.":instructions,
+        instructions:identify?instructions.replace("Pesquisa obrigatoriamente a web antes de devolver comparáveis.","Nesta fase não pesquises comparáveis.")+"\nFASE DE IDENTIFICAÇÃO: identifica apenas a viatura a partir das fontes fornecidas. Se necessário consulta o anúncio original. Se houver registration_input sem registration_data e não houver fotografia/anúncio suficiente, podes pesquisar a matrícula exata; só usa resultados que coincidam claramente. Nunca inventes marca/modelo com base no formato da matrícula. Devolve comparables vazio. Não pesquises preços de mercado. Lê a identidade visual independentemente de registration_data; diferenças serão validadas pelo servidor. Dados em falta ficam null.":instructions,
         input:imageDataUrls.length?[{
           role:"user",
           content:[
@@ -436,7 +459,7 @@ async function startResponse(context,imageDataUrls,metadata,identify){
             ...imageDataUrls.map(image_url=>({type:"input_image",image_url,detail:"high"}))
           ]
         }]:"ANÚNCIO A ANALISAR:\n"+JSON.stringify(context)+"\n\n"+(identify?"Identifica a viatura, sem comparáveis.":"Pesquisa o mercado português e devolve comparáveis atuais."),
-        ...(identify?(imageDataUrls.length||context.text_sample||!context.original_url?{tools:[]}:{tools:[{type:"web_search"}],tool_choice:"auto"}):{tools:[{type:"web_search"}],tool_choice:"required"}),
+        ...(identify?(imageDataUrls.length||context.text_sample?{tools:[]}:(context.original_url||context.registration_input?{tools:[{type:"web_search"}],tool_choice:"auto"}:{tools:[]})):{tools:[{type:"web_search"}],tool_choice:"required"}),
         max_tool_calls:10,
         include:["web_search_call.action.sources"],
         text:{format:{type:"json_schema",name:"comparador_market_result",strict:true,schema:marketSchema},verbosity:"low"},
@@ -525,14 +548,17 @@ module.exports=endpoint(async function handler(req,res){
 
   const registration=clip(req.body?.registration,20).trim();
   let registrationData=null;
+  let registrationLookupWarning="";
   const suppliedPlate=normalizeRegistration(registration||req.body?.registration_data?.registration);
-  if(suppliedPlate)registrationData=await lookupRegistrationCached(token,suppliedPlate);
-  if(registration&&!registrationData){
-    try{registrationData=await lookupRegistrationCached(token,registration)}
-    catch(error){throw appError(error.message,error.status||502,"registration_lookup_failed")}
+  if(suppliedPlate){
+    try{registrationData=await lookupRegistrationCached(token,suppliedPlate)}
+    catch(error){
+      registrationLookupWarning=clip(error?.message||error,500);
+      console.warn("registration_lookup_unavailable",{status:error?.status||502});
+    }
   }
 
-  const context={...boundedContext(req.body,registrationData),stage:"identify"};
+  const context={...boundedContext(req.body,registrationData,registrationLookupWarning),stage:"identify"};
   const claim=await rest(token,"rpc/cap_claim_job",{method:"POST",body:{p_analysis:analysisId,p_request:requestKey,p_context:context}});
   const job=claim?.job;
   if(!job?.id)throw appError("Não foi possível criar a pesquisa.",503,"job_create_failed");
@@ -544,6 +570,8 @@ module.exports=endpoint(async function handler(req,res){
 
   await takeQuota(token,"market");
   const metadata={cap_job_id:job.id,cap_source_url:clip(url,480)};
+  if(suppliedPlate)metadata.cap_registration=clip(displayRegistration(suppliedPlate)||suppliedPlate,20);
+  if(registrationLookupWarning)metadata.cap_registration_lookup="unavailable";
   if(registrationData){
     if(registrationData.registration)metadata.cap_registration=clip(registrationData.registration,20);
     metadata.cap_reg_make=clip(registrationData.make,120);
