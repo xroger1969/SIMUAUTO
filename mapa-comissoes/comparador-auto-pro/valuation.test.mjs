@@ -49,6 +49,12 @@ test('one professional comparable can produce an indicative purchase value',()=>
   assert.ok(r.market.confidencePct<=20);
   assert.equal(r.purchase.provisionalMaxPurchase,Math.max(0,Math.floor(r.market.saleLikely-r.purchase.fixedCosts-r.purchase.riskReserve-3500)));
 });
+test('two comparables cannot show the same confidence ceiling as three',()=>{
+  const two=evaluatePurchase({subject,comparables:[professional(1),professional(2)]});
+  const three=evaluatePurchase({subject,comparables:[professional(1),professional(2),professional(3)]});
+  assert.ok(two.market.confidencePct<=35);
+  assert.ok(three.market.confidencePct>=two.market.confidencePct);
+});
 test('no comparables still cannot produce a purchase estimate',()=>{
   const r=evaluatePurchase({subject,comparables:[]});
   assert.equal(r.purchase.provisionalEligible,false);
