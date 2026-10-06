@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-05-auto1-country-cost";
+export const ENGINE_VERSION="2026-10-06-stable-market-v1";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -328,7 +328,9 @@ export function evaluatePurchase(input,custom={}){
   const rawConfidence=valid.length
     ?Math.min(95,Math.min((verified.length+reportedEvidence*.35)/8,1)*35+(avgSim/100)*35+(1-clamp(dispersion/.45,0,1))*15+completeness*15)
     :0;
-  const provisionalCap=valid.length===1?20:s.mileage_estimated||verified.length===0?39:marketBasis!=="professional"?30:missing.length?45:55;
+  const comparableCountCap=valid.length===1?20:valid.length===2?35:valid.length===3?55:valid.length<=5?70:85;
+  const evidenceCap=s.mileage_estimated||verified.length===0?39:marketBasis!=="professional"?30:missing.length?45:85;
+  const provisionalCap=Math.min(comparableCountCap,evidenceCap);
   const confidencePct=Math.round(Math.min(eligible?95:provisionalCap,rawConfidence));
   if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
