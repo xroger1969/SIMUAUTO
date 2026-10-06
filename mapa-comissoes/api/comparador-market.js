@@ -143,6 +143,48 @@ function marketReady(subject={}){
   const year=Number(subject.year);
   return !!(make&&model&&(normalizeRegistration(subject.registration)||(Number.isInteger(year)&&year>=1950&&year<=new Date().getFullYear()+1)));
 }
+
+const MARKET_CACHE_HOURS=24;
+function marketCacheKey(subject={},context={}){
+  const plate=normalizeRegistration(subject.registration);
+  let identity="";
+  if(plate){
+    identity="plate:"+plate;
+  }else{
+    const make=canonicalMake(subject.make),model=normalizeIdentity(subject.model);
+    if(!make||!model)return null;
+    const year=Number(subject.year);
+    const mileage=Number(subject.mileage_km);
+    const power=Number(subject.power_cv);
+    identity=[
+      "vehicle-v1",make,model,normalizeIdentity(subject.trim),
+      Number.isInteger(year)?year:"",
+      normalizeIdentity(subject.fuel),
+      Number.isFinite(mileage)&&mileage>=0?Math.round(mileage/5000)*5000:"",
+      Number.isFinite(power)&&power>0?Math.round(power/10)*10:"",
+      normalizeIdentity(subject.drivetrain)
+    ].join("|");
+  }
+  const source=canonicalUrl(context.original_url||"");
+  let sourceScope=context.input_mode==="manual"?"manual":"url";
+  if(source){
+    try{
+      const u=new URL(source);
+      sourceScope=u.hostname+u.pathname;
+    }catch{}
+  }
+  return identity+"|source:"+sourceScope;
+}
+function cacheAllowed(context={}){
+  return !(Array.isArray(context.refinement_history)&&context.refinement_history.length);
+}
+function mergeCurrentSubject(cached={},current={}){
+  const merged={...cached};
+  for(const [key,value] of Object.entries(current||{})){
+    if(value!==null&&value!==undefined&&value!=="")merged[key]=value;
+  }
+  return merged;
+}
 function mergeRegistration(subject,registration){
   if(!registration)return subject;
   const result={...subject};
@@ -309,6 +351,45 @@ async function updateJob(token,id,patch){
     body:{...patch,updated_at:nowIso()},
     headers:{Prefer:"return=minimal"}
   });
+}
+
+async function findFreshMarketCache(token,key,excludeJobId=null){
+  if(!key)return null;
+  try{
+    const rows=await rest(
+      token,
+      "cap_jobs?select=id,result,context,updated_at,status&status=eq.completed&context->>market_key=eq."+
+      encodeURIComponent(key)+"&order=updated_at.desc&limit=10"
+    );
+    const cutoff=Date.now()-MARKET_CACHE_HOURS*3600000;
+    for(const row of Array.isArray(rows)?rows:[]){
+      if(!row||row.id===excludeJobId||!row.result||row.result.valuation_blocked===true)continue;
+      if(!Array.isArray(row.result.comparables)||row.result.comparables.length===0)continue;
+      const snapshotAt=row.result?.market_cache?.snapshot_at||row.updated_at;
+      const ts=Date.parse(snapshotAt||"");
+      if(Number.isFinite(ts)&&ts>=cutoff)return {...row,snapshot_at:new Date(ts).toISOString()};
+    }
+  }catch(error){
+    console.warn("market_cache_read_failed",{code:error?.code||"unknown"});
+  }
+  return null;
+}
+
+function reuseMarketCache(cached,currentSubject,registrationData,key){
+  const base=JSON.parse(JSON.stringify(cached.result||{}));
+  const snapshotAt=cached.snapshot_at||base?.market_cache?.snapshot_at||cached.updated_at||nowIso();
+  return {
+    ...base,
+    subject:mergeCurrentSubject(base.subject||{},currentSubject||{}),
+    registration_data:registrationData||base.registration_data||null,
+    market_cache:{
+      hit:true,
+      key,
+      snapshot_at:snapshotAt,
+      source_job_id:cached.id,
+      max_age_hours:MARKET_CACHE_HOURS
+    }
+  };
 }
 
 function boundedContext(body,registrationData,registrationLookupWarning=""){
@@ -521,7 +602,22 @@ module.exports=endpoint(async function handler(req,res){
       result.search_sources=[];
       result.missing_fields=missingIdentity(result.subject);
       if(!result.valuation_blocked&&marketReady(result.subject)){
-        const nextContext={...job.context,stage:"market_pending",previous_subject:result.subject,registration_data:result.registration_data};
+        const key=marketCacheKey(result.subject,job.context);
+        if(cacheAllowed(job.context)&&key){
+          const cached=await findFreshMarketCache(token,key,job.id);
+          if(cached){
+            const reused=reuseMarketCache(cached,result.subject,result.registration_data,key);
+            reused.job_id=job.id;
+            await updateJob(token,job.id,{
+              status:"completed",
+              result:reused,
+              error_message:null,
+              context:{...job.context,stage:"completed",market_key:key,cache_source_job_id:cached.id}
+            });
+            return res.status(200).json(reused);
+          }
+        }
+        const nextContext={...job.context,stage:"market_pending",previous_subject:result.subject,registration_data:result.registration_data,market_key:key};
         // Claim this transition atomically: overlapping polls must not launch duplicate searches.
         const claimed=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage=eq.identify&response_id=eq."+encodeURIComponent(job.response_id),{
           method:"PATCH",body:{context:nextContext,status:"in_progress"},headers:{Prefer:"return=representation"}
@@ -536,6 +632,15 @@ module.exports=endpoint(async function handler(req,res){
           throw error;
         }
       }
+    }
+    if(job.context?.stage==="market"){
+      const key=job.context.market_key||marketCacheKey(result.subject,job.context);
+      result.market_cache={
+        hit:false,
+        key:key||null,
+        snapshot_at:nowIso(),
+        max_age_hours:MARKET_CACHE_HOURS
+      };
     }
     result.job_id=job.id;
     await updateJob(token,job.id,{status:"completed",result,error_message:null});
@@ -604,7 +709,20 @@ module.exports=endpoint(async function handler(req,res){
     const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
     if(registrationOnly){
       const subject=registrationSubject;
-      const marketContext={...context,stage:"market",previous_subject:subject,registration_data:registrationData};
+      const key=marketCacheKey(subject,context);
+      const marketContext={...context,stage:"market",previous_subject:subject,registration_data:registrationData,market_key:key};
+      if(cacheAllowed(context)&&key){
+        const cached=await findFreshMarketCache(token,key,job.id);
+        if(cached){
+          const reused=reuseMarketCache(cached,subject,registrationData,key);
+          reused.job_id=job.id;
+          await updateJob(token,job.id,{
+            status:"completed",result:reused,error_message:null,
+            context:{...marketContext,stage:"completed",cache_source_job_id:cached.id}
+          });
+          return res.status(200).json({...reused,direct_market:true});
+        }
+      }
       const data=await startResponse(marketContext,[],metadata,false);
       await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true});
@@ -618,4 +736,4 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,marketReady,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
