@@ -765,6 +765,17 @@ module.exports=endpoint(async function handler(req,res){
   }
 
   try{
+    const forcedBase=context.force_market_refresh&&context.previous_subject&&typeof context.previous_subject==="object"
+      ?mergeRegistration({...context.previous_subject},registrationData)
+      :null;
+    if(forcedBase&&marketReady(forcedBase)){
+      const key=marketCacheKey(forcedBase,context);
+      const marketContext={...context,stage:"market",previous_subject:forcedBase,registration_data:registrationData,market_key:key};
+      const data=await startResponse(marketContext,[],metadata,false);
+      await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
+      return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,forced_refresh:true});
+    }
+
     const registrationSubject=registrationData?mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData):null;
     const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
     if(registrationOnly){
