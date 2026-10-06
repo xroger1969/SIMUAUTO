@@ -668,23 +668,134 @@ function valuationShareText(data){
     data.title,
     data.meta
   ];
+  lines.push("");
+  lines.push((data.provisional?"Valor comercial de compra provisório: ":"Valor comercial de compra: ")+fmt(data.purchase));
+  lines.push("Venda rápida estimada: "+fmt(data.saleFast));
   if(data.advertised!==null)lines.push("Preço do anúncio: "+fmt(data.advertised));
-  lines.push(
-    (data.provisional?"Cotação de compra provisória: ":"Cotação de compra ideal: ")+fmt(data.purchase),
-    "Cotação de venda ideal para vender rápido: "+fmt(data.saleFast)
-  );
-  if(data.summary)lines.push("Resumo do anúncio: "+data.summary);
-  if(data.source)lines.push("Fonte: "+data.source);
-  lines.push("Análise: "+data.date);
+  lines.push("");
+  lines.push("Avaliação indicativa · "+data.date);
   return lines.join("\n");
+}
+function roundedCanvasRect(ctx,x,y,w,h,r){
+  const radius=Math.min(r,w/2,h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+radius,y);
+  ctx.arcTo(x+w,y,x+w,y+h,radius);
+  ctx.arcTo(x+w,y+h,x,y+h,radius);
+  ctx.arcTo(x,y+h,x,y,radius);
+  ctx.arcTo(x,y,x+w,y,radius);
+  ctx.closePath();
+}
+function drawWrappedCanvasText(ctx,text,x,y,maxWidth,lineHeight,maxLines=2){
+  const words=String(text||"").split(/\s+/).filter(Boolean);
+  const lines=[];
+  let line="";
+  for(const word of words){
+    const test=line?line+" "+word:word;
+    if(ctx.measureText(test).width>maxWidth&&line){
+      lines.push(line);line=word;
+      if(lines.length===maxLines-1)break;
+    }else line=test;
+  }
+  if(line&&lines.length<maxLines)lines.push(line);
+  const consumed=lines.join(" ").split(/\s+/).filter(Boolean).length;
+  if(consumed<words.length&&lines.length){
+    let last=lines[lines.length-1];
+    while(last.length>1&&ctx.measureText(last+"…").width>maxWidth)last=last.slice(0,-1);
+    lines[lines.length-1]=last.replace(/[\s,.]+$/,"")+"…";
+  }
+  lines.forEach((value,index)=>ctx.fillText(value,x,y+(index*lineHeight)));
+  return y+(Math.max(0,lines.length-1)*lineHeight);
+}
+async function createValuationShareCard(data){
+  const canvas=document.createElement("canvas");
+  canvas.width=1200;canvas.height=1350;
+  const ctx=canvas.getContext("2d");
+  if(!ctx)return null;
+
+  const bg=ctx.createLinearGradient(0,0,1200,1350);
+  bg.addColorStop(0,"#071525");bg.addColorStop(.48,"#0d2e4c");bg.addColorStop(1,"#06111e");
+  ctx.fillStyle=bg;ctx.fillRect(0,0,1200,1350);
+
+  const glow=ctx.createRadialGradient(1010,165,20,1010,165,470);
+  glow.addColorStop(0,"rgba(62,142,255,.42)");glow.addColorStop(1,"rgba(62,142,255,0)");
+  ctx.fillStyle=glow;ctx.fillRect(520,-160,800,760);
+
+  ctx.fillStyle="rgba(255,255,255,.04)";
+  roundedCanvasRect(ctx,70,70,1060,1210,44);ctx.fill();
+  ctx.strokeStyle="rgba(145,195,245,.22)";ctx.lineWidth=2;ctx.stroke();
+
+  ctx.fillStyle="#4b8fff";
+  roundedCanvasRect(ctx,108,112,112,112,30);ctx.fill();
+  ctx.fillStyle="#fff";ctx.font="800 38px Inter, Arial, sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";
+  ctx.fillText("AAP",164,169);
+
+  ctx.textAlign="left";ctx.textBaseline="alphabetic";
+  ctx.fillStyle="#ffffff";ctx.font="800 34px Inter, Arial, sans-serif";ctx.fillText("Avaliador Auto Pro",246,154);
+  ctx.fillStyle="rgba(222,239,255,.72)";ctx.font="500 20px Inter, Arial, sans-serif";ctx.fillText("Resumo de avaliação comercial",246,190);
+
+  ctx.fillStyle="#fff";ctx.font="800 48px Inter, Arial, sans-serif";
+  const titleBottom=drawWrappedCanvasText(ctx,data.title,108,318,950,58,2);
+  ctx.fillStyle="rgba(215,232,248,.72)";ctx.font="500 25px Inter, Arial, sans-serif";
+  drawWrappedCanvasText(ctx,data.meta,108,titleBottom+48,950,34,2);
+
+  const purchaseY=485;
+  const purchaseGradient=ctx.createLinearGradient(108,purchaseY,1092,purchaseY+300);
+  purchaseGradient.addColorStop(0,"#1d67db");purchaseGradient.addColorStop(1,"#3d8dff");
+  ctx.fillStyle=purchaseGradient;roundedCanvasRect(ctx,108,purchaseY,984,300,34);ctx.fill();
+
+  ctx.fillStyle="rgba(237,247,255,.82)";ctx.font="700 23px Inter, Arial, sans-serif";
+  ctx.fillText(data.provisional?"VALOR COMERCIAL DE COMPRA · PROVISÓRIO":"VALOR COMERCIAL DE COMPRA",152,purchaseY+72);
+  ctx.fillStyle="#fff";ctx.font="800 82px Inter, Arial, sans-serif";
+  ctx.fillText(fmt(data.purchase),152,purchaseY+178);
+  ctx.fillStyle="rgba(237,247,255,.76)";ctx.font="500 20px Inter, Arial, sans-serif";
+  ctx.fillText("Referência para comprar com margem de revenda.",152,purchaseY+236);
+
+  const metricY=830;
+  const boxW=data.advertised!==null?472:984;
+  ctx.fillStyle="rgba(7,25,42,.84)";roundedCanvasRect(ctx,108,metricY,boxW,190,28);ctx.fill();
+  ctx.strokeStyle="rgba(126,180,235,.22)";ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle="rgba(199,222,244,.72)";ctx.font="700 21px Inter, Arial, sans-serif";ctx.fillText("VENDA RÁPIDA",144,metricY+55);
+  ctx.fillStyle="#fff";ctx.font="800 48px Inter, Arial, sans-serif";ctx.fillText(fmt(data.saleFast),144,metricY+125);
+
+  if(data.advertised!==null){
+    ctx.fillStyle="rgba(7,25,42,.84)";roundedCanvasRect(ctx,620,metricY,472,190,28);ctx.fill();
+    ctx.strokeStyle="rgba(126,180,235,.22)";ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle="rgba(199,222,244,.72)";ctx.font="700 21px Inter, Arial, sans-serif";ctx.fillText("PREÇO DO ANÚNCIO",656,metricY+55);
+    ctx.fillStyle="#fff";ctx.font="800 48px Inter, Arial, sans-serif";ctx.fillText(fmt(data.advertised),656,metricY+125);
+  }
+
+  if(data.summary){
+    ctx.fillStyle="rgba(204,224,243,.70)";ctx.font="500 20px Inter, Arial, sans-serif";
+    drawWrappedCanvasText(ctx,data.summary,108,1085,984,30,3);
+  }
+
+  ctx.fillStyle="rgba(191,215,238,.58)";ctx.font="600 18px Inter, Arial, sans-serif";
+  ctx.fillText("Avaliação indicativa · "+data.date,108,1218);
+  ctx.textAlign="right";ctx.fillText("Avaliador Auto Pro",1092,1218);
+
+  return await new Promise(resolve=>canvas.toBlob(resolve,"image/png",.96));
 }
 async function shareValuationSummary(){
   const data=valuationShareData();
   if(!data){toast("Ainda não existe uma cotação completa para partilhar.");return}
   const text=valuationShareText(data);
+  const button=q("shareValuationBtn");
+  const oldLabel=button?.querySelector("strong")?.textContent||"Partilhar resumo";
   try{
+    if(button?.querySelector("strong"))button.querySelector("strong").textContent="A preparar cartão…";
+    const blob=await createValuationShareCard(data);
+    let file=null;
+    if(blob){
+      const safeName=data.title.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"").toLowerCase()||"avaliacao";
+      file=new File([blob],"avaliador-auto-pro-"+safeName+".png",{type:"image/png"});
+    }
+    if(file&&navigator.share&&navigator.canShare?.({files:[file]})){
+      await navigator.share({title:"Avaliação · "+data.title,text,files:[file]});
+      return;
+    }
     if(navigator.share){
-      await navigator.share({title:"Cotação · "+data.title,text});
+      await navigator.share({title:"Avaliação · "+data.title,text});
       return;
     }
     if(navigator.clipboard?.writeText){
@@ -698,6 +809,8 @@ async function shareValuationSummary(){
     toast("Resumo copiado para partilhar.");
   }catch(error){
     if(error?.name!=="AbortError")toast("Não consegui abrir a partilha.");
+  }finally{
+    if(button?.querySelector("strong"))button.querySelector("strong").textContent=oldLabel;
   }
 }
 function printValuationSummary(){
