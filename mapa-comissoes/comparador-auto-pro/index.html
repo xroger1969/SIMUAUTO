@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261004-photo-followup1">
+  <link rel="stylesheet" href="./styles.css?v=20261006-history-stability2">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -89,6 +89,7 @@
       </div>
       <div class="top-actions">
         <span class="status-dot" id="saveStatus">Ligado</span>
+        <button class="btn ghost small" type="button" id="historyBtn">Histórico</button>
         <button class="btn ghost small" id="logoutBtn">Sair</button>
       </div>
     </header>
@@ -234,6 +235,7 @@
         <article class="panel">
           <div class="panel-head">
             <div><span class="eyebrow">Mercado</span><h3>O que sustenta o valor</h3></div>
+            <button class="btn ghost small" type="button" id="refreshMarketBtn">Atualizar mercado</button>
           </div>
           <div id="marketSummary" class="copy"></div>
           <div class="comp-list" id="comparableList"></div>
@@ -291,6 +293,22 @@
   </main>
 
   <div id="auto1Connection" class="hidden" style="max-width:760px;margin:16px auto 20px;text-align:center" role="status"><label class="btn primary small" for="vehiclePhoto">Anexar capturas AUTO1</label></div>
+  <div class="history-dialog hidden" id="historyDialog" role="dialog" aria-modal="true" aria-labelledby="historyDialogTitle">
+    <div class="history-dialog-card">
+      <div class="history-dialog-head">
+        <div>
+          <span class="eyebrow">Arquivo de avaliações</span>
+          <strong id="historyDialogTitle">Histórico de cálculos</strong>
+          <small>Todos os cálculos concluídos ficam guardados como registos imutáveis.</small>
+        </div>
+        <button class="history-dialog-close" type="button" id="historyDialogClose" aria-label="Fechar">×</button>
+      </div>
+      <div class="history-status" id="historyStatus">A carregar histórico…</div>
+      <div class="history-list" id="historyList"></div>
+      <button class="btn ghost small history-more hidden" type="button" id="historyLoadMoreBtn">Carregar mais</button>
+    </div>
+  </div>
+
   <div class="refine-dialog hidden" id="refineDialog" role="dialog" aria-modal="true" aria-labelledby="refineDialogTitle">
     <div class="refine-dialog-card">
       <div class="refine-dialog-head">
@@ -309,7 +327,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261006-stable-market-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261006-history-stability2"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
