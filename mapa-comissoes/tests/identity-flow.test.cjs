@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const base=path.resolve(__dirname,'..');
-const {registrationCompatible,mergeRegistration,missingIdentity}=require('../api/comparador-market')._test;
+const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,reuseMarketCache}=require('../api/comparador-market')._test;
 const subject={make:'Tesla',model:'Model Y',trim:'Long Range',year:2023,mileage_km:50000,fuel:'electric',price:30000};
 function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],stage='identify'}={}){
   let providerCalls=0,researchCalls=0,cacheWrites=0;
@@ -32,6 +32,17 @@ test('unknown km requires confirmation; explicit zero is allowed',()=>{
 test('registration cannot overwrite confirmed price mileage or trim',()=>{
   const r=mergeRegistration(subject,{make:'Tesla',model:'Model Y',trim:'RWD',price:1,mileage_km:0});
   assert.equal(r.price,30000);assert.equal(r.mileage_km,50000);assert.equal(r.trim,'Long Range');
+});
+test('same vehicle and source produce the same 24h market cache key',()=>{
+  const context={input_mode:'manual',original_url:null};
+  const a=marketCacheKey(subject,context),b=marketCacheKey({...subject},context);
+  assert.equal(a,b);assert.match(a,/vehicle-v1/);
+  assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},context));
+});
+test('reused market snapshot keeps current vehicle facts and original snapshot time',()=>{
+  const cached={id:'old-job',updated_at:'2026-10-06T07:00:00.000Z',snapshot_at:'2026-10-06T06:55:00.000Z',result:{subject:{...subject,mileage_km:49000},comparables:[{url:'https://example.com/1',price:30000}]}};
+  const r=reuseMarketCache(cached,{...subject,mileage_km:50000},null,'key');
+  assert.equal(r.subject.mileage_km,50000);assert.equal(r.market_cache.hit,true);assert.equal(r.market_cache.snapshot_at,'2026-10-06T06:55:00.000Z');
 });
 test('photo mismatch blocks before any research is launched',async()=>{
   const h=harness({vehicle:{...subject,registration:'AA-00-AA'}});const r=await h.poll();
