@@ -30,7 +30,7 @@ const professional=(i,overrides={})=>({
 });
 
 test("one private advert issues only a low-confidence provisional buying estimate",()=>{
-  const privateAd={...subject,url:"https://classifieds.example/1",seller_type:"private",price:32000};
+  const privateAd={...subject,url:"https://classifieds.example/1",seller_type:"private",price:32000,country:"PT",price_basis:"gross",availability:"available"};
   const r=evaluatePurchase({subject,comparables:[privateAd],current_purchase_price:22000,source_url:"https://auction.example/x"});
   assert.equal(r.purchase.eligible,false);
   assert.ok(Number.isNaN(r.purchase.maxPurchase));
@@ -267,4 +267,62 @@ test('AUTO1 Portugal does not apply the foreign-auction logistics cost',()=>{
   const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],source_url:'https://www.auto1.com/pt/vehicle/PT123',source_context:{is_auction:true,vehicle_location:'unknown',origin_country:'PT'},current_purchase_price:14000});
   assert.equal(r.purchase.acquisition.vehicleLocation,'PT');
   assert.equal(r.purchase.importCost,0);
+});
+
+for(const fuel of ['electric','petrol','diesel','hybrid']){
+  test('deterministic replay and reordered duplicate evidence: '+fuel,()=>{
+    const car={...subject,fuel};
+    const ads=[1,2,3,4,5,6].map(i=>professional(i,{fuel}));
+    ads.push({...ads[0],url:'https://replica.example/car/1',price:ads[0].price+5000});
+    const input={subject:car,comparables:ads,evaluated_at:observed,costs:{reconditioning:500},target_margin:3000};
+    const initial=evaluatePurchase(input);
+    for(let i=0;i<30;i++){
+      const ordered=ads.slice(i%ads.length).concat(ads.slice(0,i%ads.length));
+      const next=evaluatePurchase({...input,comparables:ordered});
+      assert.deepEqual(next.purchase,initial.purchase);
+      assert.deepEqual(next.market,initial.market);
+      assert.deepEqual(evaluatePurchase(initial.calculation_input).purchase,initial.purchase);
+    }
+  });
+}
+test('unconfirmed VAT availability and location never enter a mixed verified sample',()=>{
+  const ads=[1,2,3].map(i=>professional(i));
+  for(const change of [{price_basis:'unknown'},{country:'unknown'},{availability:'unknown'}]){
+    const r=evaluatePurchase({subject,comparables:[...ads,professional(8,{price:1000,...change})]});
+    assert.equal(r.market.comparablesUsed,3);assert.equal(r.excluded.length,1);
+  }
+});
+test('confidence cap applies even to eligible small samples',()=>{
+  assert.ok(evaluatePurchase({subject,comparables:[1,2,3].map(i=>professional(i))}).market.confidencePct<=55);
+});
+test('inferred critical identity never unlocks confirmed purchase recommendation',()=>{
+  const r=evaluatePurchase({subject,comparables:[1,2,3,4,5,6,7,8].map(i=>professional(i)),data_quality:{uncertain_fields:['trim']}});
+  assert.equal(r.purchase.eligible,false);
+});
+test('real auction import cost replaces the fallback',()=>{
+  const r=evaluatePurchase({subject,comparables:[1,2,3].map(i=>professional(i)),source_context:{is_auction:true,vehicle_location:'foreign'},costs:{import_actual:850}});
+  assert.equal(r.purchase.importCost,850);
+});
+test('AI reserve suggestions cannot change purchase values',()=>{
+  const input={subject,comparables:[1,2,3].map(i=>professional(i))};
+  const a=evaluatePurchase(input),b=evaluatePurchase({...input,risk_flags:[{reserve_eur:4500}]});
+  assert.equal(a.purchase.maxPurchase,b.purchase.maxPurchase);
+});
+test('extreme outlier is excluded from a larger sample',()=>{
+  const r=evaluatePurchase({subject,comparables:[1,2,3,4,5,6].map(i=>professional(i)).concat(professional(20,{price:100000}))});
+  assert.ok(r.excluded.some(x=>x.reason==='outlier de preço'));
+});
+test('contradictory advert cannot support valuation',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1,{label:'Ficha contraditória quanto à tração'})]});
+  assert.equal(r.market.comparablesUsed,0);
+});
+
+test('comparison explains changed km and newly added comparables',async()=>{
+  const {compareEvaluations}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+  const before=evaluatePurchase({subject,comparables:[1,2,3].map(i=>professional(i))});
+  const after=evaluatePurchase({subject:{...subject,mileage_km:98000},comparables:[1,2,3,4].map(i=>professional(i))});
+  const diff=compareEvaluations(before,after);
+  assert.ok(diff.changes.some(c=>c.type==='vehicle'&&c.field==='mileage_km'));
+  assert.ok(diff.changes.some(c=>c.type==='comparable_added'));
+  assert.equal(diff.difference,after.purchase.effectiveCeiling-before.purchase.effectiveCeiling);
 });

@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const base=path.resolve(__dirname,'..');
-const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,reuseMarketCache,reuseInputCache,inputSignature,cacheAllowed}=require('../api/comparador-market')._test;
+const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,inputSignature}=require('../api/comparador-market')._test;
 const subject={make:'Tesla',model:'Model Y',trim:'Long Range',year:2023,mileage_km:50000,fuel:'electric',price:30000};
 function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],stage='identify'}={}){
   let providerCalls=0,researchCalls=0,cacheWrites=0;
@@ -47,21 +47,9 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   assert.equal(a,b);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
-test('force refresh is the only explicit bypass for stable cache',()=>{
-  assert.equal(cacheAllowed({refinement_history:[]}),true);
-  assert.equal(cacheAllowed({refinement_history:[],force_market_refresh:true}),false);
-  assert.equal(cacheAllowed({refinement_history:['nova versão']}),false);
-});
-test('exact input reuse preserves the original market snapshot time',()=>{
-  const cached={id:'old-job',updated_at:'2026-10-06T07:00:00.000Z',snapshot_at:'2026-10-06T06:55:00.000Z',result:{subject,comparables:[{url:'https://example.com/1',price:30000}],market_cache:{snapshot_at:'2026-10-06T06:55:00.000Z'}}};
-  const r=reuseInputCache(cached,'input-v1:test');
-  assert.equal(r.market_cache.hit,true);assert.equal(r.market_cache.reuse_mode,'exact_input');assert.equal(r.market_cache.snapshot_at,'2026-10-06T06:55:00.000Z');assert.equal(r.input_signature,'input-v1:test');
-});
-test('reused market snapshot keeps current vehicle facts and original snapshot time',()=>{
-  const cached={id:'old-job',updated_at:'2026-10-06T07:00:00.000Z',snapshot_at:'2026-10-06T06:55:00.000Z',result:{subject:{...subject,mileage_km:49000},comparables:[{url:'https://example.com/1',price:30000}]}};
-  const r=reuseMarketCache(cached,{...subject,mileage_km:50000},null,'key');
-  assert.equal(r.subject.mileage_km,50000);assert.equal(r.market_cache.hit,true);assert.equal(r.market_cache.snapshot_at,'2026-10-06T06:55:00.000Z');
-});
+
+
+
 test('photo mismatch blocks before any research is launched',async()=>{
   const h=harness({vehicle:{...subject,registration:'AA-00-AA'}});const r=await h.poll();
   assert.equal(r.result.valuation_blocked,true);assert.equal(r.result.comparables.length,0);assert.equal(h.counts().researchCalls,0);
@@ -227,4 +215,9 @@ test('plate-only identification uses web search even when the text sample is the
   await h.ctx.module.exports._test.startResponse({registration_input:'14-ID-91',original_url:null,text_sample:'14-ID-91',manual_description:'14-ID-91'},[],{},true);
   assert.deepEqual(body.tools,[{type:'web_search'}]);
   assert.equal(body.tool_choice,'auto');
+});
+
+test('new evaluations never look up previous completed market or input results',()=>{
+ const s=fs.readFileSync(base+'/api/comparador-market.js','utf8');
+ assert.doesNotMatch(s,/findFreshMarketCache|findFreshInputCache|reuseInputCache|reuseMarketCache/);
 });

@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-06-stable-market-v1";
+export const ENGINE_VERSION="2026-10-06-auditable-v2";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:62,
@@ -64,6 +64,9 @@ export function canonicalUrl(raw){
 function vehicleFingerprint(c){
   if(known(c?.vin))return "vin:"+norm(c.vin);
   if(known(c?.registration))return "plate:"+norm(c.registration).replace(/[^a-z0-9]/g,"");
+  // Seller + exact specification can identify the same car at different portal prices.
+  if(known(c?.seller_name)&&["make","model","trim","year","mileage_km"].every(k=>known(c?.[k])))
+    return "seller:"+["seller_name","make","model","trim","year","mileage_km"].map(k=>norm(c[k])).join("|");
   const keys=["make","model","trim","year","mileage_km","price"];
   if(!keys.every(k=>known(c?.[k])))return null;
   return keys.map(k=>norm(c[k])).join("|");
@@ -125,6 +128,7 @@ function variantSimilarity(s,c){
 }
 
 function hardExclusion(s,c){
+  if(/contradit[oó]ri|acidentad|avaria|salvage|sem IVA|leil[aã]o/i.test(c.label||""))return "anúncio com condição ou dados incompatíveis por esclarecer";
   if(!same(s.make,c.make))return "marca diferente ou desconhecida";
   if(!sameModel(s,c))return "modelo diferente ou desconhecido";
   if(known(s.fuel)&&known(c.fuel)&&fuel(s.fuel)!==fuel(c.fuel))return "combustível diferente";
@@ -180,13 +184,13 @@ function weightedMedian(rows){
   return a.at(-1)?.value??NaN;
 }
 
-function recentEvidence(c,config){
+function recentEvidence(c,config,asOf){
   if(c?.evidence?.verified!==true)return false;
   if(sellerType(c)!=="professional")return false;
   if(c.country!=="PT"||c.price_basis!=="gross"||c.availability!=="available")return false;
   const observed=Date.parse(c?.evidence?.observed_at||c?.observed_at||"");
   if(!Number.isFinite(observed))return false;
-  return Date.now()-observed<=config.maxEvidenceAgeDays*86400000 && Date.now()-observed>=-3600000;
+  return asOf-observed<=config.maxEvidenceAgeDays*86400000 && asOf-observed>=-3600000;
 }
 
 function subjectMissing(s){
@@ -224,11 +228,20 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
 
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
+  const evaluatedAt=input.evaluated_at||new Date().toISOString();
+  const asOf=Date.parse(evaluatedAt);
+  if(!Number.isFinite(asOf))throw new Error("Data da avaliação inválida.");
   const s=input.subject||{},rows=[],excluded=[],seenUrls=new Set(),seenFingerprints=new Set();
   const sourceUrl=canonicalUrl(input.source_url);
   const subjectFp=vehicleFingerprint(s);
 
-  for(const c of input.comparables||[]){
+  // Sort before deduplication: the same evidence set must never depend on search order.
+  const candidates=[...(input.comparables||[])].sort((a,b)=>
+    Number(recentEvidence(b,config,asOf))-Number(recentEvidence(a,config,asOf))
+    ||num(a.price)-num(b.price)
+    ||String(canonicalUrl(a.url)).localeCompare(String(canonicalUrl(b.url)))
+    ||JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  for(const c of candidates){
     let reason=null;
     const url=canonicalUrl(c.url);
     const fp=vehicleFingerprint(c);
@@ -238,6 +251,9 @@ export function evaluatePurchase(input,custom={}){
     else if(sourceUrl&&url===sourceUrl)reason="própria viatura";
     else if(subjectFp&&fp===subjectFp)reason="própria viatura / anúncio replicado";
     else if(seenUrls.has(url)||(fp&&seenFingerprints.has(fp)))reason="mesma viatura / anúncio duplicado";
+    else if(c.country!=="PT")reason="localização em Portugal não confirmada";
+    else if(c.price_basis!=="gross")reason="preço com IVA incluído não confirmado";
+    else if(c.availability!=="available")reason="disponibilidade não confirmada";
     else reason=hardExclusion(s,c);
 
     const sim=reason?0:similarity(s,c);
@@ -300,7 +316,7 @@ export function evaluatePurchase(input,custom={}){
   const saleLikely=Number.isFinite(marketValue)?Math.round(marketValue*(1-num(input.negotiation_discount_pct,config.negotiationDiscountPct))):NaN;
   const saleFast=Number.isFinite(saleLikely)?Math.round(saleLikely*(1-num(input.fast_sale_discount_pct,config.fastSaleDiscountPct))):NaN;
 
-  const verified=valid.filter(r=>recentEvidence(r.comp,config));
+  const verified=valid.filter(r=>recentEvidence(r.comp,config,asOf));
   const missing=subjectMissing(s);
   const dispersion=valid.length&&Number.isFinite(marketValue)
     ?Math.max(0,(quantile(valid.map(r=>r.adjustedPrice),.75)-quantile(valid.map(r=>r.adjustedPrice),.25))/(marketValue||1))
@@ -319,7 +335,10 @@ export function evaluatePurchase(input,custom={}){
   if(identityBlocked)warnings.push("Confirma a matrícula e a identificação da viatura antes de avaliar.");
   const professionalCount=valid.filter(r=>sellerType(r.comp)==="professional").length;
   const criticalMissing=missing.filter(k=>k==="make"||k==="model");
-  const evidenceEligible=!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
+  const uncertain=input.data_quality?.uncertain_fields||[];
+  const identityUncertain=uncertain.some(k=>["make","model","trim","year","mileage_km","fuel"].includes(k));
+  if(identityUncertain)warnings.push("Dados de identificação ainda inferidos ou por confirmar: "+uncertain.join(", ")+".");
+  const evidenceEligible=!identityUncertain&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length&&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"&&dispersion<=.25;
   const provisionalEligible=!identityBlocked&&!criticalMissing.length&&Number.isFinite(marketValue)&&valid.length>=1&&dispersion<=.45&&!acquisition.needsLocationConfirmation;
   const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation;
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
@@ -331,7 +350,7 @@ export function evaluatePurchase(input,custom={}){
   const comparableCountCap=valid.length===1?20:valid.length===2?35:valid.length===3?55:valid.length<=5?70:85;
   const evidenceCap=s.mileage_estimated||verified.length===0?39:marketBasis!=="professional"?30:missing.length?45:85;
   const provisionalCap=Math.min(comparableCountCap,evidenceCap);
-  const confidencePct=Math.round(Math.min(eligible?95:provisionalCap,rawConfidence));
+  const confidencePct=Math.round(Math.min(eligible?Math.min(comparableCountCap,evidenceCap):provisionalCap,rawConfidence));
   if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
 
@@ -342,8 +361,14 @@ export function evaluatePurchase(input,custom={}){
   const costs=input.costs||{};
   const baseFixedCosts=["auction_fee","transport","registration","reconditioning","warranty_reserve","stock_finance","other"]
     .reduce((t,k)=>t+Math.max(0,num(costs[k])),0);
+  const actualImport=num(costs.import_actual,NaN);
+  if(acquisition.importCost>0&&Number.isFinite(actualImport)&&actualImport>=0){
+    acquisition.importCost=actualImport;
+    acquisition.reason="auction_import_actual_cost";
+  }
   const fixedCosts=baseFixedCosts+acquisition.importCost;
-  const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+Math.max(0,num(r.reserve_eur)),0);
+  const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(r.confirmed_by==="user"?Math.max(0,num(r.reserve_eur)):0),0);
+  if((input.risk_flags||[]).some(r=>num(r.reserve_eur)>0&&r.confirmed_by!=="user"))warnings.push("A IA identificou riscos: confirme os custos de reparação. Valores sugeridos pela IA não entram automaticamente no cálculo.");
   const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
   const targetMargin=Math.max(0,num(input.target_margin,config.targetMargin));
   const minimumMargin=Math.max(0,Math.min(targetMargin,num(input.minimum_margin,config.minimumMargin)));
@@ -379,6 +404,19 @@ export function evaluatePurchase(input,custom={}){
 
   return {
     engine_version:ENGINE_VERSION,
+    evaluated_at:evaluatedAt,
+    calculation_input:{...input,evaluated_at:evaluatedAt},
+    calculation:{
+      method:"similarity_weighted_median_iqr",
+      median:quantile(valid.map(r=>r.adjustedPrice),.5),
+      p25:quantile(valid.map(r=>r.adjustedPrice),.25),
+      p75:quantile(valid.map(r=>r.adjustedPrice),.75),
+      dispersion,
+      saleEconomic,
+      formula:"(revenda económica - custos - reserva - margem) × fator IVA",
+      confidence_factors:{verified:verified.length,sample:valid.length,average_similarity:avgSim,missing,uncertain,dispersion},
+      adjustments:valid.map(r=>({url:r.comp.url,asking_price:r.comp.price,adjusted_price:r.adjustedPrice,delta:r.adjustedPrice-num(r.comp.price)}))
+    },
     subject:s,
     market:{
       comparablesReceived:(input.comparables||[]).length,
@@ -417,4 +455,25 @@ export function evaluatePurchase(input,custom={}){
     excluded,
     warnings
   };
+}
+
+export function compareEvaluations(previous,current){
+  if(!previous)return null;
+  const changes=[];
+  for(const key of ['make','model','trim','year','mileage_km','fuel','origin','transmission','battery_kwh']){
+    if(JSON.stringify(previous.subject?.[key]??null)!==JSON.stringify(current.subject?.[key]??null))changes.push({type:'vehicle',field:key,before:previous.subject?.[key]??null,after:current.subject?.[key]??null});
+  }
+  const before=new Map((previous.comparables||[]).map(c=>[canonicalUrl(c.url),c]));
+  const after=new Map((current.comparables||[]).map(c=>[canonicalUrl(c.url),c]));
+  for(const [url,c] of after){
+    if(!before.has(url))changes.push({type:'comparable_added',url});
+    else if(before.get(url).price!==c.price)changes.push({type:'price',url,before:before.get(url).price,after:c.price});
+  }
+  for(const url of before.keys())if(!after.has(url))changes.push({type:'comparable_removed',url});
+  if(previous.engine_version!==current.engine_version)changes.push({type:'engine',before:previous.engine_version,after:current.engine_version});
+  if(JSON.stringify(previous.parameters)!==JSON.stringify(current.parameters)||previous.purchase?.targetMargin!==current.purchase?.targetMargin||previous.purchase?.minimumMargin!==current.purchase?.minimumMargin)changes.push({type:'parameters'});
+  const a=previous.purchase?.effectiveCeiling,b=current.purchase?.effectiveCeiling;
+  const difference=known(a)&&known(b)&&Number.isFinite(a)&&Number.isFinite(b)?b-a:null;
+  if(difference!==null&&difference!==0&&!changes.length)changes.push({type:'evidence_or_adjustments',note:'A diferença requer revisão da evidência e dos ajustes guardados.'});
+  return {previous_value:known(a)?a:null,current_value:known(b)?b:null,difference,changes};
 }
