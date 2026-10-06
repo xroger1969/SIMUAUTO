@@ -345,6 +345,7 @@ async function getOwnedJob(token,id){
 }
 
 async function updateJob(token,id,patch){
+  console.info("evaluation_stage",{job_id:id,stage:patch.context?.stage||null,status:patch.status||null,comparables:patch.result?.comparables?.length??null,error:patch.error_message?"stage_failed":null});
   await rest(token,"cap_jobs?id=eq."+encodeURIComponent(id),{
     method:"PATCH",
     body:{...patch,updated_at:nowIso()},
@@ -643,6 +644,7 @@ module.exports=endpoint(async function handler(req,res){
   const context={...boundedContext(req.body,registrationData,registrationLookupWarning),stage:"identify"};
   const claim=await rest(token,"rpc/cap_claim_job",{method:"POST",body:{p_analysis:analysisId,p_request:requestKey,p_context:context}});
   const job=claim?.job;
+  console.info("evaluation_started",{evaluation_id:analysisId,job_id:job?.id||null,claimed:claim?.claimed===true});
   if(!job?.id)throw appError("Não foi possível criar a pesquisa.",503,"job_create_failed");
   if(claim.claimed!==true){
     if(job.status==="completed"&&job.result)return res.status(200).json(job.result);

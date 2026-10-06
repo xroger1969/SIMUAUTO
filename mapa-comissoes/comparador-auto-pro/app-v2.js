@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261006-auditable-v2";
+import { evaluatePurchase, compareEvaluations } from "./valuation.js?v=20261006-auditable-v2";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -935,6 +935,15 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
   };
 }
 async function persistCompletedAnalysis(analysisId,result,market,reader,entry,marketPayload,calculationKind="analysis"){
+  const signature=market?.input_signature;
+  if(signature){
+    const {data,error}=await db.from("cap_revisions").select("id,snapshot").eq("user_id",session.user.id).eq("input_signature",signature).order("created_at",{ascending:false}).limit(1);
+    if(error)result.warnings.push("Não foi possível comparar com a avaliação anterior.");
+    else if(data?.[0]?.snapshot?.result){
+      result.comparison={...compareEvaluations(data[0].snapshot.result,result),previous_revision_id:data[0].id};
+      if(q("calcBox"))q("calcBox").insertAdjacentHTML("beforeend",'<p>Diferença face à avaliação anterior: <strong>'+esc(fmt(result.comparison.difference))+'</strong> · '+result.comparison.changes.length+' alterações de dados/evidência registadas.</p>');
+    }
+  }
   await updateAnalysis({risks:market?.risk_flags||[],reader},analysisId);
   await saveAnalysisSnapshot(analysisId,makeSnapshot(result,market,reader,entry,marketPayload,calculationKind));
 }

@@ -316,3 +316,13 @@ test('contradictory advert cannot support valuation',()=>{
   const r=evaluatePurchase({subject,comparables:[professional(1,{label:'Ficha contraditória quanto à tração'})]});
   assert.equal(r.market.comparablesUsed,0);
 });
+
+test('comparison explains changed km and newly added comparables',async()=>{
+  const {compareEvaluations}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+  const before=evaluatePurchase({subject,comparables:[1,2,3].map(i=>professional(i))});
+  const after=evaluatePurchase({subject:{...subject,mileage_km:98000},comparables:[1,2,3,4].map(i=>professional(i))});
+  const diff=compareEvaluations(before,after);
+  assert.ok(diff.changes.some(c=>c.type==='vehicle'&&c.field==='mileage_km'));
+  assert.ok(diff.changes.some(c=>c.type==='comparable_added'));
+  assert.equal(diff.difference,after.purchase.effectiveCeiling-before.purchase.effectiveCeiling);
+});

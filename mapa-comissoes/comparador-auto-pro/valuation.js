@@ -456,3 +456,24 @@ export function evaluatePurchase(input,custom={}){
     warnings
   };
 }
+
+export function compareEvaluations(previous,current){
+  if(!previous)return null;
+  const changes=[];
+  for(const key of ['make','model','trim','year','mileage_km','fuel','origin','transmission','battery_kwh']){
+    if(JSON.stringify(previous.subject?.[key]??null)!==JSON.stringify(current.subject?.[key]??null))changes.push({type:'vehicle',field:key,before:previous.subject?.[key]??null,after:current.subject?.[key]??null});
+  }
+  const before=new Map((previous.comparables||[]).map(c=>[canonicalUrl(c.url),c]));
+  const after=new Map((current.comparables||[]).map(c=>[canonicalUrl(c.url),c]));
+  for(const [url,c] of after){
+    if(!before.has(url))changes.push({type:'comparable_added',url});
+    else if(before.get(url).price!==c.price)changes.push({type:'price',url,before:before.get(url).price,after:c.price});
+  }
+  for(const url of before.keys())if(!after.has(url))changes.push({type:'comparable_removed',url});
+  if(previous.engine_version!==current.engine_version)changes.push({type:'engine',before:previous.engine_version,after:current.engine_version});
+  if(JSON.stringify(previous.parameters)!==JSON.stringify(current.parameters)||previous.purchase?.targetMargin!==current.purchase?.targetMargin||previous.purchase?.minimumMargin!==current.purchase?.minimumMargin)changes.push({type:'parameters'});
+  const a=previous.purchase?.effectiveCeiling,b=current.purchase?.effectiveCeiling;
+  const difference=known(a)&&known(b)&&Number.isFinite(a)&&Number.isFinite(b)?b-a:null;
+  if(difference!==null&&difference!==0&&!changes.length)changes.push({type:'evidence_or_adjustments',note:'A diferença requer revisão da evidência e dos ajustes guardados.'});
+  return {previous_value:known(a)?a:null,current_value:known(b)?b:null,difference,changes};
+}
