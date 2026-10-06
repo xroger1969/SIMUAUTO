@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261006-history-stability2">
+  <link rel="stylesheet" href="./styles.css?v=20261006-share-card-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -202,7 +202,22 @@
         </div>
       </div>
 
-      <div class="auction-location-question hidden" id="auctionLocationQuestion" role="group" aria-labelledby="auctionLocationTitle">
+
+      <div class="valuation-share-bar hidden" id="valuationShareBar">
+        <button class="valuation-share-main" type="button" id="shareValuationBtn">
+          <span class="valuation-share-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+              <path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M5 13v5.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V13"/>
+            </svg>
+          </span>
+          <span class="valuation-share-main-copy">
+            <strong>Partilhar resumo</strong>
+            <small>Cria um cartão simples com os valores principais da avaliação.</small>
+          </span>
+        </button>
+        <button class="valuation-print-link" type="button" id="printValuationBtn">Imprimir</button>
+      </div>
+<div class="auction-location-question hidden" id="auctionLocationQuestion" role="group" aria-labelledby="auctionLocationTitle">
         <div>
           <strong id="auctionLocationTitle">Esta viatura de leilão já está em Portugal?</strong>
           <small id="auctionLocationEvidence">Preciso desta confirmação para calcular os custos corretamente.</small>
@@ -220,16 +235,6 @@
         <article><span>Comparáveis</span><strong id="comparableCount">—</strong><small>usados no cálculo</small></article>
       </div>
 
-      <div class="valuation-share-bar hidden" id="valuationShareBar">
-        <div class="valuation-share-copy">
-          <strong>Resumo da avaliação</strong>
-          <small>Viatura + cotação de compra + preço ideal para vender rápido.</small>
-        </div>
-        <div class="valuation-share-actions">
-          <button class="btn ghost small" type="button" id="shareValuationBtn">Partilhar</button>
-          <button class="btn ghost small" type="button" id="printValuationBtn">Imprimir</button>
-        </div>
-      </div>
 
       <div class="detail-grid">
         <article class="panel">
@@ -327,7 +332,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261006-history-stability2"></script>
+  <script type="module" src="./app-v2.js?v=20261006-share-card-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
