@@ -1,4 +1,5 @@
 import { evaluatePurchase, compareEvaluations } from "./valuation.js?v=20261006-auditable-v2";
+import { commercialInstruction } from "./commercial-input.js";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -105,7 +106,7 @@ function calculationKindLabel(kind){
     refinement:"Refinamento",
     market_refresh:"Mercado atualizado",
     auction_location:"Localização confirmada",
-    assumptions:"Premissas recalculadas"
+    assumptions:"Premissas recalculadas",commercial_scenario:"Cenário comercial"
   })[kind]||"Cálculo";
 }
 function historyItem(row){
@@ -595,7 +596,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="VALOR RECOMENDADO DE COMPRA";
   q("maxPurchase").textContent=fmt(displayedCeiling);
   const currentLabel=q("currentPrice")?.previousElementSibling;
-  if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
+  if(currentLabel)currentLabel.textContent=finite(currentVehicle.proposed_purchase_price)?"Compra simulada":askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
@@ -1419,7 +1420,7 @@ async function resumePendingAnalysis(){
       data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],
       source_url:analysis.source_url,
-      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
+      current_purchase_price:subject.proposed_purchase_price??(typeof subject.price==="number"&&subject.price>0?subject.price:null),
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(analysis.source_url,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
@@ -1465,6 +1466,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
 
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
+    await loadDealPreferences();
     operation.analysisId=await createAnalysis(entry.sourceUrl,entry.sourceDomain);
     assertOperation(operation);
 
@@ -1564,7 +1566,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
       data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables,source_url:url?.toString()||null,
-      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
+      current_purchase_price:subject.proposed_purchase_price??(typeof subject.price==="number"&&subject.price>0?subject.price:null),
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(url?.toString()||null,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
@@ -1659,6 +1661,31 @@ q("refineForm").addEventListener("submit",async ev=>{
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
   if(!session||!lastAnalysisContext||!currentVehicle){toast("Faz primeiro uma análise.");return}
 
+  const instruction=commercialInstruction(text);
+  if(instruction&&currentMarketData){
+    const operation=beginOperation("commercial-scenario",currentAnalysisId);
+    try{
+      if(instruction.type==="target_margin")DEAL={...DEAL,target_margin:instruction.value};
+      else currentVehicle={...currentVehicle,proposed_purchase_price:instruction.value};
+      const market=currentMarketData.market;
+      const result=evaluatePurchase({
+        subject:currentVehicle,comparables:market.comparables||[],evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+        data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
+        source_url:currentMarketData.marketPayload?.url||null,
+        current_purchase_price:currentVehicle.proposed_purchase_price??currentVehicle.price??null,
+        tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+        source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
+        costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+      });
+      await storeMessage("user",text);
+      renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+      await persistCompletedAnalysis(currentAnalysisId,result,market,currentMarketData.reader,currentMarketData.entry,currentMarketData.marketPayload,"commercial_scenario");
+      q("refineInput").value="";
+      showRefineDialog("Cenário recalculado",instruction.type==="target_margin"?"Margem pretendida nesta avaliação: "+fmt(instruction.value):"Preço de compra simulado: "+fmt(instruction.value)+". Margem prevista após custos: "+fmt(result.purchase.expectedMargin),"success",true);
+    }catch(error){toast(error.message)}finally{finishOperation(operation)}
+    return;
+  }
+
   const wasVehicleFollowup=awaitingVehicleDetails;
   const operation=beginOperation("refine",currentAnalysisId);
   const button=q("refineBtn"),originalButtonText=button.textContent;
@@ -1714,7 +1741,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
       data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],source_url:lastAnalysisContext.url||null,
-      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
+      current_purchase_price:subject.proposed_purchase_price??(typeof subject.price==="number"&&subject.price>0?subject.price:null),
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(lastAnalysisContext.url||null,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
@@ -1844,7 +1871,7 @@ async function applyAuctionLocationAnswer(vehicleLocation){
       subject:currentVehicle,
       comparables:Array.isArray(market.comparables)?market.comparables:[],
       source_url:currentMarketData.marketPayload?.url||null,
-      current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
+      current_purchase_price:currentVehicle.proposed_purchase_price??(typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null),
       tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
       costs:DEAL.costs,
@@ -1887,7 +1914,7 @@ async function refreshMarketSnapshot(){
       data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],
       source_url:currentMarketData.marketPayload?.url||null,
-      current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
+      current_purchase_price:subject.proposed_purchase_price??(typeof subject.price==="number"&&subject.price>0?subject.price:null),
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
       costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
@@ -1925,7 +1952,7 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
       data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
         subject:currentVehicle,comparables:Array.isArray(market.comparables)?market.comparables:[],
         source_url:currentMarketData.marketPayload?.url||null,
-        current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
+        current_purchase_price:currentVehicle.proposed_purchase_price??(typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null),
         tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
         source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
         costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin

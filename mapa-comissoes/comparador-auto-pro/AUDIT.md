@@ -34,7 +34,7 @@ Seleção por marca/modelo, exclusões técnicas, semelhança ponderada, ajustes
 - Extração visual e interpretação de texto continuam probabilísticas. Registo de origem comunicado pela IA não prova por si a exatidão da leitura.
 - Sites sem JSON-LD completo ou com bloqueios podem impedir a confirmação dos comparáveis. Não existe API contratada dos portais.
 - Não há calibração com preços reais de transação, fiscalidade de margem de bens usados ou custos de garantia por modelo.
-- Conversa sobre margem/custos ainda exige ajuste nas premissas; não interpretar automaticamente qualquer frase como autorização para mudar preferências permanentes.
+- Frases explícitas de margem e cenário de compra são recalculadas na mesma avaliação sem nova pesquisa. Custos e formulações ambíguas ainda exigem premissas/identificação; as preferências permanentes só mudam por ação explícita.
 - A deduplicação não utiliza hashes visuais; variações de vendedor e quilometragem podem escapar.
 - Testes automáticos usam fixtures; não equivalem a 36 jornadas reais com fotos e todos os serviços externos.
 - Proveniência por campo dos snapshots antigos não pode ser reconstruída retroativamente.
