@@ -5,12 +5,12 @@ on:
     branches:
       - feature/comparador-auto-pro-v1
       - fix/comparador-audit-21
+      - fix/professional-valuation-audit
       - main
     paths:
       - "mapa-comissoes/comparador-auto-pro/**"
       - "mapa-comissoes/api/comparador-*.js"
-      - "mapa-comissoes/lib/access.js"
-      - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/lib/**"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -18,8 +18,7 @@ on:
     paths:
       - "mapa-comissoes/comparador-auto-pro/**"
       - "mapa-comissoes/api/comparador-*.js"
-      - "mapa-comissoes/lib/access.js"
-      - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/lib/**"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
 

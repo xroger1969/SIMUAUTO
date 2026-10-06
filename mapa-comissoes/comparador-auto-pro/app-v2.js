@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261006-stable-market-v1";
+import { evaluatePurchase } from "./valuation.js?v=20261006-auditable-v2";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -12,6 +12,7 @@ const q=id=>document.getElementById(id);
 const euro=new Intl.NumberFormat("pt-PT",{style:"currency",currency:"EUR",maximumFractionDigits:0});
 const historyDate=new Intl.DateTimeFormat("pt-PT",{dateStyle:"short",timeStyle:"short"});
 const fmt=v=>v!==null&&v!==undefined&&Number.isFinite(Number(v))?euro.format(Number(v)):"—";
+const finite=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
 const esc=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
 const toast=message=>{
   const el=q("toast");el.textContent=message;el.classList.add("show");
@@ -121,6 +122,7 @@ function historyItem(row){
       '<div><span>Venda rápida</span><strong>'+esc(fmt(row.sale_fast))+'</strong></div>'+
     '</div>'+
     '<small class="history-meta">'+esc(comps)+' comparável(is) · motor '+esc(row.engine_version||"—")+'</small>'+
+    '<button class="btn ghost small" type="button" data-revision="'+esc(row.id)+'">Abrir avaliação</button>'+
   '</article>';
 }
 async function loadHistory(reset=false){
@@ -148,6 +150,23 @@ async function loadHistory(reset=false){
   more.classList.toggle("hidden",rows.length<HISTORY_PAGE_SIZE);
   more.disabled=false;
 }
+q("historyList")?.addEventListener("click",async event=>{
+  const id=event.target.closest("[data-revision]")?.dataset.revision;
+  if(!id||activeOperation)return;
+  const {data,error}=await db.from("cap_revisions").select("analysis_id,snapshot").eq("id",id).eq("user_id",session.user.id).single();
+  if(error||!data?.snapshot?.result){toast("Não foi possível abrir a avaliação.");return;}
+  const snapshot=data.snapshot;
+  currentAnalysisId=data.analysis_id;
+  const market=snapshot.research?.market_result||{subject:snapshot.result.subject,comparables:snapshot.result.comparables||[],risk_flags:snapshot.research?.risk_flags||[]};
+  currentMarketData={market,reader:snapshot.reader||{},entry:snapshot.input?.entry||{},sourceHost:snapshot.source?.domain||"manual",marketPayload:snapshot.input?.marketPayload||{},allRules:[]};
+  lastAnalysisContext={...currentMarketData,url:snapshot.source?.url||null};
+  selectedImages=(snapshot.input?.images||[]).map((data,i)=>({data,name:"Fotografia "+(i+1)}));
+  selectedImageData=selectedImages[0]?.data||null;
+  conversation=[];q("chat").innerHTML="";
+  DEAL=mergeDeal(snapshot.deal||DEFAULT_DEAL);
+  closeHistory();renderResult(snapshot.result,currentMarketData.sourceHost,market.risk_flags||[]);
+  toast("Avaliação histórica aberta. O cálculo original foi preservado.");
+});
 function openHistory(){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
   q("historyDialog").classList.remove("hidden");
@@ -383,7 +402,7 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Geração",v.generation],
     ["1.ª matrícula",formatRegistrationDate(v.first_registration)],
     ["Ano",v.year],
-    [v.mileage_estimated?"Quilómetros estimados (média Standvirtual)":"Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
+    [v.mileage_estimated?"Quilómetros estimados (mediana Standvirtual)":"Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
     ["Preço anunciado",v.price!=null?fmt(v.price):null],
     ["Combustível",v.fuel],
     ["Potência",v.power_cv!=null?v.power_cv+" cv":null],
@@ -405,6 +424,10 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
   const factsBox=q("vehicleFacts");
   if(factsBox){
     factsBox.innerHTML=facts.map(([label,value])=>'<div class="vehicle-fact"><span>'+esc(label)+'</span><strong>'+esc(displayValue(value))+'</strong></div>').join("");
+  }
+  if(factsBox&&v.field_evidence){
+    const labels={confirmed:"confirmado",inferred:"inferido",estimated:"estimado",unknown:"desconhecido"};
+    factsBox.insertAdjacentHTML("beforeend",Object.entries(v.field_evidence).map(([field,evidence])=>'<div class="vehicle-fact"><span>'+esc(field)+' · '+esc(labels[evidence.status]||"desconhecido")+'</span><small>'+esc(evidence.source)+' · '+esc(evidence.evidence||"")+'</small></div>').join(""));
   }
   renderTagList("vehicleEquipment",v.equipment||[]);
   renderTagList("vehicleHighlights",v.ad_highlights||[]);
@@ -467,7 +490,7 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
   const panel=q("vehicleFollowup");
   if(!panel)return;
   const labels=missing.map(item=>item.label);
-  const optional=!!currentResult&&Number.isFinite(Number(currentResult.market?.marketValue));
+  const optional=!!currentResult&&finite(currentResult.market?.marketValue);
   q("vehicleFollowupTitle").textContent=optional
     ?"Podes melhorar a avaliação"
     :missing.some(item=>item.key==="make_model")
@@ -569,14 +592,14 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
   const acquisition=result.purchase?.acquisition||{};
   const askingPrice=acquisition.priceRole!=="acquisition_price";
-  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="Valor comercial de compra";
+  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="VALOR RECOMENDADO DE COMPRA";
   q("maxPurchase").textContent=fmt(displayedCeiling);
   const currentLabel=q("currentPrice")?.previousElementSibling;
   if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
-  const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
+  const hasCurrent=finite(result.purchase?.currentPrice);
   q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
   if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent
     ?(askingPrice?"se comprasses ao preço pedido":"se comprares ao preço/licitação atual")
@@ -603,15 +626,15 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const verified=result.market?.verifiedProfessionals??0;
   const quality=result.purchase?.eligible
     ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
-    :Number.isFinite(Number(result.market?.marketValue))
+    :finite(result.market?.marketValue)
       ?"Teto de compra provisório calculado a partir de "+(result.market?.comparablesUsed??0)+" comparável(is), valor de revenda e margem comercial. Dados em falta reduzem a confiança."
       :(result.warnings?.[0]||"Ainda não existe base de mercado suficiente.");
   const marketCache=currentMarketData?.market?.market_cache;
   const snapshotNote=marketCache?.snapshot_at
-    ?" Mercado fixado em "+historyDate.format(new Date(marketCache.snapshot_at))+" por 24 h"+(marketCache.hit?" e reutilizado para manter a mesma cotação.":".")
+    ?" Mercado pesquisado em "+historyDate.format(new Date(marketCache.snapshot_at))+". Uma nova avaliação volta a pesquisar."
     :"";
   if(q("qualityNote"))q("qualityNote").textContent=quality+snapshotNote;
-  q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
+  q("marketSummary").textContent=finite(result.market?.marketValue)
     ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible
       ?"A evidência mínima para o teto recomendado foi atingida."
       :result.purchase?.provisionalEligible
@@ -622,16 +645,33 @@ function renderResult(result,sourceHost,riskFlags=[]){
   renderEvidence(result);
   renderRisks(riskFlags,result.warnings);
   const calcBox=q("calcBox");
-  if(calcBox)calcBox.innerHTML=
-    "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
-    "Custo importação/leilão: <strong>"+esc(fmt(result.purchase?.importCost||0))+"</strong><br>"+
-    "Teto absoluto: <strong>"+esc(fmt(
-      result.purchase?.absoluteMax!==null&&result.purchase?.absoluteMax!==undefined&&Number.isFinite(Number(result.purchase.absoluteMax))
-        ?result.purchase.absoluteMax
-        :result.purchase?.provisionalAbsoluteMax
-    ))+"</strong><br>"+
-    "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
-  const shareReady=Number.isFinite(Number(result.purchase?.effectiveCeiling))&&Number.isFinite(Number(result.market?.saleFast));
+  const maximum=result.purchase?.eligible?result.purchase.absoluteMax:result.purchase?.provisionalAbsoluteMax;
+  if(q("absolutePurchase"))q("absolutePurchase").textContent=fmt(maximum);
+  if(q("marketValue"))q("marketValue").textContent=fmt(result.market?.marketValue);
+  if(q("consideredCosts"))q("consideredCosts").textContent=fmt(result.purchase?.fixedCosts);
+  if(calcBox){
+    const lines=[
+      ["Método", "Mediana ponderada por semelhança; exclusão de outliers por IQR"],
+      ["Mediana simples",fmt(result.calculation?.median)],
+      ["Intervalo central (P25–P75)",fmt(result.calculation?.p25)+" – "+fmt(result.calculation?.p75)],
+      ["Mercado / preço recomendado de anúncio",fmt(result.market?.marketValue)],
+      ["Revenda após negociação",fmt(result.market?.saleLikely)],
+      ["Venda rápida",fmt(result.market?.saleFast)],
+      ["Custos",fmt(result.purchase?.fixedCosts)],
+      ["Inclui importação/leilão",fmt(result.purchase?.importCost)],
+      ["Reserva de risco",fmt(result.purchase?.riskReserve)],
+      ["Margem pretendida",fmt(result.purchase?.targetMargin)],
+      ["Compra ideal",fmt(result.purchase?.effectiveCeiling)],
+      ["Teto máximo (margem mínima)",fmt(maximum)],
+      ["Margem mínima",fmt(result.purchase?.minimumMargin)],
+      ["Fórmula",result.calculation?.formula||"Snapshot histórico"],
+      ["Confiança",(result.market?.confidencePct??0)+"% · "+verified+" profissionais verificados; "+(result.market?.comparablesUsed??0)+" comparáveis usados"],
+      ["Versão do motor",result.engine_version||"—"]
+    ];
+    calcBox.innerHTML=lines.map(([label,value])=>"<p>"+esc(label)+": <strong>"+esc(value)+"</strong></p>").join("")
+      +(result.calculation?.adjustments||[]).map(a=>"<p>Ajuste ano/km: "+esc(fmt(a.asking_price))+" → "+esc(fmt(a.adjusted_price))+" ("+esc(fmt(a.delta))+")</p>").join("");
+  }
+  const shareReady=finite(result.purchase?.effectiveCeiling)&&finite(result.market?.saleFast);
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
 }
@@ -644,6 +684,7 @@ function cleanValuationSummary(value){
 }
 function valuationShareData(){
   if(!currentResult||!currentVehicle)return null;
+  if(!finite(currentResult.purchase?.effectiveCeiling)||!finite(currentResult.market?.saleFast))return null;
   const purchase=Number(currentResult.purchase?.effectiveCeiling);
   const saleFast=Number(currentResult.market?.saleFast);
   if(!Number.isFinite(purchase)||!Number.isFinite(saleFast))return null;
@@ -655,11 +696,13 @@ function valuationShareData(){
     meta:vehicleMeta(currentVehicle),
     summary,
     purchase,
+    maximum:currentResult.purchase?.eligible?currentResult.purchase.absoluteMax:currentResult.purchase?.provisionalAbsoluteMax,
+    margin:currentResult.purchase?.marginAtCeiling,
     saleFast,
     advertised:Number.isFinite(advertised)?advertised:null,
     source:String(q("sourceLabel")?.textContent||"").trim(),
     provisional:currentResult.purchase?.eligible!==true,
-    date:new Date().toLocaleDateString("pt-PT")
+    date:new Date(currentResult.evaluated_at||Date.now()).toLocaleDateString("pt-PT")
   };
 }
 function valuationShareText(data){
@@ -671,6 +714,8 @@ function valuationShareText(data){
   if(data.advertised!==null)lines.push("Preço do anúncio: "+fmt(data.advertised));
   lines.push(
     (data.provisional?"Cotação de compra provisória: ":"Cotação de compra ideal: ")+fmt(data.purchase),
+    "Teto máximo: "+fmt(data.maximum),
+    "Margem prevista à compra ideal: "+fmt(data.margin),
     "Cotação de venda ideal para vender rápido: "+fmt(data.saleFast)
   );
   if(data.summary)lines.push("Resumo do anúncio: "+data.summary);
@@ -738,6 +783,8 @@ function printValuationSummary(){
       '<div class="quote"><span>'+esc(purchaseLabel)+'</span><strong>'+esc(fmt(data.purchase))+'</strong></div>'+
       '<div class="quote"><span>Cotação de venda ideal para vender rápido</span><strong>'+esc(fmt(data.saleFast))+'</strong></div>'+
     '</div>'+
+    '<div class="line"><span>Teto máximo</span><strong>'+esc(fmt(data.maximum))+'</strong></div>'+
+    '<div class="line"><span>Margem prevista à compra ideal</span><strong>'+esc(fmt(data.margin))+'</strong></div>'+
     summary+
     '<div class="foot">'+(data.source?"Fonte: "+esc(data.source)+" · ":"")+'Análise: '+esc(data.date)+' · Valores indicativos com base na evidência disponível no momento da avaliação.</div>'+
     '</main><script>'+
@@ -788,7 +835,8 @@ function renderReaderOnly(reader,url){
 
 async function createAnalysis(url,host){
   const {data,error}=await db.from("cap_analyses").insert({
-    user_id:session.user.id,source_url:url,source_domain:host,status:"reading"
+    user_id:session.user.id,source_url:url,source_domain:host,status:"reading",
+    snapshot:{input:{text:q("vehicleUrl").value,images:selectedImages.map(image=>image.data)},started_at:new Date().toISOString()}
   }).select("id").single();
   if(error)throw error;
   currentAnalysisId=data.id;return data.id;
@@ -873,7 +921,9 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
     saved_at:new Date().toISOString(),
     calculation_kind:calculationKind,
     result,
+    input:{entry,marketPayload,images:marketPayload?.image_data_urls||[]},
     research:{
+      market_result:market,
       job_id:market?.job_id||null,response_id:market?.response_id||null,model:market?.model||null,
       search_sources:market?.search_sources||[],data_quality:market?.data_quality||{},risk_flags:market?.risk_flags||[],
       market_cache:market?.market_cache||null,input_signature:market?.input_signature||null
@@ -1356,6 +1406,8 @@ async function resumePendingAnalysis(){
     const allRules=await loadMemories().catch(()=>[]);
     const memories=relevantMemories(allRules,subject);
     const result=evaluatePurchase({
+      evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+      data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],
       source_url:analysis.source_url,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
@@ -1500,6 +1552,8 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     const memories=relevantMemories(allRules,subject);
     progress("A calcular a compra…","A validar evidência, comparáveis, custos e margem.");
     const result=evaluatePurchase({
+      evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+      data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables,source_url:url?.toString()||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
@@ -1648,6 +1702,8 @@ q("refineForm").addEventListener("submit",async ev=>{
 
     progress("A recalcular a avaliação…","A atualizar mercado, venda e compra recomendada.");
     const result=evaluatePurchase({
+      evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+      data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],source_url:lastAnalysisContext.url||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
@@ -1674,7 +1730,7 @@ q("refineForm").addEventListener("submit",async ev=>{
         ?"Análise refeita com teto provisório; confirma a evidência antes de fechar a compra."
         :"Análise refeita; ainda não existe base suficiente para calcular um valor de compra.")
       +(refinementAI.learned?" A orientação ficou guardada como hipótese para pesquisas futuras.":"");
-    const priceSummary=Number.isFinite(Number(result.purchase?.effectiveCeiling))?"\n\nValor-alvo de compra: "+fmt(result.purchase.effectiveCeiling)+".":"";
+    const priceSummary=finite(result.purchase?.effectiveCeiling)?"\n\nValor-alvo de compra: "+fmt(result.purchase.effectiveCeiling)+".":"";
     const visibleReply=(refinementAI.reply?refinementAI.reply+"\n\n":"")+reply+priceSummary;
     addMsg("assistant",reply);await storeMessage("assistant",reply);
     q("saveStatus").textContent="IA ativa";q("refineInlineStatus").textContent="Análise atualizada pela IA.";
@@ -1774,6 +1830,8 @@ async function applyAuctionLocationAnswer(vehicleLocation){
   try{
     const market=currentMarketData.market;
     const result=evaluatePurchase({
+      evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+      data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject:currentVehicle,
       comparables:Array.isArray(market.comparables)?market.comparables:[],
       source_url:currentMarketData.marketPayload?.url||null,
@@ -1816,6 +1874,8 @@ async function refreshMarketSnapshot(){
     const subject=currentVehicle;
     const memories=relevantMemories(await loadMemories().catch(()=>[]),subject);
     const result=evaluatePurchase({
+      evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+      data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],
       source_url:currentMarketData.marketPayload?.url||null,
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
@@ -1831,7 +1891,7 @@ async function refreshMarketSnapshot(){
     lastAnalysisContext=currentMarketData;
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
     await persistCompletedAnalysis(currentAnalysisId,result,market,currentMarketData.reader,currentMarketData.entry,nextPayload,"market_refresh");
-    toast("Mercado atualizado. Esta nova fotografia do mercado fica estável por 24 horas.");
+    toast("Mercado atualizado e guardado. Novas avaliações voltam a pesquisar.");
   }catch(error){
     toast(error.message||"Não foi possível atualizar o mercado.");
   }finally{
@@ -1852,6 +1912,8 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
     if(currentMarketData&&currentVehicle&&currentAnalysisId){
       const market=currentMarketData.market;
       const result=evaluatePurchase({
+      evaluated_at:market.evaluated_at||market.market_cache?.snapshot_at,
+      data_quality:market.data_quality,valuation_blocked:market.valuation_blocked,
         subject:currentVehicle,comparables:Array.isArray(market.comparables)?market.comparables:[],
         source_url:currentMarketData.marketPayload?.url||null,
         current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,

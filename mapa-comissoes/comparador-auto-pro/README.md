@@ -66,3 +66,7 @@ Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSigna
 ## Verificação
 
 O workflow `.github/workflows/comparador-auto-pro-check.yml` testa exclusivamente esta árvore ativa, incluindo sintaxe, motor de valorização, memória, inputs, segurança, voz e hooks críticos da interface.
+
+## Auditoria atual
+
+Consultar `AUDIT.md`. Novas avaliações pesquisam novamente o mercado. Só a retoma do mesmo job é idempotente. A confiança distingue URLs encontrados de campos corroborados no anúncio. Snapshots incluem inputs e data para reprodução; as permissões existentes não tornam o histórico imutável.
