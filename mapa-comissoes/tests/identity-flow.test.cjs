@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const base=path.resolve(__dirname,'..');
-const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,reuseMarketCache}=require('../api/comparador-market')._test;
+const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,reuseMarketCache,reuseInputCache,inputSignature,cacheAllowed}=require('../api/comparador-market')._test;
 const subject={make:'Tesla',model:'Model Y',trim:'Long Range',year:2023,mileage_km:50000,fuel:'electric',price:30000};
 function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],stage='identify'}={}){
   let providerCalls=0,researchCalls=0,cacheWrites=0;
@@ -16,7 +16,7 @@ function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],st
     if(o.method==='PATCH'){if(p.includes('stage=eq.identify')&&job.context.stage!=='identify')return [];Object.assign(job,o.body);return [job];}
     throw Error(p);
   }};
-  const ctx={module:{exports:{}},require:p=>p==='../lib/access'?access:p==='../lib/registration'?{...require('../lib/registration'),lookupRegistration:async()=>{providerCalls++;return provider;}}:require(path.resolve(base,'api',p)),console,process:{env:{OPENAI_API_KEY:'test'}},URL,Date,Set,AbortSignal,
+  const ctx={module:{exports:{}},require:p=>p==='node:crypto'?require(p):p==='../lib/access'?access:p==='../lib/registration'?{...require('../lib/registration'),lookupRegistration:async()=>{providerCalls++;return provider;}}:require(path.resolve(base,'api',p)),console,process:{env:{OPENAI_API_KEY:'test'}},URL,Date,Set,AbortSignal,
     fetch:async(url,o)=>{if(o?.method==='POST'){researchCalls++;return {ok:true,json:async()=>({id:'resp_market',status:'queued'})};}return {ok:true,json:async()=>output};}};
   vm.createContext(ctx);vm.runInContext(fs.readFileSync(base+'/api/comparador-market.js','utf8'),ctx);
   return {ctx,job,counts:()=>({providerCalls,researchCalls,cacheWrites}),poll:async()=>{let status,result;await ctx.module.exports({method:'GET',query:{job_id:job.id}},{status:n=>{status=n;return {json:x=>{result=x;}}}});return {status,result};}};
@@ -33,11 +33,29 @@ test('registration cannot overwrite confirmed price mileage or trim',()=>{
   const r=mergeRegistration(subject,{make:'Tesla',model:'Model Y',trim:'RWD',price:1,mileage_km:0});
   assert.equal(r.price,30000);assert.equal(r.mileage_km,50000);assert.equal(r.trim,'Long Range');
 });
-test('same vehicle and source produce the same 24h market cache key',()=>{
-  const context={input_mode:'manual',original_url:null};
-  const a=marketCacheKey(subject,context),b=marketCacheKey({...subject},context);
-  assert.equal(a,b);assert.match(a,/vehicle-v1/);
-  assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},context));
+test('same vehicle produces the same 24h market cache key across input sources',()=>{
+  const manual={input_mode:'manual',original_url:null};
+  const listing={input_mode:'url',original_url:'https://www.standvirtual.com/carros/anuncio/abc'};
+  const a=marketCacheKey(subject,manual),b=marketCacheKey({...subject},listing);
+  assert.equal(a,b);assert.match(a,/market-v2\|vehicle-v1/);
+  assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},manual));
+});
+test('identical uploaded photos generate the same exact-input signature',()=>{
+  const image='data:image/jpeg;base64,YWJj';
+  const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
+  const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
+  assert.equal(a,b);
+  assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
+});
+test('force refresh is the only explicit bypass for stable cache',()=>{
+  assert.equal(cacheAllowed({refinement_history:[]}),true);
+  assert.equal(cacheAllowed({refinement_history:[],force_market_refresh:true}),false);
+  assert.equal(cacheAllowed({refinement_history:['nova versão']}),false);
+});
+test('exact input reuse preserves the original market snapshot time',()=>{
+  const cached={id:'old-job',updated_at:'2026-10-06T07:00:00.000Z',snapshot_at:'2026-10-06T06:55:00.000Z',result:{subject,comparables:[{url:'https://example.com/1',price:30000}],market_cache:{snapshot_at:'2026-10-06T06:55:00.000Z'}}};
+  const r=reuseInputCache(cached,'input-v1:test');
+  assert.equal(r.market_cache.hit,true);assert.equal(r.market_cache.reuse_mode,'exact_input');assert.equal(r.market_cache.snapshot_at,'2026-10-06T06:55:00.000Z');assert.equal(r.input_signature,'input-v1:test');
 });
 test('reused market snapshot keeps current vehicle facts and original snapshot time',()=>{
   const cached={id:'old-job',updated_at:'2026-10-06T07:00:00.000Z',snapshot_at:'2026-10-06T06:55:00.000Z',result:{subject:{...subject,mileage_km:49000},comparables:[{url:'https://example.com/1',price:30000}]}};
