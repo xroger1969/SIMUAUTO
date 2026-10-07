@@ -501,6 +501,7 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   q("confidencePill").textContent="A confirmar";
   q("maxPurchase").textContent="—";
   q("currentPrice").textContent=fmt(currentVehicle.price);
+  applyPurchaseSignal(null);
   q("saleLikely").textContent="—";
   q("saleFast").textContent="—";
   q("expectedMargin").textContent="—";
@@ -518,6 +519,41 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   const calcBox=q("calcBox");if(calcBox)calcBox.textContent="O cálculo fica bloqueado até confirmar os dados essenciais. Assim evitamos uma cotação falsa com base numa versão, ano ou quilometragem errados.";
   syncDealForm();
   showVehicleFollowup(currentVehicle,missing);
+}
+
+function purchaseSignal(result){
+  const purchase=result?.purchase||{};
+  const current=Number(purchase.currentPrice);
+  const target=Number(purchase.effectiveCeiling);
+  const absoluteRaw=purchase.absoluteMax!==null&&purchase.absoluteMax!==undefined&&Number.isFinite(Number(purchase.absoluteMax))
+    ?purchase.absoluteMax
+    :purchase.provisionalAbsoluteMax;
+  const absolute=Number(absoluteRaw);
+  if(!Number.isFinite(current)||!Number.isFinite(target)){
+    return {tone:"neutral",label:"A aguardar preço",detail:"Indica o preço ou a licitação atual para classificar a compra."};
+  }
+  if(current<=target){
+    return {tone:"green",label:"Avançar",detail:"Preço dentro ou abaixo do teto comercial de compra."};
+  }
+  if(Number.isFinite(absolute)&&current<=absolute){
+    return {tone:"amber",label:"Risco",detail:"Preço acima do alvo comercial, mas ainda dentro do limite de margem mínima."};
+  }
+  return {tone:"red",label:"Não avançar",detail:"Preço acima do limite comercial: a margem mínima deixou de estar protegida."};
+}
+function applyPurchaseSignal(result){
+  const badge=q("purchaseSignal");
+  const side=q("currentPrice")?.closest(".decision-side");
+  const signal=purchaseSignal(result);
+  if(side){
+    side.classList.remove("signal-green","signal-amber","signal-red","signal-neutral");
+    side.classList.add("signal-"+signal.tone);
+  }
+  if(badge){
+    badge.className="purchase-signal "+signal.tone;
+    badge.textContent=signal.label;
+    badge.title=signal.detail;
+    badge.setAttribute("aria-label",signal.label+". "+signal.detail);
+  }
 }
 
 function renderRisks(flags,warnings){
@@ -574,6 +610,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const currentLabel=q("currentPrice")?.previousElementSibling;
   if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
+  applyPurchaseSignal(result);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
   const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
