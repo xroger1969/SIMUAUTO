@@ -85,6 +85,16 @@ button{cursor:pointer}
 .decision-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(210px,.42fr);gap:24px;align-items:end;padding:24px;border:1px solid #4d78a4;border-radius:20px;background:linear-gradient(145deg,#24547f,#1b3f62);box-shadow:var(--shadow)}
 .decision-card span,.decision-card small{display:block;color:#9bb2ce;font-size:11px}.decision-card>div>strong{display:block;font-size:clamp(40px,7vw,66px);letter-spacing:-.06em;margin:5px 0}
 .decision-side{border-left:1px solid rgba(255,255,255,.08);padding-left:26px;min-width:210px}.decision-side strong{font-size:28px!important}
+.purchase-signal{display:inline-flex!important;align-items:center;gap:6px;width:max-content;margin:7px 0 4px;padding:5px 8px;border-radius:999px;font-size:9px!important;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.purchase-signal:before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px rgba(255,255,255,.05)}
+.purchase-signal.neutral{color:#a9bdd1;border:1px solid #46627f;background:#183149}
+.purchase-signal.green{color:#b9efd0;border:1px solid #356c50;background:#173c2a}
+.purchase-signal.amber{color:#ffe2a1;border:1px solid #7b6630;background:#3b3219}
+.purchase-signal.red{color:#ffc0c0;border:1px solid #7b4141;background:#4a2222}
+.decision-side.signal-green #currentPrice{color:#b9efd0}
+.decision-side.signal-amber #currentPrice{color:#ffe2a1}
+.decision-side.signal-red #currentPrice{color:#ffc0c0}
+.decision-side.signal-neutral #currentPrice{color:#fff}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}
 .kpis article{padding:16px;border:1px solid var(--line);border-radius:15px;background:linear-gradient(180deg,#1b3a58,#17324d);min-width:0;min-height:108px;display:flex;flex-direction:column;justify-content:center}
 .kpis span,.kpis small{display:block;color:var(--muted);font-size:10px}.kpis strong{display:block;font-size:22px;margin:6px 0 3px;letter-spacing:-.03em}
