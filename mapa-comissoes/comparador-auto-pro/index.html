@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261006-share-card-v1">
+  <link rel="stylesheet" href="./styles.css?v=20261007-purchase-signal-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -198,6 +198,7 @@
         <div class="decision-side">
           <span>Preço atual</span>
           <strong id="currentPrice">—</strong>
+          <span class="purchase-signal neutral" id="purchaseSignal">A aguardar preço</span>
           <small id="gapText">—</small>
         </div>
       </div>
@@ -332,7 +333,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261006-share-card-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261007-purchase-signal-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
