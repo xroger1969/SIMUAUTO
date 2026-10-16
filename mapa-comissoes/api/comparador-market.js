@@ -17,7 +17,7 @@ function inputSignature(body={}){
     description:String(body.description||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," "),
     images:images.map(image=>sha256(image))
   };
-  return "input-v1:"+sha256(JSON.stringify(signaturePayload));
+  return "input-v2-approximate-20261016:"+sha256(JSON.stringify(signaturePayload));
 }
 
 function canonicalUrl(raw){
@@ -182,7 +182,7 @@ function marketCacheKey(subject={},context={}){
       normalizeIdentity(subject.drivetrain)
     ].join("|");
   }
-  return "market-v2|"+identity;
+  return "market-v3-approximate-20261016|"+identity;
 }
 function cacheAllowed(context={}){
   return context.force_market_refresh!==true && !(Array.isArray(context.refinement_history)&&context.refinement_history.length);
@@ -395,6 +395,9 @@ async function findFreshInputCache(token,signature,excludeJobId=null){
     const cutoff=Date.now()-MARKET_CACHE_HOURS*3600000;
     for(const row of Array.isArray(rows)?rows:[]){
       if(!row||row.id===excludeJobId||!row.result)continue;
+      // Não reutilizar uma pesquisa anterior que terminou com zero comparáveis.
+      // O modelo/pesquisa podem conseguir referências numa nova tentativa.
+      if(!Array.isArray(row.result.comparables)||row.result.comparables.length===0)continue;
       const snapshotAt=row.result?.market_cache?.snapshot_at||row.updated_at;
       const ts=Date.parse(snapshotAt||"");
       if(Number.isFinite(ts)&&ts>=cutoff)return {...row,snapshot_at:new Date(ts).toISOString()};
