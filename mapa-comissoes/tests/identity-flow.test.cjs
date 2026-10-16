@@ -43,7 +43,7 @@ test('same vehicle produces the same 24h market cache key across input sources',
   const manual={input_mode:'manual',original_url:null};
   const listing={input_mode:'url',original_url:'https://www.standvirtual.com/carros/anuncio/abc'};
   const a=marketCacheKey(subject,manual),b=marketCacheKey({...subject},listing);
-  assert.equal(a,b);assert.match(a,/market-v2\|vehicle-v1/);
+  assert.equal(a,b);assert.match(a,/market-v3-approximate-20261016\|vehicle-v1/);
   assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},manual));
 });
 test('identical uploaded photos generate the same exact-input signature',()=>{
@@ -51,6 +51,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
+  assert.match(a,/^input-v2-approximate-20261016:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{
@@ -58,6 +59,18 @@ test('force refresh is the only explicit bypass for stable cache',()=>{
   assert.equal(cacheAllowed({refinement_history:[],force_market_refresh:true}),false);
   assert.equal(cacheAllowed({refinement_history:['nova versão']}),false);
 });
+test('um resultado sem comparáveis não fica preso na cache de 24 horas',async()=>{
+  const h=harness({stage:'completed'});
+  h.job.status='completed';
+  h.job.updated_at=new Date().toISOString();
+  h.job.result={subject,comparables:[]};
+  const lookup=h.ctx.module.exports._test.findFreshInputCache;
+  assert.equal(await lookup('test','nova-assinatura'),null);
+  h.job.result.comparables=[{url:'https://stand.example/vehicle/1',price:22000}];
+  const cached=await lookup('test','nova-assinatura');
+  assert.equal(cached.id,h.job.id);
+});
+
 test('exact input reuse preserves the original market snapshot time',()=>{
   const cached={id:'old-job',updated_at:'2026-10-06T07:00:00.000Z',snapshot_at:'2026-10-06T06:55:00.000Z',result:{subject,comparables:[{url:'https://example.com/1',price:30000}],market_cache:{snapshot_at:'2026-10-06T06:55:00.000Z'}}};
   const r=reuseInputCache(cached,'input-v1:test');
