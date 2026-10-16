@@ -66,3 +66,28 @@ Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSigna
 ## Verificação
 
 O workflow `.github/workflows/comparador-auto-pro-check.yml` testa exclusivamente esta árvore ativa, incluindo sintaxe, motor de valorização, memória, inputs, segurança, voz e hooks críticos da interface.
+
+## Spottd — integração preparada (aguarda credenciais)
+
+A consulta Spottd é prioritária em **novas consultas sem cache** apenas quando as duas
+variáveis de ambiente privadas estiverem configuradas na Vercel:
+
+- `SPOTTD_API_BASE_URL`: **origem HTTPS** do fornecedor (ex.: `https://servidor.fornecedor.pt`), sem caminho; aguardar hostname real na documentação oficial.
+- `SPOTTD_API_KEY`: chave gerada no dashboard Spottd.
+
+O servidor chama uma única vez `GET /api/v1/registrations/{plate}` com cabeçalho
+`X-API-Key`. Nunca colocar a chave no código, nas páginas, nos pedidos do browser ou
+no repositório. A resposta converte potência de kW para CV, preservando kW, e
+identifica `provider: spottd`. Campos em falta continuam desconhecidos.
+
+Se não houver chave/URL, a Spottd devolver erro ou a ficha estiver incorreta,
+a consulta usa as fontes já existentes (MyCarPlate/RegCheck), sem bloquear a
+análise de mercado. A cache Supabase por utilizador impede consultas repetidas
+para a mesma matrícula durante a sua validade; cache antiga continua válida.
+A identificação por matrícula nunca substitui quilómetros, preço ou versão
+já confirmados pelo anúncio/cliente.
+
+Para ativar: validar URL e cabeçalhos reais com a documentação da Spottd, guardar
+as duas variáveis **apenas nos segredos de servidor**, publicar e testar com
+créditos gratuitos; confirmar no dashboard o consumo de 1 crédito por pedido
+com resultado. Não se fizeram chamadas reais à Spottd nesta implementação.

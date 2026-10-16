@@ -11,6 +11,7 @@ on:
       - "mapa-comissoes/api/comparador-*.js"
       - "mapa-comissoes/lib/access.js"
       - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/lib/registration.js"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -39,6 +40,7 @@ jobs:
           node --check mapa-comissoes/api/comparador-transcribe.js
           node --check mapa-comissoes/lib/access.js
           node --check mapa-comissoes/lib/safe-fetch.js
+          node --check mapa-comissoes/lib/registration.js
           node --check mapa-comissoes/comparador-auto-pro/app-v2.js
           node --check mapa-comissoes/comparador-auto-pro/valuation.js
       - name: Run active comparator regressions

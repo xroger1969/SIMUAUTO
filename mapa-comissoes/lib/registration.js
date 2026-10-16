@@ -135,14 +135,87 @@ function parseMyCarPlateData(payload){
     provider:'mycarplate'
   };
 }
+
+/**
+ * Spottd devolve potência em kW (não em CV).
+ * Dados desconhecidos permanecem null para evitar inventar equipamentos ou versões.
+ */
+function parseSpottdData(payload,requestedPlate){
+  const data=payload&&typeof payload==='object'&&payload.data&&!Array.isArray(payload.data)&&typeof payload.data==='object'?payload.data:null;
+  if(!data)throw failure('A Spottd não devolveu uma ficha válida para esta matrícula.');
+  const requested=normalizeRegistration(requestedPlate);
+  const returned=normalizeRegistration(data.license_plate);
+  if(requested&&returned&&requested!==returned)throw failure('A matrícula devolvida pela Spottd não coincide com a matrícula pedida.');
+  const make=field(data.make),model=field(data.model)||field(data.commercial_model);
+  if(!make||!model)throw failure('A Spottd não conseguiu identificar a marca e o modelo desta matrícula.',404);
+  const power=numberField(data.engine_power);
+  const engine=intField(data.engine_displacement);
+  const seats=intField(data.seats);
+  const weight=intField(data.weight);
+  const co2=data.co2===null||data.co2===undefined||field(data.co2)===''?null:numberField(data.co2);
+  const built=intField(data.year_built);
+  const rawTrim=field(data.version);
+  return {
+    registration:displayRegistration(returned||requested)||null,
+    make,model,
+    trim:rawTrim&&!/^(?:\?|n\/?a|unknown|null|desconhecido)$/i.test(rawTrim)?rawTrim:null,
+    year:Number.isInteger(built)&&built>=1900&&built<=new Date().getFullYear()+1?built:null,
+    description:null,
+    fuel:field(data.fuel)||null,
+    first_registration:normalizeDate(data.registration_date),
+    body_type:field(data.body_type)||null,
+    vehicle_type:field(data.vehicle_type)||null,
+    category:field(data.category)||null,
+    engine_cc:Number.isInteger(engine)&&engine>0?engine:null,
+    power_kw:Number.isFinite(power)&&power>0?power:null,
+    power_cv:Number.isFinite(power)&&power>0?Math.round(power*1.359621617):null,
+    transmission:null,
+    doors:null,
+    seats:Number.isInteger(seats)&&seats>0&&seats<30?seats:null,
+    weight_kg:Number.isInteger(weight)&&weight>0?weight:null,
+    color:field(data.colour)||field(data.color)||null,
+    co2_g_km:Number.isFinite(co2)&&co2>=0?co2:null,
+    origin:'unknown',
+    provider:'spottd'
+  };
+}
+function spottdEndpoint(baseUrl,plate){
+  const url=new URL(baseUrl);
+  if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash||url.pathname!=='/'||
+     !url.hostname.includes('.'))throw new Error('Origem Spottd inválida');
+  url.pathname='/api/v1/registrations/'+encodeURIComponent(displayRegistration(plate));
+  return url.toString();
+}
+
 async function lookupRegistration(value,{
  username=process.env.REGISTRATION_API_USERNAME,
  apiKey=process.env.REGISTRATION_API_KEY,
  myCarPlateApiKey=process.env.MYCARPLATE_API_KEY,
+ spottdApiKey=process.env.SPOTTD_API_KEY,
+ spottdBaseUrl=process.env.SPOTTD_API_BASE_URL,
  fetcher=fetch
 }={}){
   const plate=normalizeRegistration(value);
   if(!plate)throw failure('Matrícula portuguesa inválida.',400);
+
+  // Um só pedido Spottd por cache miss. Nunca fazer retries automáticos pagos.
+  // A chave é exclusivamente de servidor; não vai para a interface nem para logs.
+  if(spottdApiKey&&spottdBaseUrl){
+    try{
+      const response=await fetcher(spottdEndpoint(spottdBaseUrl,plate),{
+        method:'GET',
+        headers:{accept:'application/json','X-API-Key':String(spottdApiKey).trim()},
+        signal:AbortSignal.timeout(12000)
+      });
+      if(response.ok){
+        const result=parseSpottdData(await response.json(),plate);
+        return result;
+      }
+      console.warn('spottd_http_failure',{status:response.status});
+    }catch(error){
+      console.warn('spottd_lookup_failure',{kind:error?.name||'unknown'});
+    }
+  }
 
   let myCarPlateStatus=null,myCarPlateTransportError=null;
   try{
@@ -230,4 +303,4 @@ async function lookupRegistration(value,{
   if(transportError)throw failure('Não foi possível ligar ao serviço de matrículas. Tenta novamente dentro de instantes.');
   throw failure('Não foi possível consultar esta matrícula.');
 }
-module.exports={lookupRegistration,parseRegistration,parseRegistrationData,parseMyCarPlateData,inferModelFromOptions,normalizeRegistration,displayRegistration};
+module.exports={lookupRegistration,parseRegistration,parseRegistrationData,parseMyCarPlateData,parseSpottdData,spottdEndpoint,inferModelFromOptions,normalizeRegistration,displayRegistration};
