@@ -25,6 +25,12 @@ test('different Tesla and VW models never share identity merely through a word',
   for(const [a,b] of [['Model Y','Model 3'],['ID.4','ID.5'],['Golf','Golf Plus']])assert.equal(registrationCompatible({make:'Tesla',model:a},{make:'Tesla',model:b}),false);
   assert.equal(registrationCompatible({make:'VW',model:'ID.4'},{make:'Volkswagen',model:'ID 4'}),true);
 });
+test('o modelo de matrícula Kona é compatível com a versão Kona 1.6 Hybrid',()=>{
+  assert.equal(registrationCompatible({make:'Hyundai',model:'Kona 1.6 Hybrid Prime'},{make:'Hyundai',model:'Kona'}),true);
+  assert.equal(registrationCompatible({make:'Hyundai',model:'Kona Hybrid'},{make:'Hyundai',model:'Kona'}),true);
+  assert.equal(registrationCompatible({make:'Hyundai',model:'Kona'},{make:'Hyundai',model:'Tucson'}),false);
+});
+
 test('unknown km requires confirmation; explicit zero is allowed',()=>{
   for(const value of [null,undefined,'',-1,'unknown'])assert.ok(missingIdentity({...subject,mileage_km:value}).includes('mileage_km'));
   assert.deepEqual(missingIdentity({...subject,mileage_km:0}),[]);
