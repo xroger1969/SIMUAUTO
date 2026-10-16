@@ -14,15 +14,16 @@ Esta é a implementação canónica do Comparador Auto Pro. O código antigo da 
 
 ## Regra de confiança
 
-Um teto de compra só pode ser emitido quando existem, no mínimo:
+A avaliação é feita por **comparação ponderada** e não exige três carros iguais.
 
-- 3 viaturas profissionais distintas e verificadas;
-- marca, modelo, versão, ano, quilómetros e combustível confirmados na viatura analisada;
-- URLs/evidência de pesquisa válidas;
-- preços em Portugal numa base comparável;
-- dispersão de mercado dentro do limite de segurança.
+- **1 anúncio compatível:** calcula valor de mercado, revenda e teto **provisório**, com confiança limitada.
+- **2 anúncios profissionais verificados:** podem fundamentar um teto recomendado se os dados da viatura estiverem completos e os preços forem consistentes.
+- **3 ou mais:** reforçam a robustez, mas não são necessários para obter uma cotação.
+- Anos, quilómetros, versões e equipamento próximos são ponderados com ajustamentos explícitos; combustível incompatível, duplicados e preços inválidos são excluídos.
+- A pesquisa abre gradualmente do mesmo acabamento para a mesma família de modelo/combustível, podendo incluir particulares identificados como tal.
+- Sem qualquer preço real comparável, a aplicação explica a falta de dados em vez de inventar uma cotação.
 
-Sem estas condições, a aplicação apresenta apenas uma **referência provisória**, limita a confiança e bloqueia o teto recomendado.
+A percentagem é um **índice heurístico de confiança da evidência**, não uma probabilidade estatística comprovada de acertar no preço. O cálculo e os custos continuam determinísticos e cada revisão guarda a versão do motor.
 
 ## Regra de custos de importação
 
