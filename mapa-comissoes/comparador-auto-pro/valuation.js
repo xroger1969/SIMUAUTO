@@ -344,7 +344,7 @@ export function evaluatePurchase(input,custom={}){
   const comparableCountCap=valid.length===1?52:valid.length===2?68:valid.length===3?80:valid.length<=5?86:92;
   const evidenceCap=marketBasis!=="professional"?(marketBasis==="seller_unconfirmed"?45:42)
     :verified.length===0?47:92;
-  const completenessCap=s.mileage_estimated?45:missing.length?58:95;
+  const completenessCap=s.mileage_estimated||!known(s.mileage_km)?45:missing.length?58:95;
   const confidencePct=valid.length
     ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap),0,95))
     :0;
