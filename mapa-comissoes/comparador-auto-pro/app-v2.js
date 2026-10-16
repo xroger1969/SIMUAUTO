@@ -1629,7 +1629,8 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     const market=await runMarketAnalysis(marketPayload,operation);
     assertOperation(operation);
     if(market.registration_data)marketPayload.registration_data=market.registration_data;
-    if(entry.registration&&market.registration_data?.provider==="mycarplate")sourceHost="mycarplate";
+    if(entry.registration&&market.registration_data?.provider==="spottd")sourceHost="spottd";
+    else if(entry.registration&&market.registration_data?.provider==="mycarplate")sourceHost="mycarplate";
     else if(entry.registration&&/matricula|regcheck/i.test(String(market.registration_data?.provider||"")))sourceHost="matricula.co.pt";
 
     const subject=mergeAuto1AuthenticatedFacts(market.subject||{},reader);
