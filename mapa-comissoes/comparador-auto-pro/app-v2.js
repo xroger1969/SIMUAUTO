@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261006-stable-market-v1";
+import { evaluatePurchase } from "./valuation.js?v=20261016-approximate-market-v2";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -600,7 +600,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   renderVehicleReadout(currentVehicle,currentMarketData);
-  q("confidencePill").textContent=(result.purchase?.eligible?"Confiança ":result.purchase?.provisionalEligible?"Provisório ":"Referência ")+(result.market?.confidencePct??0)+"%";
+  q("confidencePill").textContent="Confiança estimada "+(result.market?.confidencePct??0)+"%"+(result.purchase?.provisionalEligible&&!result.purchase?.eligible?" · provisória":"");
   const rawCeiling=result.purchase?.effectiveCeiling;
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
   const acquisition=result.purchase?.acquisition||{};
@@ -641,7 +641,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const quality=result.purchase?.eligible
     ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
     :Number.isFinite(Number(result.market?.marketValue))
-      ?"Teto de compra provisório calculado a partir de "+(result.market?.comparablesUsed??0)+" comparável(is), valor de revenda e margem comercial. Dados em falta reduzem a confiança."
+      ?"Teto indicativo calculado por aproximação ponderada a partir de "+(result.market?.comparablesUsed??0)+" anúncio(s), valor de revenda e margem comercial. A percentagem é um índice heurístico de confiança, não uma probabilidade comprovada de acerto."
       :(result.warnings?.[0]||"Ainda não existe base de mercado suficiente.");
   const marketCache=currentMarketData?.market?.market_cache;
   const snapshotNote=marketCache?.snapshot_at
