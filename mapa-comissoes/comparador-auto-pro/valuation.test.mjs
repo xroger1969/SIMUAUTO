@@ -34,11 +34,11 @@ test("one private advert issues only a low-confidence provisional buying estimat
   const r=evaluatePurchase({subject,comparables:[privateAd],current_purchase_price:22000,source_url:"https://auction.example/x"});
   assert.equal(r.purchase.eligible,false);
   assert.ok(Number.isNaN(r.purchase.maxPurchase));
-  assert.ok(r.market.confidencePct<=39);
+  assert.ok(r.market.confidencePct<=47);
   assert.match(r.purchase.decision,/Teto provisório/);
   assert.equal(r.purchase.provisionalEligible,true);
   assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
-  assert.ok(r.market.confidencePct<=20);
+  assert.ok(r.market.confidencePct<=52);
 });
 
 test('one professional comparable can produce an indicative purchase value',()=>{
@@ -46,13 +46,14 @@ test('one professional comparable can produce an indicative purchase value',()=>
   assert.equal(r.purchase.eligible,false);
   assert.equal(r.purchase.provisionalEligible,true);
   assert.ok(Number.isFinite(r.purchase.effectiveCeiling));
-  assert.ok(r.market.confidencePct<=20);
+  assert.ok(r.market.confidencePct<=52);
   assert.equal(r.purchase.provisionalMaxPurchase,Math.max(0,Math.floor(r.market.saleLikely-r.purchase.fixedCosts-r.purchase.riskReserve-3500)));
 });
 test('two comparables cannot show the same confidence ceiling as three',()=>{
   const two=evaluatePurchase({subject,comparables:[professional(1),professional(2)]});
   const three=evaluatePurchase({subject,comparables:[professional(1),professional(2),professional(3)]});
-  assert.ok(two.market.confidencePct<=35);
+  assert.ok(two.market.confidencePct<=68);
+  assert.equal(two.purchase.eligible,true);
   assert.ok(three.market.confidencePct>=two.market.confidencePct);
 });
 test('no comparables still cannot produce a purchase estimate',()=>{
@@ -188,7 +189,7 @@ test("three professional but unverified adverts produce a provisional ceiling, n
   assert.ok(Number.isFinite(r.purchase.provisionalMaxPurchase));
   assert.equal(r.purchase.effectiveCeiling,r.purchase.provisionalMaxPurchase);
   assert.match(r.purchase.decision,/Teto provisório/);
-  assert.ok(r.market.confidencePct<=39);
+  assert.ok(r.market.confidencePct<=47);
 });
 
 
@@ -233,7 +234,7 @@ test('registration conflict blocks both verified and provisional purchase ceilin
 
 test('estimated mileage never becomes a confirmed purchase recommendation',()=>{
   const r=evaluatePurchase({subject:{...subject,mileage_estimated:true},comparables:[1,2,3].map(i=>professional(i))});
-  assert.equal(r.purchase.eligible,false);assert.equal(r.purchase.provisionalEligible,true);assert.ok(Number.isFinite(r.purchase.effectiveCeiling));assert.ok(r.market.confidencePct<=39);
+  assert.equal(r.purchase.eligible,false);assert.equal(r.purchase.provisionalEligible,true);assert.ok(Number.isFinite(r.purchase.effectiveCeiling));assert.ok(r.market.confidencePct<=47);
 });
 
 test('V2 can value a vehicle with make model year fuel but no trim or mileage',()=>{
@@ -267,4 +268,51 @@ test('AUTO1 Portugal does not apply the foreign-auction logistics cost',()=>{
   const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],source_url:'https://www.auto1.com/pt/vehicle/PT123',source_context:{is_auction:true,vehicle_location:'unknown',origin_country:'PT'},current_purchase_price:14000});
   assert.equal(r.purchase.acquisition.vehicleLocation,'PT');
   assert.equal(r.purchase.importCost,0);
+});
+
+test("Hyundai Kona 2022 é avaliado por outro ano, quilometragem e versão",()=>{
+  const inspected={
+    make:"Hyundai",model:"Kona",trim:"1.6 Hybrid Prime 2WD",fuel:"Híbrido",
+    year:2022,mileage_km:118633,power_cv:141,transmission:"Dupla embreagem"
+  };
+  const comparable={
+    ...professional(1),make:"Hyundai",model:"Kona 1.6 Hybrid",trim:"1.6 Hybrid",
+    fuel:"hybrid",year:2020,mileage_km:144000,power_cv:141,
+    price:19500,transmission:"automatic"
+  };
+  const result=evaluatePurchase({
+    subject:inspected,comparables:[comparable],
+    source_url:"https://www.auto1.com/pt/app/car/123",
+    source_context:{is_auction:true,vehicle_location:"PT"},
+    current_purchase_price:11420
+  });
+  assert.equal(result.market.comparablesUsed,1);
+  assert.equal(result.purchase.provisionalEligible,true);
+  assert.equal(result.purchase.eligible,false);
+  assert.ok(Number.isFinite(result.market.marketValue));
+  assert.ok(Number.isFinite(result.purchase.effectiveCeiling));
+  assert.ok(result.market.confidencePct>0&&result.market.confidencePct<=52);
+  assert.equal(result.purchase.importCost,0);
+  assert.equal(result.market.confidenceMethod,"heuristic-evidence-v2");
+});
+
+test("dois anúncios aproximados verificados bastam sem três carros iguais",()=>{
+  const subjectK={make:"Hyundai",model:"Kona",trim:"1.6 Hybrid Prime",fuel:"hybrid",year:2022,mileage_km:118633};
+  const comps=[professional(1,{make:"Hyundai",model:"Kona Hybrid",trim:"1.6 Hybrid",fuel:"hybrid",year:2021,mileage_km:95000,price:19000}),
+    professional(2,{make:"Hyundai",model:"Kona",trim:"1.6 Hybrid Premium",fuel:"hybrid",year:2023,mileage_km:103000,price:21100})];
+  const r=evaluatePurchase({subject:subjectK,comparables:comps});
+  assert.equal(r.market.comparablesUsed,2);
+  assert.ok(Number.isFinite(r.purchase.effectiveCeiling));
+  assert.ok(r.market.confidencePct<=68);
+});
+
+test("a aproximação não mistura híbrido com diesel nem duplica anúncios",()=>{
+  const h={make:"Hyundai",model:"Kona",trim:"1.6 Hybrid",fuel:"hybrid",year:2022,mileage_km:118633};
+  const diesel=professional(1,{make:"Hyundai",model:"Kona",fuel:"diesel"});
+  const good=professional(2,{make:"Hyundai",model:"Kona",fuel:"hybrid"});
+  const repeat={...good,url:"https://mirror.example/clone"};
+  const r=evaluatePurchase({subject:h,comparables:[diesel,good,repeat]});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.ok(r.excluded.some(x=>/combustível diferente/.test(x.reason)));
+  assert.ok(r.excluded.some(x=>/duplicado/.test(x.reason)));
 });

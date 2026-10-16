@@ -135,9 +135,12 @@ function canonicalMake(value){
   return ({vw:"volkswagen","mercedes benz":"mercedes","mercedesbenz":"mercedes"})[make]||make;
 }
 function modelCompatible(a,b){
-  const A=normalizeIdentity(a).replace(/\s+/g,""),B=normalizeIdentity(b).replace(/\s+/g,"");
-  if(!A||!B)return true;
-  return A===B;
+  const A=normalizeIdentity(a),B=normalizeIdentity(b);
+  if(!A||!B||A===B)return true;
+  // A ficha pode dizer «Kona 1.6 Hybrid» enquanto a matrícula devolve «Kona».
+  const extended=(short,long)=>short.length>=3&&long.startsWith(short+" ")
+    &&/^(?:\d|hybrid\b|hibrid\b|phev\b|prime\b|premium\b|pack\b|style\b|comfort\b|edition\b)/.test(long.slice(short.length+1));
+  return extended(A,B)||extended(B,A);
 }
 function registrationCompatible(subject,registration){
   const a=canonicalMake(subject?.make),b=canonicalMake(registration?.make);
@@ -562,12 +565,18 @@ const instructions=[
   "Define seller_type=professional apenas com evidência de stand, comerciante ou concessionário; private para particular; unknown se não conseguires confirmar.",
   "country=PT apenas se o anúncio estiver em Portugal. availability=available apenas se a página indicar que o anúncio está ativo. price_basis=gross apenas quando o preço apresentado ao público inclui IVA ou é claramente o preço final anunciado.",
   "observed_at deve refletir a data/hora desta pesquisa; nunca inventes uma data histórica.",
-  "Procura mesma marca, modelo, geração, motorização/versão, tração e ano próximo. Só alarga se faltarem resultados.",
+  "Procura primeiro a mesma marca, família de modelo, combustível e motorização/versão, com ano próximo e quilometragem semelhante. NÃO exijas anúncios exatamente da mesma versão, ano ou quilometragem.",
+  "Se não encontrares 3 anúncios, NÃO devolvas lista vazia por esse motivo: um único anúncio português com URL verdadeiro e preço observado já é útil como referência provisória. Nunca inventes anúncios, URLs ou preços.",
+  "Alarga a pesquisa por fases: (1) versão e ano ±1; (2) mesma família/motorização/combustível, ano ±3 e quilómetros diferentes; (3) mesmo modelo e combustível, versões/equipamentos próximos e ano ±4. Inclui profissionais e, se escassearem, particulares identificados como tal. A ponderação e os ajustamentos são feitos pelo motor de cálculo.",
+  "Não mistures híbridos com plug-in ou diesel, nem gerações tecnicamente incompatíveis. Diferenças de caixa, potência, equipamento e tração devem ser descritas com rigor; não as transformes em igualdades fictícias.",
+  "Devolve todos os anúncios concretos e independentes encontrados, ainda que sejam apenas 1 ou 2; não repitas o mesmo carro noutras plataformas.",
   "Normaliza model como família comercial e trim como motorização/versão/equipamento. Exemplo BMW: model='Série 4 Gran Coupé' e trim='425d Pack M Auto'; não coloques '425d Gran Coupé' no campo model nem deixes apenas 'd Pack M Auto' no trim.",
   "Mantém a mesma convenção de model e trim entre subject e todos os comparáveis para evitar rejeições artificiais do motor determinístico.",
   "Não uses anúncios estrangeiros, carros novos, páginas editoriais, peças, aluguer ou resultados sem preço como comparáveis principais.",
   "Evita o próprio anúncio e duplicados do mesmo carro entre plataformas. listing_id deve conter o identificador do anúncio quando estiver disponível.",
   "Não confundas preço pedido com preço vendido.",
+  "Em fotografias de leilão, distingue licitação mínima, licitação atual, tarifa e preço de compra imediata. Se o campo visível for licitação mínima e não houver outro valor atual, podes indicá-lo como preço da oportunidade com essa ressalva no resumo; nunca inventes um preço final.",
+  "Se o relatório de condição indicar luz de aviso no painel ou avaria, inclui o aviso na ficha/riscos; ausência de acidentes registados não significa ausência de problemas mecânicos.",
   "Preenche auction_context para a VIATURA ANALISADA, não para os comparáveis. is_auction=true apenas quando a origem da oportunidade é claramente um leilão/plataforma de remarketing. Standvirtual nunca é tratado como leilão.",
   "Em auction_context.vehicle_location usa PT apenas com evidência de que a viatura de leilão já se encontra fisicamente em Portugal; usa foreign se estiver fora de Portugal; usa unknown se não conseguires confirmar. Preenche origin_country com o código ISO do país quando estiver visível. Uma bandeira/indicação explícita de França=FR, Alemanha=DE, Bélgica=BE, Espanha=ES, Itália=IT, Países Baixos=NL, etc. é evidência suficiente de localização estrangeira. Não deduzas a localização apenas porque subject.origin é imported/national.",
   "Para links AUTO1 trata a oportunidade como leilão/remarketing. Se o anúncio ou fotografia mostrar bandeira/país estrangeiro, define vehicle_location=foreign e origin_country para esse país; se mostrar Portugal, define PT. Para Standvirtual define is_auction=false e vehicle_location=PT e origin_country=PT.",
