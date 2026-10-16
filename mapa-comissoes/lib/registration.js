@@ -152,7 +152,7 @@ function parseSpottdData(payload,requestedPlate){
   const engine=intField(data.engine_displacement);
   const seats=intField(data.seats);
   const weight=intField(data.weight);
-  const co2=numberField(data.co2);
+  const co2=data.co2===null||data.co2===undefined||field(data.co2)===''?null:numberField(data.co2);
   const built=intField(data.year_built);
   const rawTrim=field(data.version);
   return {
