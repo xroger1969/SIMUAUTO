@@ -6,10 +6,10 @@ const path=require('node:path');
 const base=path.resolve(__dirname,'..');
 const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,reuseMarketCache,reuseInputCache,inputSignature,cacheAllowed}=require('../api/comparador-market')._test;
 const subject={make:'Tesla',model:'Model Y',trim:'Long Range',year:2023,mileage_km:50000,fuel:'electric',price:30000};
-function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],stage='identify'}={}){
+function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],stage='identify',extra={}}={}){
   let providerCalls=0,researchCalls=0,cacheWrites=0;
   const job={id:'00000000-0000-4000-8000-000000000001',response_id:'resp_1',context:{stage},status:'in_progress'};
-  const output={status:'completed',output_text:JSON.stringify({subject:vehicle,comparables:[]})};
+  const output={status:'completed',output_text:JSON.stringify({subject:vehicle,comparables:[],...extra})};
   const access={authenticate:async()=>({token:'test'}),endpoint:fn=>fn,appError:(m,s)=>Object.assign(new Error(m),{status:s}),rest:async(t,p,o={})=>{
     if(p.startsWith('cap_registration_cache')){if(o.method==='POST'){cacheWrites++;return null;}return cache;}
     if(p.startsWith('cap_jobs?select'))return [structuredClone(job)];
@@ -19,8 +19,24 @@ function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],st
   const ctx={module:{exports:{}},require:p=>p==='node:crypto'?require(p):p==='../lib/access'?access:p==='../lib/registration'?{...require('../lib/registration'),lookupRegistration:async()=>{providerCalls++;return provider;}}:require(path.resolve(base,'api',p)),console,process:{env:{OPENAI_API_KEY:'test'}},URL,Date,Set,AbortSignal,
     fetch:async(url,o)=>{if(o?.method==='POST'){researchCalls++;return {ok:true,json:async()=>({id:'resp_market',status:'queued'})};}return {ok:true,json:async()=>output};}};
   vm.createContext(ctx);vm.runInContext(fs.readFileSync(base+'/api/comparador-market.js','utf8'),ctx);
-  return {ctx,job,counts:()=>({providerCalls,researchCalls,cacheWrites}),poll:async()=>{let status,result;await ctx.module.exports({method:'GET',query:{job_id:job.id}},{status:n=>{status=n;return {json:x=>{result=x;}}}});return {status,result};}};
+  return {ctx,job,output,counts:()=>({providerCalls,researchCalls,cacheWrites}),poll:async()=>{let status,result;await ctx.module.exports({method:'GET',query:{job_id:job.id}},{status:n=>{status=n;return {json:x=>{result=x;}}}});return {status,result};}};
 }
+test('two-stage API preserves observed condition and PT location while enriching verified repair prices',async()=>{
+  const observed={assessed:true,summary:'Relatório original',findings:[{component:'left_door',label:'Porta esquerda',category:'paint',action:'paint',status:'confirmed',quantity:1,evidence:'Riscos documentados na porta',source_image:1,cost:{}}],battery_soh_pct:null};
+  const h=harness({extra:{condition_report:observed,auction_context:{is_auction:true,vehicle_location:'PT',origin_country:'DE'}}});
+  const first=await h.poll();
+  assert.equal(first.status,202);assert.equal(h.job.context.previous_condition_report.findings.length,1);
+  const researched={...observed,battery_soh_pct:99,findings:[{...observed.findings[0],status:'ok',cost:{parts_min_eur:0,parts_max_eur:0,labour_min_eur:150,labour_max_eur:150,price_basis:'net',source_url:'https://oficina.example/pintura',source_title:'Pintura desde 150 EUR + IVA',fitment_note:'Confirmar em oficina'}}]};
+  h.output.output_text=JSON.stringify({subject,comparables:[],condition_report:researched,auction_context:{vehicle_location:'foreign',origin_country:'DE'}});
+  h.output.output=[{type:'web_search_call',action:{sources:[{url:'https://oficina.example/pintura'}]}}];
+  const second=await h.poll();
+  assert.equal(second.status,200);assert.equal(second.result.auction_context.vehicle_location,'PT');
+  assert.equal(second.result.condition_report.battery_soh_pct,null);
+  assert.equal(second.result.condition_report.findings[0].status,'confirmed');
+  assert.equal(second.result.condition_report.findings[0].cost.source_verified,true);
+  assert.equal(second.result.condition_report.findings[0].cost.labour_max_eur,150);
+  assert.equal(h.job.result.condition_report.findings[0].evidence,observed.findings[0].evidence);
+});
 test('different Tesla and VW models never share identity merely through a word',()=>{
   for(const [a,b] of [['Model Y','Model 3'],['ID.4','ID.5'],['Golf','Golf Plus']])assert.equal(registrationCompatible({make:'Tesla',model:a},{make:'Tesla',model:b}),false);
   assert.equal(registrationCompatible({make:'VW',model:'ID.4'},{make:'Volkswagen',model:'ID 4'}),true);
@@ -51,7 +67,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
-  assert.match(a,/^input-v2-approximate-20261016:/);
+  assert.match(a,/^input-v3-condition-20261017:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{
@@ -247,3 +263,4 @@ test('plate-only identification uses web search even when the text sample is the
   assert.deepEqual(body.tools,[{type:'web_search'}]);
   assert.equal(body.tool_choice,'auto');
 });
+

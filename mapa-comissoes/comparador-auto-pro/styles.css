@@ -799,3 +799,19 @@ body::before {
   .history-dialog-head strong{font-size:17px}
   #refreshMarketBtn{padding:7px 9px;font-size:10px}
 }
+
+/* Condition budget stays compact until the trader opens it. */
+.condition-details{margin:18px 0;border:1px solid rgba(125,184,241,.25);border-radius:18px;background:rgba(9,30,50,.88);color:#e6f0fa}
+.condition-details>summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px;list-style:none}
+.condition-details>summary strong{font-size:14px}.condition-details>summary span{color:#89c8ff;font-size:13px;white-space:nowrap}
+.condition-body{padding:0 18px 18px;font-size:13px;line-height:1.55}.condition-body p{margin:0 0 12px}
+.condition-muted{color:#a8bdd0}.condition-cost-list{display:grid;gap:10px;margin:14px 0}
+.condition-item{padding:14px;border:1px solid rgba(125,184,241,.18);border-radius:12px;background:rgba(255,255,255,.035)}
+.condition-item-head{display:flex;justify-content:space-between;gap:12px;align-items:start}.condition-item-head strong{font-size:14px}.condition-item-head span{white-space:nowrap;color:#cbe5ff}
+.condition-item small{display:block;color:#a8bdd0;margin:5px 0}.condition-item a{color:#7fc3ff;text-decoration:underline}
+.condition-item label{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;font-size:12px;color:#c6d7e6}
+.condition-item input{max-width:130px;min-height:42px;width:100%;padding:8px 10px;border:1px solid #40617c;border-radius:9px;color:#fff;background:#10283d;font-size:16px}
+.condition-budget{padding:12px;border-radius:10px;background:rgba(49,131,216,.12);margin-top:14px!important}
+.condition-checks{display:grid;gap:8px;margin:14px 0}.condition-checks div{padding:9px 0;border-bottom:1px solid rgba(125,184,241,.15)}
+.assumptions-form select{width:100%;min-height:44px;padding:10px;border:1px solid #40617c;border-radius:10px;background:#10283d;color:#fff;font:inherit}
+@media(max-width:520px){.condition-details>summary{align-items:start;flex-direction:column;gap:5px}.condition-item-head{flex-direction:column;gap:4px}.condition-item label{align-items:start;flex-direction:column;gap:5px}.condition-item input{max-width:none}}

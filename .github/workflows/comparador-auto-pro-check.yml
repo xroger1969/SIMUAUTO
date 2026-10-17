@@ -12,6 +12,7 @@ on:
       - "mapa-comissoes/lib/access.js"
       - "mapa-comissoes/lib/safe-fetch.js"
       - "mapa-comissoes/lib/registration.js"
+      - "mapa-comissoes/lib/condition-report.js"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -21,6 +22,7 @@ on:
       - "mapa-comissoes/api/comparador-*.js"
       - "mapa-comissoes/lib/access.js"
       - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/lib/condition-report.js"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
 
@@ -41,6 +43,7 @@ jobs:
           node --check mapa-comissoes/lib/access.js
           node --check mapa-comissoes/lib/safe-fetch.js
           node --check mapa-comissoes/lib/registration.js
+          node --check mapa-comissoes/lib/condition-report.js
           node --check mapa-comissoes/comparador-auto-pro/app-v2.js
           node --check mapa-comissoes/comparador-auto-pro/valuation.js
       - name: Run active comparator regressions
@@ -54,3 +57,4 @@ jobs:
           grep -q '@supabase/supabase-js@2.117.2' mapa-comissoes/comparador-auto-pro/index.html
           grep -q 'cap_save_analysis' mapa-comissoes/comparador-auto-pro/app-v2.js
           grep -q 'dealer_memories' mapa-comissoes/comparador-auto-pro/app-v2.js
+

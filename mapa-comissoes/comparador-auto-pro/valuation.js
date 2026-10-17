@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-16-approximate-market-v2";
+export const ENGINE_VERSION="2026-10-17-condition-costs-v1";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -32,6 +32,66 @@ const sellerType=c=>{
   if(["private","particular"].includes(t))return "private";
   return "unknown";
 };
+
+// Item prices are gross EUR. Use the high end for buying; keep both ends visible.
+export function estimateReconditioning(report={},settings={},subject={},minimum=0,taxMode="gross",vatRate=.23){
+  const paintMin=Math.max(0,num(settings.paint_min_eur,80));
+  const paintMax=Math.max(paintMin,num(settings.paint_max_eur,100));
+  const mode=settings.paint_mode==="web"?"web":"trade";
+  const overrides=settings.overrides||{};
+  const byComponent=new Map(),notes=[];
+  const componentKey=v=>norm(v).replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+  const electric=fuel(subject.fuel)==="electric";
+  const range=(a,b)=>known(a)&&known(b)&&Number.isFinite(Number(a))&&Number.isFinite(Number(b))&&Number(a)>=0&&Number(b)>=Number(a)?[Number(a),Number(b)]:null;
+  const priority={inspect:0,diagnose:1,polish:2,paint:3,service:3,repair:4,repair_and_paint:5,replace:6};
+  for(const f of (Array.isArray(report?.findings)?report.findings:[]).slice(0,30)){
+    if(!f?.evidence||!f.component||f.status==="ok")continue;
+    if(electric&&f.category==="maintenance"&&/engine_oil|oil_filter|fuel_filter|timing_belt|oleo.{0,8}motor|filtro.{0,8}(oleo|combustivel)|correia.{0,8}distribuicao/.test(componentKey(f.component+" "+f.label))){
+      notes.push("Manutenção de motor de combustão excluída: esta viatura é elétrica.");continue;
+    }
+    const key=componentKey(f.component);
+    // A body-map warning is an area, never a count of paintable panels.
+    const generic=/^(front|rear|left|right|interior|frente|traseira|esquerdo|direito|carrocaria|body|unknown|desconhecido)$/.test(key);
+    const confirmed=f.status==="confirmed"&&!generic;
+    const diagnostic=f.action==="diagnose"&&f.status==="suspected"&&!generic;
+    let low=null,high=null,partial=false,basis="unpriced",source=null,parts=null,labour=null;
+    const quantity=["paint","polish","repair_and_paint"].includes(f.action)?1:Math.max(1,Math.min(8,Math.trunc(num(f.quantity,1))));
+    const c=f.cost||{};
+    if(confirmed||diagnostic){
+      if(known(overrides[key])&&Number.isFinite(Number(overrides[key]))&&Number(overrides[key])>=0&&Number(overrides[key])<=100000){
+        low=high=Number(overrides[key]);basis="manual";
+      }else if(f.action==="paint"&&mode==="trade"){
+        low=paintMin;high=paintMax;basis="trade";
+      }else if(c.source_verified===true&&c.source_url&&["gross","net"].includes(c.price_basis)){
+        parts=range(c.parts_min_eur,c.parts_max_eur);labour=range(c.labour_min_eur,c.labour_max_eur);
+        if(parts||labour){
+          const vat=c.price_basis==="net"?1+vatRate:1;
+          low=((parts?.[0]||0)+(labour?.[0]||0))*quantity*vat;
+          high=((parts?.[1]||0)+(labour?.[1]||0))*quantity*vat;
+          partial=!parts||!labour;basis="web";source=c.source_url;
+        }
+      }
+    }
+    const row={key,label:f.label||f.component,category:f.category,action:f.action,status:generic?"unassessed":f.status,
+      evidence:f.evidence,sourceImage:f.source_image||null,quantity,low,high,partial,basis,source,
+      sourceTitle:c.source_title||"",observedAt:c.observed_at||null,fitmentNote:c.fitment_note||"",parts,labour,
+      safetyCritical:f.safety_critical===true};
+    const previous=byComponent.get(key);
+    // Multiple scratches and overlapping photos on one panel are one intervention.
+    if(!previous||(priority[row.action]||0)>(priority[previous.action]||0)
+      ||((priority[row.action]||0)===(priority[previous.action]||0)&&num(row.high,-1)>num(previous.high,-1)))byComponent.set(key,row);
+  }
+  const items=[...byComponent.values()];
+  const estimatedMin=items.reduce((t,x)=>t+num(x.low),0),estimatedMax=items.reduce((t,x)=>t+num(x.high),0);
+  const unpriced=items.filter(x=>x.high===null||x.partial).length;
+  const grossFloor=Math.max(0,num(minimum))*(taxMode==="deductible"?1+vatRate:1);
+  const appliedGross=Math.max(grossFloor,estimatedMax);
+  const appliedEconomic=taxMode==="deductible"?appliedGross/(1+vatRate):appliedGross;
+  return {items,estimatedMin,estimatedMax,unpriced,hasUnpriced:unpriced>0,
+    assessed:report?.assessed===true,minimumGross:grossFloor,appliedGross,appliedEconomic,
+    hasCriticalUnpriced:items.some(x=>x.safetyCritical&&(x.high===null||x.partial||x.status!=="confirmed")),
+    paintMin,paintMax,paintMode:mode,notes:[...new Set(notes)]};
+}
 
 function modelKey(make,model){
   const m=norm(make),v=norm(model);
@@ -348,12 +408,16 @@ export function evaluatePurchase(input,custom={}){
   const confidencePct=valid.length
     ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap),0,95))
     :0;
+  const reconditioning=estimateReconditioning(input.condition_report,input.reconditioning_settings,s,input.costs?.reconditioning,input.tax?.mode,num(input.tax?.vat_rate,.23));
   const evidenceEligible=!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
     &&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"
     &&dispersion<=.25&&confidencePct>=62;
   const provisionalEligible=!identityBlocked&&!criticalMissing.length&&Number.isFinite(marketValue)
     &&valid.length>=1&&dispersion<=.45&&!acquisition.needsLocationConfirmation;
-  const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation;
+  const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation&&!reconditioning.hasUnpriced;
+  if(reconditioning.hasUnpriced)warnings.push("Há "+reconditioning.unpriced+" intervenção(ões) ou zona(s) por confirmar/orçamentar. O teto de compra é provisório e pode descer com os custos em falta.");
+  if(reconditioning.hasCriticalUnpriced)warnings.push("Há um problema potencialmente crítico por confirmar. É necessário diagnóstico antes da compra.");
+  warnings.push(...reconditioning.notes);
   if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(valid.length)warnings.push("Confiança "+confidencePct+"%: índice estimado da qualidade dos comparáveis, não uma probabilidade comprovada de acerto no preço.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
@@ -363,10 +427,11 @@ export function evaluatePurchase(input,custom={}){
   const factor=taxMode==="deductible"?1+vatRate:1;
   const saleEconomic=Number.isFinite(saleLikely)?saleLikely/factor:NaN;
   const costs=input.costs||{};
-  const baseFixedCosts=["auction_fee","transport","registration","reconditioning","warranty_reserve","stock_finance","other"]
-    .reduce((t,k)=>t+Math.max(0,num(costs[k])),0);
+  const baseFixedCosts=["auction_fee","transport","registration","warranty_reserve","stock_finance","other"]
+    .reduce((t,k)=>t+Math.max(0,num(costs[k])),0)+reconditioning.appliedEconomic;
   const fixedCosts=baseFixedCosts+acquisition.importCost;
-  const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+Math.max(0,num(r.reserve_eur)),0);
+  const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&!x.partial).map(x=>x.key));
+  const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(pricedComponents.has(norm(r.related_component).replace(/[^a-z0-9]+/g,"_"))?0:Math.max(0,num(r.reserve_eur))),0);
   const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
   const targetMargin=Math.max(0,num(input.target_margin,config.targetMargin));
   const minimumMargin=Math.max(0,Math.min(targetMargin,num(input.minimum_margin,config.minimumMargin)));
@@ -435,10 +500,13 @@ export function evaluatePurchase(input,custom={}){
       decision,
       eligible
     },
+    reconditioning,
+    condition_report:input.condition_report||null,
     tax:{mode:taxMode,vatRate},
-    parameters:{...config,costs:{...costs},source_context:{...(input.source_context||{})},acquisition},
+    parameters:{...config,costs:{...costs},reconditioning_settings:input.reconditioning_settings||{},source_context:{...(input.source_context||{})},acquisition},
     comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(r=>({...r.comp,similarity:r.similarity,adjustedPrice:r.adjustedPrice,seller_type:sellerType(r.comp)})),
     excluded,
     warnings
   };
 }
+
