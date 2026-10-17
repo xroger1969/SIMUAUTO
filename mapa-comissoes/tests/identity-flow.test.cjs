@@ -67,7 +67,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
-  assert.match(a,/^input-v4-technician-damage-20261017:/);
+  assert.match(a,/^input-v5-universal-photo-damage-20261017:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{
