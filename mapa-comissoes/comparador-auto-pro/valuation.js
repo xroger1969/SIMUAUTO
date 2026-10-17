@@ -307,7 +307,7 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
 
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
-  const s=input.subject||{},rows=[],excluded=[],seenUrls=new Set(),seenFingerprints=new Set();
+  const s=input.subject||{},rows=[],excluded=[],nearMatches=[],seenUrls=new Set(),seenFingerprints=new Set();
   const sourceUrl=canonicalUrl(input.source_url);
   const subjectFp=vehicleFingerprint(s);
 
@@ -333,6 +333,14 @@ export function evaluatePurchase(input,custom={}){
     const similarityFloor=closeVariant?50:config.minSimilarity;
     if(!reason&&sim<similarityFloor)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
 
+    // If every strict sample fails only on similarity, allow a clearly labelled
+    // second-tier market reference, never a cross-model or cross-fuel substitute.
+    if(reason&&reason.startsWith("dados insuficientes ou semelhança insuficiente")
+      &&sim>=40&&c.country==="PT"&&c.price_basis==="gross"
+      &&known(s.year)&&known(c.year)&&Math.abs(num(s.year)-num(c.year))<=3
+      &&(!known(s.fuel)||fuel(s.fuel)===fuel(c.fuel))){
+      nearMatches.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp});
+    }
     if(reason){
       excluded.push({label:c.label||c.trim||"Comparável",url:c.url||null,reason,comp:c});
       continue;
@@ -341,6 +349,24 @@ export function evaluatePurchase(input,custom={}){
     seenUrls.add(url);
     if(fp)seenFingerprints.add(fp);
     rows.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
+  }
+
+  let broadenedMarket=false;
+  if(!rows.length&&nearMatches.length){
+    const fallbackUrls=new Set(),fallbackFingerprints=new Set();
+    for(const match of [...nearMatches].sort((a,b)=>b.similarity-a.similarity)){
+      const url=match.comp.url,fp=match.fingerprint;
+      if(fallbackUrls.has(url)||(fp&&fallbackFingerprints.has(fp)))continue;
+      fallbackUrls.add(url);if(fp)fallbackFingerprints.add(fp);
+      rows.push({comp:match.comp,similarity:match.similarity,adjustedPrice:match.adjustedPrice});
+    }
+    broadenedMarket=rows.length>0;
+    if(broadenedMarket){
+      for(let i=excluded.length-1;i>=0;i--){
+        if(excluded[i].reason?.startsWith("dados insuficientes ou semelhança insuficiente")
+          &&fallbackUrls.has(canonicalUrl(excluded[i].url)))excluded.splice(i,1);
+      }
+    }
   }
 
   const professionalRows=rows.filter(r=>sellerType(r.comp)==="professional");
@@ -392,6 +418,7 @@ export function evaluatePurchase(input,custom={}){
   const warnings=[];
   if(missing.length)warnings.push("Falta confirmar: "+missing.join(", ")+".");
   if(valid.length===1)warnings.push("A estimativa baseia-se num único anúncio; a dispersão do mercado não pode ser medida.");
+  if(broadenedMarket)warnings.push("Sem anúncios suficientemente semelhantes: foram aproveitadas referências mais aproximadas da mesma marca, modelo, combustível e ano próximo. Estes valores são apenas cenários provisórios, com confiança reduzida.");
   if(valid.length&&verified.length<config.minVerifiedProfessionals)warnings.push("Amostra limitada ou com verificação incompleta: o valor é indicativo e requer confirmação antes de licitar.");
   if(valid.length&&marketBasis!=="professional")warnings.push("Sem preços profissionais confirmados; anúncios de particulares ou de origem desconhecida reduzem a confiança.");
   if(valid.length&&dispersion>.45)warnings.push("Preços de mercado muito dispersos: os valores de compra são apenas cenários indicativos de baixa confiança, não uma recomendação de licitação. Confirma os anúncios e ajustamentos antes de comprar.");
@@ -420,10 +447,10 @@ export function evaluatePurchase(input,custom={}){
     :verified.length===0?47:92;
   const completenessCap=s.mileage_estimated||!known(s.mileage_km)?45:missing.length?58:95;
   const confidencePct=valid.length
-    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,dispersion>.45?35:95),0,95))
+    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,(dispersion>.45||broadenedMarket)?35:95),0,95))
     :0;
   const reconditioning=estimateReconditioning(input.condition_report,input.reconditioning_settings,s,input.costs?.reconditioning,input.tax?.mode,num(input.tax?.vat_rate,.23));
-  const evidenceEligible=!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
+  const evidenceEligible=!broadenedMarket&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
     &&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"
     &&dispersion<=.25&&confidencePct>=62;
   // Price dispersion must lower confidence, not hide a calculable scenario.
@@ -483,6 +510,7 @@ export function evaluatePurchase(input,custom={}){
     else decision="não comprar";
   }else if(provisionalEligible){
     if(dispersion>.45)decision="Cenários indicativos — preços de mercado muito dispersos; confirmar antes de licitar";
+    else if(broadenedMarket)decision="Cenários indicativos — anúncios com semelhança reduzida; confirmar antes de licitar";
     else if(!Number.isFinite(currentPrice))decision="Teto provisório — confirmar evidência";
     else if(currentPrice<=provisionalMaxPurchase)decision="Teto provisório — preço dentro do alvo; confirmar evidência";
     else decision="Teto provisório — preço acima do alvo; confirmar evidência";
@@ -499,7 +527,7 @@ export function evaluatePurchase(input,custom={}){
       verifiedProfessionals:verified.length,
       privateComparables:valid.filter(r=>sellerType(r.comp)==="private").length,
       unknownSellerComparables:valid.filter(r=>sellerType(r.comp)==="unknown").length,
-      marketBasis,marketValue,saleLikely,saleFast,confidencePct,dispersion,
+      marketBasis,marketValue,saleLikely,saleFast,confidencePct,dispersion,broadenedMarket,
       confidenceMethod:"heuristic-evidence-v2",sampleSize:valid.length
     },
     purchase:{
