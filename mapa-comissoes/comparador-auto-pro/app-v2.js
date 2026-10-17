@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261017-dual-buy-quotes-v3";
+import { evaluatePurchase } from "./valuation.js?v=20261017-progressive-quote-v4";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
