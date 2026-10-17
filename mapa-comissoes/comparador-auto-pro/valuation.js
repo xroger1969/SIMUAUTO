@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-17-dual-buy-quotes-v3";
+export const ENGINE_VERSION="2026-10-17-progressive-quote-v4";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -307,7 +307,7 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
 
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
-  const s=input.subject||{},rows=[],excluded=[],nearMatches=[],seenUrls=new Set(),seenFingerprints=new Set();
+  const s=input.subject||{},rows=[],excluded=[],nearMatches=[],wideMatches=[],seenUrls=new Set(),seenFingerprints=new Set();
   const sourceUrl=canonicalUrl(input.source_url);
   const subjectFp=vehicleFingerprint(s);
 
@@ -333,13 +333,15 @@ export function evaluatePurchase(input,custom={}){
     const similarityFloor=closeVariant?50:config.minSimilarity;
     if(!reason&&sim<similarityFloor)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
 
-    // If every strict sample fails only on similarity, allow a clearly labelled
-    // second-tier market reference, never a cross-model or cross-fuel substitute.
-    if(reason&&reason.startsWith("dados insuficientes ou semelhança insuficiente")
-      &&sim>=40&&c.country==="PT"&&c.price_basis==="gross"
-      &&known(s.year)&&known(c.year)&&Math.abs(num(s.year)-num(c.year))<=3
-      &&(!known(s.fuel)||fuel(s.fuel)===fuel(c.fuel))){
-      nearMatches.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp});
+    // Escalões progressivos: modelo e combustível compatíveis, anúncio real em PT.
+    if(reason?.startsWith("dados insuficientes ou semelhança insuficiente")
+      &&c.country==="PT"&&c.price_basis==="gross"
+      &&known(s.year)&&known(c.year)&&known(s.fuel)&&known(c.fuel)
+      &&fuel(s.fuel)===fuel(c.fuel)){
+      const yearDelta=Math.abs(num(s.year)-num(c.year));
+      const match={comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp};
+      if(sim>=40&&yearDelta<=3)nearMatches.push(match);
+      else if(sim>=20&&yearDelta<=5)wideMatches.push(match);
     }
     if(reason){
       excluded.push({label:c.label||c.trim||"Comparável",url:c.url||null,reason,comp:c});
@@ -351,10 +353,12 @@ export function evaluatePurchase(input,custom={}){
     rows.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
   }
 
-  let broadenedMarket=false;
-  if(!rows.length&&nearMatches.length){
+  let broadenedMarket=false,searchTier=1;
+  if(!rows.length&&(nearMatches.length||wideMatches.length)){
+    const candidatePool=nearMatches.length?nearMatches:wideMatches;
+    searchTier=nearMatches.length?2:3;
     const fallbackUrls=new Set(),fallbackFingerprints=new Set();
-    for(const match of [...nearMatches].sort((a,b)=>b.similarity-a.similarity)){
+    for(const match of [...candidatePool].sort((a,b)=>b.similarity-a.similarity)){
       const url=match.comp.url,fp=match.fingerprint;
       if(fallbackUrls.has(url)||(fp&&fallbackFingerprints.has(fp)))continue;
       fallbackUrls.add(url);if(fp)fallbackFingerprints.add(fp);
@@ -418,12 +422,18 @@ export function evaluatePurchase(input,custom={}){
   const warnings=[];
   if(missing.length)warnings.push("Falta confirmar: "+missing.join(", ")+".");
   if(valid.length===1)warnings.push("A estimativa baseia-se num único anúncio; a dispersão do mercado não pode ser medida.");
-  if(broadenedMarket)warnings.push("Sem anúncios suficientemente semelhantes: foram aproveitadas referências mais aproximadas da mesma marca, modelo, combustível e ano próximo. Estes valores são apenas cenários provisórios, com confiança reduzida.");
+  if(broadenedMarket)warnings.push(searchTier===3
+    ?"Nível 3: anúncios reais do mesmo modelo e combustível, mas com semelhança baixa. Cotações provisórias, confiança muito reduzida."
+    :"Nível 2: anúncios reais aproximados do mesmo modelo e combustível. Cotações provisórias, confiança reduzida.");
   if(valid.length&&verified.length<config.minVerifiedProfessionals)warnings.push("Amostra limitada ou com verificação incompleta: o valor é indicativo e requer confirmação antes de licitar.");
   if(valid.length&&marketBasis!=="professional")warnings.push("Sem preços profissionais confirmados; anúncios de particulares ou de origem desconhecida reduzem a confiança.");
   if(valid.length&&dispersion>.45)warnings.push("Preços de mercado muito dispersos: os valores de compra são apenas cenários indicativos de baixa confiança, não uma recomendação de licitação. Confirma os anúncios e ajustamentos antes de comprar.");
   else if(valid.length&&dispersion>.25)warnings.push("Dispersão de preços elevada; apenas uma cotação provisória até confirmar os anúncios.");
-  if(!valid.length)warnings.push("Nenhum anúncio comparável válido. Não é possível calcular valores comerciais de compra sem pelo menos um preço de mercado independente: atualiza a pesquisa ou verifica os anúncios excluídos.");
+  const knownPrice=num(s.price)>0?num(s.price):num(input.current_purchase_price)>0?num(input.current_purchase_price):NaN;
+  const priceScenario=!valid.length&&Number.isFinite(knownPrice);
+  if(!valid.length)warnings.push(priceScenario
+    ?"Sem preços de mercado independentes. As duas cotações são simulações financeiras baseadas apenas no preço conhecido da viatura: NÃO confirmam o valor de revenda nem recomendam comprar. Confirma o mercado antes de licitar."
+    :"Sem comparáveis e sem preço conhecido: não é possível calcular euros sem inventar uma referência. Introduz o preço do anúncio/licitação ou fornece um comparável.");
   if(valid.some(r=>r.comp.price_basis!=="gross"))warnings.push("Existem preços cuja base com IVA incluído não foi confirmada.");
   if(valid.some(r=>r.comp.country!=="PT"))warnings.push("Existem comparáveis cuja localização em Portugal não foi confirmada.");
   if(acquisition.needsLocationConfirmation)warnings.push("Confirma se esta viatura de leilão já está em Portugal. Só é aplicado o custo adicional de 1 200 € quando a viatura de leilão está fora de Portugal/importada.");
@@ -447,7 +457,7 @@ export function evaluatePurchase(input,custom={}){
     :verified.length===0?47:92;
   const completenessCap=s.mileage_estimated||!known(s.mileage_km)?45:missing.length?58:95;
   const confidencePct=valid.length
-    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,(dispersion>.45||broadenedMarket)?35:95),0,95))
+    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,searchTier===3?25:(dispersion>.45||broadenedMarket)?35:95),0,95))
     :0;
   const reconditioning=estimateReconditioning(input.condition_report,input.reconditioning_settings,s,input.costs?.reconditioning,input.tax?.mode,num(input.tax?.vat_rate,.23));
   const evidenceEligible=!broadenedMarket&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
@@ -455,24 +465,29 @@ export function evaluatePurchase(input,custom={}){
     &&dispersion<=.25&&confidencePct>=62;
   // Price dispersion must lower confidence, not hide a calculable scenario.
   // A missing market price, identity conflict or unconfirmed auction location still blocks it.
-  const provisionalEligible=!identityBlocked&&!criticalMissing.length&&Number.isFinite(marketValue)
-    &&valid.length>=1&&!acquisition.needsLocationConfirmation;
+  // Sem mercado: apenas cenário matemático, nunca valor comercial validado.
+  const quoteSaleGross=priceScenario?Math.round(knownPrice*(1-num(input.negotiation_discount_pct,config.negotiationDiscountPct))):saleLikely;
+  const provisionalEligible=!identityBlocked&&!criticalMissing.length
+    &&(Number.isFinite(marketValue)&&valid.length>=1||priceScenario);
   const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation&&!reconditioning.hasUnpriced;
   if(reconditioning.hasUnpriced)warnings.push("Há "+reconditioning.unpriced+" intervenção(ões) ou zona(s) por confirmar/orçamentar. O teto de compra é provisório e pode descer com os custos em falta.");
   if(reconditioning.hasCriticalUnpriced)warnings.push("Há um problema potencialmente crítico por confirmar. É necessário diagnóstico antes da compra.");
   warnings.push(...reconditioning.notes);
   if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(valid.length)warnings.push("Confiança "+confidencePct+"%: índice estimado da qualidade dos comparáveis, não uma probabilidade comprovada de acerto no preço.");
+  if(acquisition.needsLocationConfirmation)warnings.push("Localização do leilão por confirmar: reservados provisoriamente "+config.auctionImportCost+" € de importação, apenas para o cenário.");
   if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
 
   const tax=input.tax||{},vatRate=num(tax.vat_rate,.23);
   const taxMode=tax.mode==="deductible"?"deductible":"gross";
   const factor=taxMode==="deductible"?1+vatRate:1;
-  const saleEconomic=Number.isFinite(saleLikely)?saleLikely/factor:NaN;
+  const saleEconomic=Number.isFinite(quoteSaleGross)?quoteSaleGross/factor:NaN;
   const costs=input.costs||{};
   const baseFixedCosts=["auction_fee","transport","registration","warranty_reserve","stock_finance","other"]
     .reduce((t,k)=>t+Math.max(0,num(costs[k])),0)+reconditioning.appliedEconomic;
-  const fixedCosts=baseFixedCosts+acquisition.importCost;
+  // Sem país do leilão, aplicar preventivamente o cenário mais caro.
+  const importCostAssumed=acquisition.needsLocationConfirmation?Math.max(0,num(config.auctionImportCost,1200)):acquisition.importCost;
+  const fixedCosts=baseFixedCosts+importCostAssumed;
   const fixedCostsWithoutRepairs=fixedCosts-reconditioning.appliedEconomic;
   const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&(!x.partial||x.basis==="fallback")).map(x=>x.key));
   const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(pricedComponents.has(norm(r.related_component).replace(/[^a-z0-9]+/g,"_"))?0:Math.max(0,num(r.reserve_eur))),0);
@@ -501,7 +516,8 @@ export function evaluatePurchase(input,custom={}){
     :NaN;
 
   let decision=valid.length?"Referência provisória — dados por confirmar":"sem dados";
-  if(acquisition.needsLocationConfirmation)decision="Confirmar se a viatura de leilão já está em Portugal";
+  if(priceScenario&&provisionalEligible)decision="Simulação pelo preço conhecido — SEM valor de mercado confirmado; não é recomendação de compra";
+  else if(acquisition.needsLocationConfirmation)decision="Cenário com importação presumida — confirmar localização antes de comprar";
   else if(eligible){
     if(!Number.isFinite(currentPrice))decision="Teto estimado — indica o preço de compra";
     else if(currentPrice<=maxPurchase*.97)decision="compra muito interessante";
@@ -527,14 +543,17 @@ export function evaluatePurchase(input,custom={}){
       verifiedProfessionals:verified.length,
       privateComparables:valid.filter(r=>sellerType(r.comp)==="private").length,
       unknownSellerComparables:valid.filter(r=>sellerType(r.comp)==="unknown").length,
-      marketBasis,marketValue,saleLikely,saleFast,confidencePct,dispersion,broadenedMarket,
+      marketBasis:valid.length?marketBasis:"none",marketValue,saleLikely,saleFast,confidencePct,dispersion,broadenedMarket,
+      searchTier:priceScenario?4:valid.length?searchTier:0,hasIndependentMarket:valid.length>0,
       confidenceMethod:"heuristic-evidence-v2",sampleSize:valid.length
     },
     purchase:{
       currentPrice,
       fixedCosts:Math.round(fixedCosts),
       baseFixedCosts:Math.round(baseFixedCosts),
-      importCost:Math.round(acquisition.importCost),
+      importCost:Math.round(importCostAssumed),
+      priceScenario,referencePrice:priceScenario?knownPrice:null,
+      referenceSource:priceScenario?(acquisition.priceRole==="acquisition_price"?"preço de aquisição/licitação":"preço pedido no anúncio"):null,
       needsLocationConfirmation:acquisition.needsLocationConfirmation,
       acquisition,
       riskReserve,
