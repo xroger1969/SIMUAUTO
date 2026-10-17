@@ -536,8 +536,8 @@ function purchaseSignal(result){
   if(!Number.isFinite(target)){
     return {tone:"neutral",label:"Sem referência",detail:"Ainda não existem comparáveis válidos para avaliar o preço do mercado."};
   }
-  if(Number(result?.market?.dispersion)>.45){
-    return {tone:"neutral",label:"Mercado disperso",detail:"Os preços diferem demasiado para emitir uma decisão de compra. Os valores são apenas indicativos."};
+  if(Number(result?.market?.dispersion)>.45||result?.market?.broadenedMarket===true){
+    return {tone:"neutral",label:"Mercado incerto",detail:"Preços muito dispersos ou anúncios pouco semelhantes: apenas cenários indicativos, não uma decisão de compra."};
   }
   if(!Number.isFinite(current)){
     return {tone:"neutral",label:"A aguardar preço",detail:"Indica o preço ou a licitação atual para classificar a compra."};
@@ -621,7 +621,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const prep=result.reconditioning||{};
   const prepNote=prep.hasUnpriced?" · orçamento incompleto: o custo real pode ser superior.":"";
   q("purchaseComparisonNote").textContent=Number.isFinite(displayedCeiling)
-    ?"Diferença: "+fmt(prep.appliedGross)+" de preparação com IVA. Os dois valores incluem a margem comercial e os restantes custos."+prepNote
+    ?"Diferença efetiva: "+fmt(Math.max(0,Number(result.purchase.purchaseWithoutRepairs)-Number(result.purchase.purchaseWithRepairs)))+". Preparação considerada: "+fmt(prep.appliedGross)+" com IVA. Margem e restantes custos idênticos."+prepNote
     :"Sem comparáveis válidos não é possível calcular nenhuma das duas cotações. As reparações não causaram este bloqueio.";
   const currentLabel=q("currentPrice")?.previousElementSibling;
   if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
@@ -636,7 +636,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
     :"comprando ao teto comercial";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=Number.isFinite(displayedCeiling)
-    ?(result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
+    ?(result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
     :(result.purchase?.decision||"—");
   const auctionQuestion=q("auctionLocationQuestion");
   if(auctionQuestion){
