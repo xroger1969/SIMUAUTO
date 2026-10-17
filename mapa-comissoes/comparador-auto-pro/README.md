@@ -68,6 +68,40 @@ Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSigna
 
 O workflow `.github/workflows/comparador-auto-pro-check.yml` testa exclusivamente esta árvore ativa, incluindo sintaxe, motor de valorização, memória, inputs, segurança, voz e hooks críticos da interface.
 
+## Estado da viatura e custos de preparação (17/10/2026)
+
+A primeira fase lê as fotografias/relatórios e conserva `condition_report` com
+observações por componente, evidência, índice da imagem, inspeção, manutenção,
+testes e SOH documentado. A segunda fase pesquisa preços de peças e serviços
+em fontes portuguesas. Preserva os danos observados e acrescenta os preços;
+não utiliza o estado dos comparáveis como se fosse o da viatura analisada.
+
+- Pintura simples: referência editável da oficina de **80–100 €/painel com IVA**,
+  ou referências online selecionáveis nas premissas. Chapa, substituição e
+  polimento requerem orçamento próprio.
+- Peças e mão de obra são discriminadas; um preço sem mão de obra continua
+  parcial. Só são utilizados preços pesquisados com URL presente nas fontes da
+  ferramenta web e base de IVA conhecida. Uma referência não é uma média nacional
+  nem garante compatibilidade; a nota de aplicação e a fonte ficam visíveis.
+- O limite de compra usa o extremo superior da estimativa e o **maior** entre
+  esse orçamento e a reserva mínima de preparação. Não soma a preparação duas
+  vezes. No modo com IVA dedutível, os custos com IVA são convertidos uma vez
+  para a base económica já utilizada pelo motor.
+- Os custos totais por componente podem ser corrigidos no ecrã. Estes valores
+  pertencem à avaliação, não se tornam preços globais de outras viaturas. Cada
+  recálculo guarda relatório, fontes, alterações e resultado no histórico.
+- Zonas com triângulos de aviso, espessuras N/A ou um teste sem anomalias não
+  comprovam número de painéis danificados, ausência de avarias ou SOH. Custos
+  pendentes mantêm a avaliação provisória; não são apresentados como gratuitos.
+- A cache de comparáveis não transporta danos/localização de fotografias
+  anteriores. Quando existem novos danos, os comparáveis fixados podem ser
+  conservados enquanto os novos custos são pesquisados. A cache exata das mesmas
+  entradas foi versionada para não reutilizar resultados anteriores sem relatório.
+
+Não é necessária alteração do esquema Supabase: os detalhes são guardados nos
+campos JSON de definições, resultados e revisões existentes. O tipo de revisão
+`condition_costs` identifica uma correção manual de custos.
+
 ## Spottd — integração preparada (aguarda credenciais)
 
 A consulta Spottd é prioritária em **novas consultas sem cache** apenas quando as duas
@@ -92,3 +126,4 @@ Para ativar: validar URL e cabeçalhos reais com a documentação da Spottd, gua
 as duas variáveis **apenas nos segredos de servidor**, publicar e testar com
 créditos gratuitos; confirmar no dashboard o consumo de 1 crédito por pedido
 com resultado. Não se fizeram chamadas reais à Spottd nesta implementação.
+

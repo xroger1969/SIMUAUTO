@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261016-approximate-market-v2";
+import { evaluatePurchase } from "./valuation.js?v=20261017-condition-costs-v1";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -39,6 +39,7 @@ let recordingTimer=null;
 
 const DEFAULT_DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
+  reconditioning:{paint_mode:"trade",paint_min_eur:80,paint_max_eur:100},
   target_margin:3500,
   minimum_margin:1200
 };
@@ -104,7 +105,8 @@ function calculationKindLabel(kind){
     refinement:"Refinamento",
     market_refresh:"Mercado atualizado",
     auction_location:"Localização confirmada",
-    assumptions:"Premissas recalculadas"
+    assumptions:"Premissas recalculadas",
+    condition_costs:"Custos de preparação corrigidos"
   })[kind]||"Cálculo";
 }
 function historyItem(row){
@@ -658,8 +660,11 @@ function renderResult(result,sourceHost,riskFlags=[]){
   renderComparables(result.comparables);
   renderEvidence(result);
   renderRisks(riskFlags,result.warnings);
+  renderConditionCosts(result);
   const calcBox=q("calcBox");
   if(calcBox)calcBox.innerHTML=
+    "Preparação aplicada: <strong>"+esc(fmt(result.reconditioning?.appliedGross))+"</strong><br>"+
+    "Custos totais (base económica): <strong>"+esc(fmt(result.purchase?.fixedCosts))+"</strong><br>"+
     "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
     "Custo importação/leilão: <strong>"+esc(fmt(result.purchase?.importCost||0))+"</strong><br>"+
     "Teto absoluto: <strong>"+esc(fmt(
@@ -672,6 +677,79 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
 }
+
+function conditionCostContext(market={}){
+  return {condition_report:market.condition_report||null,reconditioning_settings:{...DEAL.reconditioning,overrides:market.condition_overrides||{}}};
+}
+function renderConditionCosts(result){
+  const prep=result.reconditioning,report=result.condition_report||{};
+  if(!prep||!q("conditionCostList"))return;
+  const actions={polish:"Polimento",paint:"Pintura",repair:"Reparação",repair_and_paint:"Chapa e pintura",replace:"Substituição",service:"Manutenção",diagnose:"Diagnóstico",inspect:"Verificação"};
+  const statuses={confirmed:"Identificado",suspected:"Suspeita por confirmar",unassessed:"Zona por verificar",ok:"Sem anomalias reportadas"};
+  const overrides=currentMarketData?.market?.condition_overrides||{};
+  const costRange=(a,b)=>a===null||b===null?"Por orçamentar":a===b?fmt(a):fmt(a)+" – "+fmt(b);
+  q("conditionCostTotal").textContent="Preparação: "+fmt(prep.appliedGross)+(prep.hasUnpriced?" · incompleto":"");
+  q("conditionSummary").textContent=report.summary||(report.assessed?"Leitura das observações disponíveis. Não equivale a uma inspeção completa.":"Sem relatório de condição suficiente. A ausência de danos identificados não confirma que a viatura esteja sem defeitos.");
+  const inspection=report.inspection||{};
+  q("conditionInspection").textContent=[
+    inspection.last_date?"Inspeção reportada: "+inspection.last_date:null,
+    inspection.mileage_km!==null&&inspection.mileage_km!==undefined?Number(inspection.mileage_km).toLocaleString("pt-PT")+" km na inspeção":null,
+    inspection.due_date?"Próxima inspeção/validade: "+inspection.due_date:null,
+    report.battery_soh_pct!==null&&report.battery_soh_pct!==undefined?"SOH documentado: "+report.battery_soh_pct+"%":null
+  ].filter(Boolean).join(" · ");
+  q("conditionCostList").innerHTML=prep.items.length?prep.items.map(item=>{
+    const basis=item.basis==="trade"?"Referência da tua oficina · por painel · inclui IVA"
+      :item.basis==="manual"?"Custo corrigido pelo utilizador · total com IVA"
+      :item.basis==="web"?"Referência pesquisada · total com IVA"+(item.partial?" · falta "+(item.parts?"mão de obra/serviço":"preço de peças")+" no orçamento":"")
+      :"Custo pendente — não foi considerado como reparação gratuita";
+    const canOverride=item.status==="confirmed"||(item.status==="suspected"&&item.action==="diagnose");
+    const source=item.source?'<a href="'+esc(item.source)+'" target="_blank" rel="noopener noreferrer">'+esc(item.sourceTitle||"Ver fonte do preço")+'</a>'+(item.observedAt?' · consultada '+esc(historyDate.format(new Date(item.observedAt))):""):"";
+    return '<article class="condition-item"><div class="condition-item-head"><strong>'+esc(item.label)+'</strong><span>'+esc(costRange(item.low,item.high))+(item.partial?" (parcial)":"")+'</span></div>'+
+      '<small>'+esc(actions[item.action]||item.action)+' · '+esc(statuses[item.status]||item.status)+(item.quantity>1?' · '+item.quantity+' unidades':"")+'</small>'+
+      '<small>'+esc(item.evidence)+(item.sourceImage?' · Imagem '+item.sourceImage:"")+'</small>'+
+      '<small>'+esc(basis)+'</small>'+(source?'<small>'+source+'</small>':"")+
+      (item.fitmentNote?'<small>'+esc(item.fitmentNote)+'</small>':"")+
+      (canOverride?'<label>Custo total confirmado (€ com IVA)<input type="number" min="0" max="100000" step="0.01" data-condition-key="'+esc(item.key)+'" value="'+esc(overrides[item.key]??"")+'" placeholder="'+(item.high!==null?esc(Math.round(item.high)):"Orçamento da oficina")+'"></label>':"")+
+      '</article>';
+  }).join(""):'<p class="condition-muted">Não foram identificadas intervenções concretas suficientes para criar um orçamento por peça.</p>';
+  q("applyConditionCostsBtn").classList.toggle("hidden",!prep.items.some(x=>x.status==="confirmed"||(x.status==="suspected"&&x.action==="diagnose")));
+  q("conditionBudgetNote").textContent="Intervenções identificadas: "+costRange(prep.estimatedMin,prep.estimatedMax)+". Reserva mínima: "+fmt(prep.minimumGross)+". Preparação aplicada: "+fmt(prep.appliedGross)+" (o maior dos dois valores)."+(prep.hasUnpriced?" Há "+prep.unpriced+" custo(s)/verificação(ões) pendente(s); o valor pode aumentar.":"");
+  const checks=Array.isArray(report.checks)?report.checks:[];
+  q("conditionChecks").innerHTML=checks.map(x=>'<div><strong>'+esc(x.system)+'</strong><br>'+esc(x.note||(x.result==="no_findings_reported"?"Sem anomalias reportadas neste teste":"Por confirmar"))+'</div>').join("");
+  const electric=/ele[c]?tri|electric/i.test(currentVehicle?.fuel||"");
+  q("conditionLimitations").textContent=[
+    ...(report.maintenance_notes||[]),...prep.notes,
+    electric&&(report.battery_soh_pct===null||report.battery_soh_pct===undefined)?"SOH da bateria não documentado. Um teste dinâmico sem anomalias não o substitui.":null,
+    "Preços online são referências individuais, sujeitos a compatibilidade, mão de obra, IVA e confirmação da oficina. Fotografias não mostram todas as avarias."
+  ].filter(Boolean).join(" ");
+}
+q("conditionCostForm")?.addEventListener("submit",async ev=>{
+  ev.preventDefault();
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  if(!currentMarketData||!currentVehicle||!currentAnalysisId)return;
+  const overrides={};
+  for(const input of q("conditionCostForm").querySelectorAll("[data-condition-key]")){
+    if(input.value!==""&&Number.isFinite(Number(input.value))&&Number(input.value)>=0)overrides[input.dataset.conditionKey]=Number(input.value);
+  }
+  const operation=beginOperation("condition-costs",currentAnalysisId);
+  try{
+    const market=currentMarketData.market;
+    market.condition_overrides=overrides;
+    const result=evaluatePurchase({
+      subject:currentVehicle,comparables:market.comparables||[],source_url:currentMarketData.marketPayload?.url||null,
+      current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
+      tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
+      source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
+      ...conditionCostContext(market),costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+    });
+    result.market.comment=market.market_comment||"";
+    result.market.dealer_memories=currentResult?.market?.dealer_memories||[];
+    renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    await persistCompletedAnalysis(currentAnalysisId,result,market,currentMarketData.reader,currentMarketData.entry,currentMarketData.marketPayload,"condition_costs");
+    toast("Custos corrigidos, valor de compra recalculado e histórico guardado.");
+  }catch(error){toast(error.message||"Não foi possível guardar os custos.")}
+  finally{finishOperation(operation)}
+});
 
 function cleanValuationSummary(value){
   return String(value||"")
@@ -696,6 +774,8 @@ function valuationShareData(){
     advertised:Number.isFinite(advertised)?advertised:null,
     source:String(q("sourceLabel")?.textContent||"").trim(),
     provisional:currentResult.purchase?.eligible!==true,
+    preparation:currentResult.reconditioning?.appliedGross||0,
+    preparationPending:currentResult.reconditioning?.unpriced||0,
     date:new Date().toLocaleDateString("pt-PT")
   };
 }
@@ -708,6 +788,7 @@ function valuationShareText(data){
   lines.push("");
   lines.push((data.provisional?"Valor comercial de compra provisório: ":"Valor comercial de compra: ")+fmt(data.purchase));
   lines.push("Venda rápida estimada: "+fmt(data.saleFast));
+  lines.push("Preparação considerada: "+fmt(data.preparation)+(data.preparationPending?" · "+data.preparationPending+" custo(s)/verificação(ões) pendente(s)":""));
   if(data.advertised!==null)lines.push("Preço do anúncio: "+fmt(data.advertised));
   lines.push("");
   lines.push("Avaliação indicativa · "+data.date);
@@ -884,6 +965,7 @@ function printValuationSummary(){
     '<h1>'+esc(data.title)+'</h1>'+
     '<div class="meta">'+esc(data.meta)+'</div>'+
     advertised+
+    '<div class="line"><span>Preparação considerada'+(data.preparationPending?" (orçamento incompleto)":"")+'</span><strong>'+esc(fmt(data.preparation))+'</strong></div>'+
     '<div class="quotes">'+
       '<div class="quote"><span>'+esc(purchaseLabel)+'</span><strong>'+esc(fmt(data.purchase))+'</strong></div>'+
       '<div class="quote"><span>Cotação de venda ideal para vender rápido</span><strong>'+esc(fmt(data.saleFast))+'</strong></div>'+
@@ -950,7 +1032,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
+  for(const id of ["analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -978,6 +1060,9 @@ function mergeDeal(settings){
     const value=Number(src[key]);
     if(Number.isFinite(value)&&value>=0)out[key]=value;
   }
+  const prep=src.reconditioning||{};
+  out.reconditioning={paint_mode:prep.paint_mode==="web"?"web":"trade",paint_min_eur:Math.max(0,Number.isFinite(Number(prep.paint_min_eur))?Number(prep.paint_min_eur):80),paint_max_eur:Math.max(0,Number.isFinite(Number(prep.paint_max_eur))?Number(prep.paint_max_eur):100)};
+  out.reconditioning.paint_max_eur=Math.max(out.reconditioning.paint_min_eur,out.reconditioning.paint_max_eur);
   out.minimum_margin=Math.min(out.minimum_margin,out.target_margin);
   return out;
 }
@@ -991,6 +1076,7 @@ async function loadDealPreferences(){
 function syncDealForm(){
   const map={
     targetMarginInput:DEAL.target_margin,minimumMarginInput:DEAL.minimum_margin,
+    paintPriceModeInput:DEAL.reconditioning.paint_mode,paintMinInput:DEAL.reconditioning.paint_min_eur,paintMaxInput:DEAL.reconditioning.paint_max_eur,
     transportCostInput:DEAL.costs.transport,reconditioningCostInput:DEAL.costs.reconditioning,
     warrantyCostInput:DEAL.costs.warranty_reserve,stockCostInput:DEAL.costs.stock_finance,
     otherCostInput:DEAL.costs.other,auctionCostInput:DEAL.costs.auction_fee,registrationCostInput:DEAL.costs.registration
@@ -1001,6 +1087,7 @@ function dealFromForm(){
   const read=id=>Math.max(0,Number(q(id)?.value||0));
   return mergeDeal({
     target_margin:read("targetMarginInput"),minimum_margin:read("minimumMarginInput"),
+    reconditioning:{paint_mode:q("paintPriceModeInput")?.value,paint_min_eur:read("paintMinInput"),paint_max_eur:read("paintMaxInput")},
     costs:{
       transport:read("transportCostInput"),reconditioning:read("reconditioningCostInput"),
       warranty_reserve:read("warrantyCostInput"),stock_finance:read("stockCostInput"),
@@ -1025,6 +1112,7 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
     result,
     research:{
       job_id:market?.job_id||null,response_id:market?.response_id||null,model:market?.model||null,
+      condition_report:market?.condition_report||null,condition_overrides:market?.condition_overrides||{},
       search_sources:market?.search_sources||[],data_quality:market?.data_quality||{},risk_flags:market?.risk_flags||[],
       market_cache:market?.market_cache||null,input_signature:market?.input_signature||null
     },
@@ -1511,7 +1599,7 @@ async function resumePendingAnalysis(){
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(analysis.source_url,market),
-      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+      ...conditionCostContext(market),costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
@@ -1655,7 +1743,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(url?.toString()||null,market),
-      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+      ...conditionCostContext(market),costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
     if(entry.registration)result.warnings.push("A matrícula reforça a identificação, mas preço, quilómetros e versão mantêm a fonte própria e devem ser confirmados.");
@@ -1765,11 +1853,14 @@ q("refineForm").addEventListener("submit",async ev=>{
       ...lastAnalysisContext.marketPayload,
       refinement_history:history,
       previous_subject:currentVehicle||null,
+      previous_condition_report:currentMarketData?.market?.condition_report||null,
+      previous_auction_context:currentMarketData?.market?.auction_context||null,
       dealer_memories:memories,
       image_data_urls:selectedImages.map(image=>image.data),
       registration_data:lastAnalysisContext.marketPayload?.registration_data||null
     };
     const market=await runMarketAnalysis(payload,operation);
+    market.condition_overrides=currentMarketData?.market?.condition_overrides||{};
     assertOperation(operation);
     appendRefineDialogMessage("assistant","Pesquisa atualizada. A recalcular comparáveis, margem e teto…");
 
@@ -1803,7 +1894,7 @@ q("refineForm").addEventListener("submit",async ev=>{
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(lastAnalysisContext.url||null,market),
-      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+      ...conditionCostContext(market),costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
@@ -1931,7 +2022,7 @@ async function applyAuctionLocationAnswer(vehicleLocation){
       current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
       tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
-      costs:DEAL.costs,
+      ...conditionCostContext(market),costs:DEAL.costs,
       risk_flags:market.risk_flags||[],
       target_margin:DEAL.target_margin,
       minimum_margin:DEAL.minimum_margin
@@ -1958,11 +2049,14 @@ async function refreshMarketSnapshot(){
     const payload={
       ...currentMarketData.marketPayload,
       previous_subject:currentVehicle,
+      previous_condition_report:currentMarketData?.market?.condition_report||null,
+      previous_auction_context:currentMarketData?.market?.auction_context||null,
       registration_data:currentMarketData.market?.registration_data||currentMarketData.marketPayload?.registration_data||null,
       refinement_history:[],
       force_market_refresh:true
     };
     const market=await runMarketAnalysis(payload,operation);
+    market.condition_overrides=currentMarketData?.market?.condition_overrides||{};
     assertOperation(operation);
     const subject=currentVehicle;
     const memories=relevantMemories(await loadMemories().catch(()=>[]),subject);
@@ -1972,7 +2066,7 @@ async function refreshMarketSnapshot(){
       current_purchase_price:typeof subject.price==="number"&&subject.price>0?subject.price:null,
       tax:{mode:subject.vat_deductible===true?"deductible":"gross",vat_rate:.23},
       source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
-      costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+      ...conditionCostContext(market),costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
     });
     result.market.comment=market.market_comment||"";
     result.market.dealer_memories=memories;
@@ -2008,7 +2102,7 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
         current_purchase_price:typeof currentVehicle.price==="number"&&currentVehicle.price>0?currentVehicle.price:null,
         tax:{mode:currentVehicle.vat_deductible===true?"deductible":"gross",vat_rate:.23},
         source_context:sourceContextFor(currentMarketData.marketPayload?.url||null,market),
-        costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
+        ...conditionCostContext(market),costs:DEAL.costs,risk_flags:market.risk_flags||[],target_margin:DEAL.target_margin,minimum_margin:DEAL.minimum_margin
       });
       result.market.comment=market.market_comment||"";
       result.market.dealer_memories=relevantMemories(await loadMemories().catch(()=>[]),currentVehicle);
@@ -2022,3 +2116,4 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
 
 db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data){activeOperation=null;showAuth()}});
 boot();
+

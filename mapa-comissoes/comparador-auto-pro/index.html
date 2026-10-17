@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261007-purchase-signal-v1">
+  <link rel="stylesheet" href="./styles.css?v=20261017-condition-costs-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -237,6 +237,21 @@
       </div>
 
 
+      <details class="condition-details" id="conditionPanel">
+        <summary><strong>Estado, reparações e manutenção</strong><span id="conditionCostTotal">Por avaliar</span></summary>
+        <div class="condition-body">
+          <p id="conditionSummary"></p>
+          <p class="condition-muted" id="conditionInspection"></p>
+          <form id="conditionCostForm">
+            <div id="conditionCostList" class="condition-cost-list"></div>
+            <button class="btn ghost small" id="applyConditionCostsBtn" type="submit">Aplicar custos corrigidos</button>
+          </form>
+          <p class="condition-budget" id="conditionBudgetNote"></p>
+          <div id="conditionChecks" class="condition-checks"></div>
+          <p class="condition-muted" id="conditionLimitations">Valores indicativos. Uma fotografia ou teste sem anomalias não confirma o estado mecânico completo.</p>
+        </div>
+      </details>
+
       <div class="detail-grid">
         <article class="panel">
           <div class="panel-head">
@@ -266,7 +281,10 @@
           <label>Margem objetivo (€)<input id="targetMarginInput" type="number" min="0" step="50"></label>
           <label>Margem mínima (€)<input id="minimumMarginInput" type="number" min="0" step="50"></label>
           <label>Transporte (€)<input id="transportCostInput" type="number" min="0" step="10"></label>
-          <label>Recondicionamento (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
+          <label>Reserva mínima de preparação (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
+          <label>Preço de pintura<select id="paintPriceModeInput"><option value="trade">Minha oficina</option><option value="web">Referências pesquisadas</option></select></label>
+          <label>Pintura mínima/painel (€ com IVA)<input id="paintMinInput" type="number" min="0" step="5"></label>
+          <label>Pintura máxima/painel (€ com IVA)<input id="paintMaxInput" type="number" min="0" step="5"></label>
           <label>Garantia/reserva (€)<input id="warrantyCostInput" type="number" min="0" step="10"></label>
           <label>Financiamento de stock (€)<input id="stockCostInput" type="number" min="0" step="10"></label>
           <label>Comissão de leilão (€)<input id="auctionCostInput" type="number" min="0" step="10"></label>
@@ -274,7 +292,7 @@
           <label>Outros custos (€)<input id="otherCostInput" type="number" min="0" step="10"></label>
           <button class="btn ghost small" type="submit">Aplicar e guardar</button>
         </form>
-        <p class="assumptions-help">Estes valores são editáveis. O cálculo distingue preço de venda, custos, reserva e margem económica.</p>
+        <p class="assumptions-help">A preparação usa o maior valor entre a reserva mínima e o orçamento identificado, sem os somar. Os preços por painel e os custos corrigidos incluem IVA; os restantes custos mantêm a base económica do cálculo.</p>
       </details>
 
       <form id="refineForm" class="refine-bar">
@@ -333,9 +351,10 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261016-approximate-market-v2"></script>
+  <script type="module" src="./app-v2.js?v=20261017-condition-costs-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
 </body>
 </html>
+
