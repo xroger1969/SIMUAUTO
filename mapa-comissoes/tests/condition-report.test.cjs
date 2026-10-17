@@ -2,7 +2,7 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const {conditionSchema,normalizeConditionReport,mergeConditionReports}=require('../lib/condition-report');
+const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports}=require('../lib/condition-report');
 const {reuseMarketCache}=require('../api/comparador-market')._test;
 const source=fs.readFileSync(path.join(__dirname,'../comparador-auto-pro/valuation.js'),'utf8');
 const engine=import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
@@ -176,4 +176,56 @@ test('missing web prices are explicitly provisional and technician attribution s
   assert.equal(normalized.findings[0].technician_marked,true);
   const r=estimateReconditioning(normalized);
   assert.equal(r.items[0].basis,'fallback');assert.equal(r.estimatedMax,100);assert.equal(r.hasUnpriced,true);
+});
+
+test('any car listing photo creates repair deductions without requiring AUTO1 or auction flags',async()=>{
+  const {evaluatePurchase}=await engine;
+  const normal=input({source_context:{is_auction:false,vehicle_location:'PT'},costs:{reconditioning:0}});
+  const before=evaluatePurchase(normal);
+  const photos=evaluatePurchase({...normal,condition_report:report([
+    finding('left_front_door',{source_image:1,technician_marked:false}),
+    finding('rear_bumper',{source_image:2,technician_marked:false}),
+    finding('right_front_wing',{source_image:3,technician_marked:false})
+  ])});
+  assert.equal(photos.reconditioning.estimatedMax,300);
+  assert.equal(photos.reconditioning.items.length,3);
+  assert.equal(before.purchase.effectiveCeiling-photos.purchase.effectiveCeiling,300);
+});
+test('later photos preserve old bodywork defects and add new ones without double-counting',async()=>{
+  const {estimateReconditioning}=await engine;
+  const first=normalizeConditionReport(report([
+    finding('left_front_door',{source_image:1}),
+    finding('front_bumper',{source_image:2,technician_marked:true})
+  ]));
+  const later=normalizeConditionReport(report([
+    finding('left_front_door',{source_image:3,evidence:'Novo ângulo do mesmo risco'}),
+    finding('rear_bumper',{source_image:4})
+  ]));
+  const merged=mergeObservedConditionReports(first,later);
+  assert.deepEqual(merged.findings.map(x=>x.component).sort(),['front_bumper','left_front_door','rear_bumper']);
+  assert.equal(merged.findings.find(x=>x.component==='front_bumper').technician_marked,true);
+  assert.equal(estimateReconditioning(merged,{},car,0).estimatedMax,300);
+});
+test('a closer photograph can upgrade repair without preserving an outdated cheaper action',async()=>{
+  const old=report([finding('right_front_wing',{action:'paint',cost:webCost()})]);
+  const latest=report([finding('right_front_wing',{action:'replace',source_image:4,evidence:'Guarda-lamas rachado'})]);
+  const merged=mergeObservedConditionReports(old,latest);
+  assert.equal(merged.findings.length,1);
+  assert.equal(merged.findings[0].action,'replace');
+  assert.equal(merged.findings[0].cost.source_url,null);
+});
+test('an uninformative later photograph does not erase previously confirmed damage',()=>{
+  const first=report([finding('bonnet')]);
+  const later={assessed:false,findings:[],summary:'',checks:[]};
+  assert.equal(mergeObservedConditionReports(first,later).findings.length,1);
+});
+test('retail maintenance and mechanical faults remain provisional rather than pretending repair is free',async()=>{
+  const {evaluatePurchase}=await engine;
+  const r=evaluatePurchase(input({source_context:{is_auction:false,vehicle_location:'PT'},condition_report:report([
+    finding('right_headlight',{category:'electrical',action:'replace',source_image:2,evidence:'Farol partido'}),
+    finding('front_tyres',{category:'tyres',action:'replace',source_image:3,evidence:'Pneus danificados',quantity:2})
+  ])}));
+  assert.equal(r.reconditioning.unpriced,2);
+  assert.equal(r.purchase.eligible,false);
+  assert.ok(r.warnings.some(w=>/orçamentar|provisório/i.test(w)));
 });
