@@ -21,7 +21,12 @@ A avaliação é feita por **comparação ponderada** e não exige três carros 
 - **3 ou mais:** reforçam a robustez, mas não são necessários para obter uma cotação.
 - Anos, quilómetros, versões e equipamento próximos são ponderados com ajustamentos explícitos; combustível incompatível, duplicados e preços inválidos são excluídos.
 - A pesquisa abre gradualmente do mesmo acabamento para a mesma família de modelo/combustível, podendo incluir particulares identificados como tal.
-- Sem qualquer preço real comparável, a aplicação explica a falta de dados em vez de inventar uma cotação.
+- **Nível 1:** anúncios independentes suficientemente semelhantes (referência mais exigente).
+- **Nível 2:** anúncios da mesma marca, modelo e combustível, com ano até ±3 e semelhança reduzida (confiança máxima 35%).
+- **Nível 3:** anúncios reais do mesmo modelo e combustível, com ano até ±5, dentro dos limites de compatibilidade técnica, e semelhança a partir de 20% (confiança máxima 25%).
+- **Nível 4:** sem anúncios independentes, mas com preço conhecido: dois cenários **estritamente financeiros** (compra sem/com reparações), sem revenda verificada e sem recomendação de compra. O preço pedido ou licitação nunca é considerado anúncio comparável nem preço de mercado.
+- Sem anúncios nem preço conhecido, é impossível calcular um montante sério em euros; a aplicação pede que seja indicado um preço ou uma referência real, em vez de inventar valores.
+- Se o país de uma viatura de leilão não estiver confirmado, os cenários incluem provisoriamente a reserva conservadora de 1 200 € até confirmar a localização. Nunca é emitida recomendação firme nesta condição.
 
 A percentagem é um **índice heurístico de confiança da evidência**, não uma probabilidade estatística comprovada de acertar no preço. O cálculo e os custos continuam determinísticos e cada revisão guarda a versão do motor.
 
