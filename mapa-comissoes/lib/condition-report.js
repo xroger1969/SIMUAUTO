@@ -76,6 +76,51 @@ function normalizeConditionReport(raw={},sources=[],observedAt=new Date().toISOS
     battery_soh_pct:amount(raw.battery_soh_pct)!==null&&amount(raw.battery_soh_pct)<=100?amount(raw.battery_soh_pct):null
   };
 }
+// An additional batch of photographs belongs to the same valuation. Preserve prior
+// physical observations when the next identification response only describes the new
+// images, but never turn a non-observation into a confirmed repair.
+function mergeObservedConditionReports(previous={},incoming={}){
+  const old=previous&&typeof previous==="object"?previous:{};
+  const next=incoming&&typeof incoming==="object"?incoming:{};
+  if(!old.assessed&&!(old.findings||[]).length)return next;
+  if(!next.assessed&&!(next.findings||[]).length)return old;
+  const statusRank={ok:0,unassessed:1,suspected:2,confirmed:3};
+  const actionRank={inspect:0,diagnose:1,polish:2,paint:3,service:3,repair:4,repair_and_paint:5,replace:6};
+  const found=new Map();
+  for(const f of [...(Array.isArray(old.findings)?old.findings:[]),...(Array.isArray(next.findings)?next.findings:[])]){
+    const id=key(f?.component);
+    if(!id||!clip(f?.evidence).trim())continue;
+    const prior=found.get(id);
+    if(!prior){found.set(id,f);continue;}
+    const strength=f.status==="confirmed"&&prior.status!=="confirmed" ||
+      (f.status===prior.status&&(actionRank[f.action]||0)>(actionRank[prior.action]||0));
+    const winner=strength?f:prior;
+    const other=strength?prior:f;
+    const compatibleCost=winner.action===other.action;
+    const priced=x=>x?.cost?.source_verified===true&&!!x.cost.source_url;
+    found.set(id,{
+      ...winner,
+      technician_marked:winner.technician_marked===true||other.technician_marked===true,
+      safety_critical:winner.safety_critical===true||other.safety_critical===true,
+      source_image:winner.source_image??other.source_image??null,
+      // Do not transfer a paint quotation to replacement or panel beating.
+      cost:compatibleCost&&priced(other)&&!priced(winner)?other.cost:winner.cost
+    });
+  }
+  const unique=(values,limit)=>[...new Set(values.filter(x=>typeof x==="string"&&x.trim()))].slice(0,limit);
+  const inspection={...(old.inspection||{})};
+  for(const [field,value] of Object.entries(next.inspection||{}))if(value!==null&&value!==undefined&&value!=="")inspection[field]=value;
+  return {
+    ...old,...next,
+    assessed:old.assessed===true||next.assessed===true,
+    summary:unique([old.summary,next.summary],2).join(" | ").slice(0,1200),
+    findings:[...found.values()].slice(0,30),
+    maintenance_notes:unique([...(old.maintenance_notes||[]),...(next.maintenance_notes||[])],12),
+    checks:[...(old.checks||[]),...(next.checks||[])].filter((x,i,all)=>all.findIndex(y=>key(y?.system)===key(x?.system)&&y?.result===x?.result&&y?.note===x?.note)===i).slice(0,20),
+    inspection,
+    battery_soh_pct:next.battery_soh_pct??old.battery_soh_pct??null
+  };
+}
 function mergeConditionReports(observed,researched){
   if(!observed?.assessed&&!observed?.findings?.length)return researched||observed||{};
   const priced=new Map((researched?.findings||[]).map(x=>[key(x.component)+"|"+x.action,x]));
@@ -84,4 +129,4 @@ function mergeConditionReports(observed,researched){
 function needsConditionResearch(report){
   return (report?.findings||[]).some(x=>["confirmed","suspected"].includes(x.status));
 }
-module.exports={conditionSchema,normalizeConditionReport,mergeConditionReports,needsConditionResearch};
+module.exports={conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch};
