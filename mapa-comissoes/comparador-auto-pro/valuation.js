@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-17-technician-damage-v2";
+export const ENGINE_VERSION="2026-10-17-dual-buy-quotes-v3";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -107,6 +107,7 @@ export function estimateReconditioning(report={},settings={},subject={},minimum=
 function modelKey(make,model){
   const m=norm(make),v=norm(model);
   if(!v)return "";
+  if(m==="smart"&&/^(?:fortwo|for two)(?:\s|$)/.test(v))return /\bcabrio\b|\bconvertible\b/.test(v)?"fortwo cabrio":"fortwo";
   if(m==="bmw"){
     const is4=/\bserie 4\b|\bseries 4\b|\b4\d{2}[a-z]{0,2}\b/.test(v);
     if(is4&&/\bgran coupe\b/.test(v))return "serie 4 gran coupe";
@@ -306,7 +307,7 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
 
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
-  const s=input.subject||{},rows=[],excluded=[],seenUrls=new Set(),seenFingerprints=new Set();
+  const s=input.subject||{},rows=[],excluded=[],nearMatches=[],seenUrls=new Set(),seenFingerprints=new Set();
   const sourceUrl=canonicalUrl(input.source_url);
   const subjectFp=vehicleFingerprint(s);
 
@@ -332,6 +333,14 @@ export function evaluatePurchase(input,custom={}){
     const similarityFloor=closeVariant?50:config.minSimilarity;
     if(!reason&&sim<similarityFloor)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
 
+    // If every strict sample fails only on similarity, allow a clearly labelled
+    // second-tier market reference, never a cross-model or cross-fuel substitute.
+    if(reason&&reason.startsWith("dados insuficientes ou semelhança insuficiente")
+      &&sim>=40&&c.country==="PT"&&c.price_basis==="gross"
+      &&known(s.year)&&known(c.year)&&Math.abs(num(s.year)-num(c.year))<=3
+      &&(!known(s.fuel)||fuel(s.fuel)===fuel(c.fuel))){
+      nearMatches.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp});
+    }
     if(reason){
       excluded.push({label:c.label||c.trim||"Comparável",url:c.url||null,reason,comp:c});
       continue;
@@ -340,6 +349,24 @@ export function evaluatePurchase(input,custom={}){
     seenUrls.add(url);
     if(fp)seenFingerprints.add(fp);
     rows.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
+  }
+
+  let broadenedMarket=false;
+  if(!rows.length&&nearMatches.length){
+    const fallbackUrls=new Set(),fallbackFingerprints=new Set();
+    for(const match of [...nearMatches].sort((a,b)=>b.similarity-a.similarity)){
+      const url=match.comp.url,fp=match.fingerprint;
+      if(fallbackUrls.has(url)||(fp&&fallbackFingerprints.has(fp)))continue;
+      fallbackUrls.add(url);if(fp)fallbackFingerprints.add(fp);
+      rows.push({comp:match.comp,similarity:match.similarity,adjustedPrice:match.adjustedPrice});
+    }
+    broadenedMarket=rows.length>0;
+    if(broadenedMarket){
+      for(let i=excluded.length-1;i>=0;i--){
+        if(excluded[i].reason?.startsWith("dados insuficientes ou semelhança insuficiente")
+          &&fallbackUrls.has(canonicalUrl(excluded[i].url)))excluded.splice(i,1);
+      }
+    }
   }
 
   const professionalRows=rows.filter(r=>sellerType(r.comp)==="professional");
@@ -391,9 +418,12 @@ export function evaluatePurchase(input,custom={}){
   const warnings=[];
   if(missing.length)warnings.push("Falta confirmar: "+missing.join(", ")+".");
   if(valid.length===1)warnings.push("A estimativa baseia-se num único anúncio; a dispersão do mercado não pode ser medida.");
+  if(broadenedMarket)warnings.push("Sem anúncios suficientemente semelhantes: foram aproveitadas referências mais aproximadas da mesma marca, modelo, combustível e ano próximo. Estes valores são apenas cenários provisórios, com confiança reduzida.");
   if(valid.length&&verified.length<config.minVerifiedProfessionals)warnings.push("Amostra limitada ou com verificação incompleta: o valor é indicativo e requer confirmação antes de licitar.");
   if(valid.length&&marketBasis!=="professional")warnings.push("Sem preços profissionais confirmados; anúncios de particulares ou de origem desconhecida reduzem a confiança.");
-  if(dispersion>.25)warnings.push("Dispersão de preços demasiado elevada para emitir um teto de compra.");
+  if(valid.length&&dispersion>.45)warnings.push("Preços de mercado muito dispersos: os valores de compra são apenas cenários indicativos de baixa confiança, não uma recomendação de licitação. Confirma os anúncios e ajustamentos antes de comprar.");
+  else if(valid.length&&dispersion>.25)warnings.push("Dispersão de preços elevada; apenas uma cotação provisória até confirmar os anúncios.");
+  if(!valid.length)warnings.push("Nenhum anúncio comparável válido. Não é possível calcular valores comerciais de compra sem pelo menos um preço de mercado independente: atualiza a pesquisa ou verifica os anúncios excluídos.");
   if(valid.some(r=>r.comp.price_basis!=="gross"))warnings.push("Existem preços cuja base com IVA incluído não foi confirmada.");
   if(valid.some(r=>r.comp.country!=="PT"))warnings.push("Existem comparáveis cuja localização em Portugal não foi confirmada.");
   if(acquisition.needsLocationConfirmation)warnings.push("Confirma se esta viatura de leilão já está em Portugal. Só é aplicado o custo adicional de 1 200 € quando a viatura de leilão está fora de Portugal/importada.");
@@ -417,14 +447,16 @@ export function evaluatePurchase(input,custom={}){
     :verified.length===0?47:92;
   const completenessCap=s.mileage_estimated||!known(s.mileage_km)?45:missing.length?58:95;
   const confidencePct=valid.length
-    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap),0,95))
+    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,(dispersion>.45||broadenedMarket)?35:95),0,95))
     :0;
   const reconditioning=estimateReconditioning(input.condition_report,input.reconditioning_settings,s,input.costs?.reconditioning,input.tax?.mode,num(input.tax?.vat_rate,.23));
-  const evidenceEligible=!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
+  const evidenceEligible=!broadenedMarket&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
     &&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"
     &&dispersion<=.25&&confidencePct>=62;
+  // Price dispersion must lower confidence, not hide a calculable scenario.
+  // A missing market price, identity conflict or unconfirmed auction location still blocks it.
   const provisionalEligible=!identityBlocked&&!criticalMissing.length&&Number.isFinite(marketValue)
-    &&valid.length>=1&&dispersion<=.45&&!acquisition.needsLocationConfirmation;
+    &&valid.length>=1&&!acquisition.needsLocationConfirmation;
   const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation&&!reconditioning.hasUnpriced;
   if(reconditioning.hasUnpriced)warnings.push("Há "+reconditioning.unpriced+" intervenção(ões) ou zona(s) por confirmar/orçamentar. O teto de compra é provisório e pode descer com os custos em falta.");
   if(reconditioning.hasCriticalUnpriced)warnings.push("Há um problema potencialmente crítico por confirmar. É necessário diagnóstico antes da compra.");
@@ -441,6 +473,7 @@ export function evaluatePurchase(input,custom={}){
   const baseFixedCosts=["auction_fee","transport","registration","warranty_reserve","stock_finance","other"]
     .reduce((t,k)=>t+Math.max(0,num(costs[k])),0)+reconditioning.appliedEconomic;
   const fixedCosts=baseFixedCosts+acquisition.importCost;
+  const fixedCostsWithoutRepairs=fixedCosts-reconditioning.appliedEconomic;
   const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&(!x.partial||x.basis==="fallback")).map(x=>x.key));
   const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(pricedComponents.has(norm(r.related_component).replace(/[^a-z0-9]+/g,"_"))?0:Math.max(0,num(r.reserve_eur))),0);
   const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
@@ -448,12 +481,17 @@ export function evaluatePurchase(input,custom={}){
   const minimumMargin=Math.max(0,Math.min(targetMargin,num(input.minimum_margin,config.minimumMargin)));
 
   const computedTargetCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-targetMargin)*factor)):NaN;
+  const computedWithoutRepairs=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCostsWithoutRepairs-riskReserve-targetMargin)*factor)):NaN;
   const computedAbsoluteCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-minimumMargin)*factor)):NaN;
   const maxPurchase=eligible?computedTargetCeiling:NaN;
   const absoluteMax=eligible?computedAbsoluteCeiling:NaN;
   const provisionalMaxPurchase=!eligible&&provisionalEligible?computedTargetCeiling:NaN;
   const provisionalAbsoluteMax=!eligible&&provisionalEligible?computedAbsoluteCeiling:NaN;
   const effectiveCeiling=Number.isFinite(maxPurchase)?maxPurchase:provisionalMaxPurchase;
+  // Both quotes require the exact same independent market evidence. A missing
+  // repair quote never hides the pre-repair price, but leaves the second provisional.
+  const purchaseWithoutRepairs=eligible||provisionalEligible?computedWithoutRepairs:NaN;
+  const purchaseWithRepairs=eligible||provisionalEligible?computedTargetCeiling:NaN;
   const currentPrice=num(input.current_purchase_price,NaN);
   const expectedMargin=Number.isFinite(currentPrice)&&Number.isFinite(saleEconomic)
     ?Math.round(saleEconomic-currentPrice/factor-fixedCosts-riskReserve)
@@ -471,7 +509,9 @@ export function evaluatePurchase(input,custom={}){
     else if(currentPrice<=absoluteMax)decision="comprar só com justificação";
     else decision="não comprar";
   }else if(provisionalEligible){
-    if(!Number.isFinite(currentPrice))decision="Teto provisório — confirmar evidência";
+    if(dispersion>.45)decision="Cenários indicativos — preços de mercado muito dispersos; confirmar antes de licitar";
+    else if(broadenedMarket)decision="Cenários indicativos — anúncios com semelhança reduzida; confirmar antes de licitar";
+    else if(!Number.isFinite(currentPrice))decision="Teto provisório — confirmar evidência";
     else if(currentPrice<=provisionalMaxPurchase)decision="Teto provisório — preço dentro do alvo; confirmar evidência";
     else decision="Teto provisório — preço acima do alvo; confirmar evidência";
   }
@@ -487,7 +527,7 @@ export function evaluatePurchase(input,custom={}){
       verifiedProfessionals:verified.length,
       privateComparables:valid.filter(r=>sellerType(r.comp)==="private").length,
       unknownSellerComparables:valid.filter(r=>sellerType(r.comp)==="unknown").length,
-      marketBasis,marketValue,saleLikely,saleFast,confidencePct,
+      marketBasis,marketValue,saleLikely,saleFast,confidencePct,dispersion,broadenedMarket,
       confidenceMethod:"heuristic-evidence-v2",sampleSize:valid.length
     },
     purchase:{
@@ -505,6 +545,8 @@ export function evaluatePurchase(input,custom={}){
       provisionalMaxPurchase,
       provisionalAbsoluteMax,
       effectiveCeiling,
+      purchaseWithoutRepairs,
+      purchaseWithRepairs,
       provisionalEligible,
       expectedMargin,
       marginAtCeiling,

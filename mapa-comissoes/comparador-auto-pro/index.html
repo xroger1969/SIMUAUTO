@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261017-technician-damage-v2">
+  <link rel="stylesheet" href="./styles.css?v=20261017-dual-buy-quotes-v3">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -190,8 +190,13 @@
 
       <div class="decision-card">
         <div>
-          <span id="purchaseCeilingLabel">Valor comercial de compra</span>
+          <span id="purchaseCeilingLabel">Compra com reparações</span>
           <strong id="maxPurchase">—</strong>
+          <div class="purchase-before">
+            <span>Compra sem reparações</span>
+            <strong id="purchaseWithoutRepairs">—</strong>
+          </div>
+          <small class="purchase-comparison-note" id="purchaseComparisonNote">Valores calculados sobre a mesma referência de mercado.</small>
           <small id="decisionText">—</small>
           <small class="quality-note" id="qualityNote">A validar qualidade da evidência…</small>
         </div>
@@ -351,7 +356,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261017-technician-damage-v2"></script>
+  <script type="module" src="./app-v2.js?v=20261017-dual-buy-quotes-v3"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->

@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261017-technician-damage-v2";
+import { evaluatePurchase } from "./valuation.js?v=20261017-dual-buy-quotes-v3";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -502,6 +502,8 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   renderVehicleReadout(currentVehicle,currentMarketData);
   q("confidencePill").textContent="A confirmar";
   q("maxPurchase").textContent="—";
+  q("purchaseWithoutRepairs").textContent="—";
+  q("purchaseComparisonNote").textContent="Ainda falta confirmar a viatura para calcular os dois cenários.";
   q("currentPrice").textContent=fmt(currentVehicle.price);
   applyPurchaseSignal(null);
   q("saleLikely").textContent="—";
@@ -531,7 +533,13 @@ function purchaseSignal(result){
     ?purchase.absoluteMax
     :purchase.provisionalAbsoluteMax;
   const absolute=Number(absoluteRaw);
-  if(!Number.isFinite(current)||!Number.isFinite(target)){
+  if(!Number.isFinite(target)){
+    return {tone:"neutral",label:"Sem referência",detail:"Ainda não existem comparáveis válidos para avaliar o preço do mercado."};
+  }
+  if(Number(result?.market?.dispersion)>.45||result?.market?.broadenedMarket===true){
+    return {tone:"neutral",label:"Mercado incerto",detail:"Preços muito dispersos ou anúncios pouco semelhantes: apenas cenários indicativos, não uma decisão de compra."};
+  }
+  if(!Number.isFinite(current)){
     return {tone:"neutral",label:"A aguardar preço",detail:"Indica o preço ou a licitação atual para classificar a compra."};
   }
   if(current<=target){
@@ -607,8 +615,14 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
   const acquisition=result.purchase?.acquisition||{};
   const askingPrice=acquisition.priceRole!=="acquisition_price";
-  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="Valor comercial de compra";
-  q("maxPurchase").textContent=fmt(displayedCeiling);
+  if(q("purchaseCeilingLabel"))q("purchaseCeilingLabel").textContent="Compra com reparações";
+  q("maxPurchase").textContent=fmt(result.purchase?.purchaseWithRepairs);
+  q("purchaseWithoutRepairs").textContent=fmt(result.purchase?.purchaseWithoutRepairs);
+  const prep=result.reconditioning||{};
+  const prepNote=prep.hasUnpriced?" · orçamento incompleto: o custo real pode ser superior.":"";
+  q("purchaseComparisonNote").textContent=Number.isFinite(displayedCeiling)
+    ?"Diferença efetiva: "+fmt(Math.max(0,Number(result.purchase.purchaseWithoutRepairs)-Number(result.purchase.purchaseWithRepairs)))+". Preparação considerada: "+fmt(prep.appliedGross)+" com IVA. Margem e restantes custos idênticos."+prepNote
+    :"Sem comparáveis válidos não é possível calcular nenhuma das duas cotações. As reparações não causaram este bloqueio.";
   const currentLabel=q("currentPrice")?.previousElementSibling;
   if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
@@ -622,7 +636,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
     :"comprando ao teto comercial";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=Number.isFinite(displayedCeiling)
-    ?(result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
+    ?(result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
     :(result.purchase?.decision||"—");
   const auctionQuestion=q("auctionLocationQuestion");
   if(auctionQuestion){
@@ -643,8 +657,8 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const quality=result.purchase?.eligible
     ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
     :Number.isFinite(Number(result.market?.marketValue))
-      ?"Teto indicativo calculado por aproximação ponderada a partir de "+(result.market?.comparablesUsed??0)+" anúncio(s), valor de revenda e margem comercial. A percentagem é um índice heurístico de confiança, não uma probabilidade comprovada de acerto."
-      :(result.warnings?.[0]||"Ainda não existe base de mercado suficiente.");
+      ?"Cenários calculados por aproximação ponderada a partir de "+(result.market?.comparablesUsed??0)+" anúncio(s), valor de revenda e margem comercial. A percentagem é um índice heurístico de confiança, não uma probabilidade comprovada de acerto."
+      :(result.warnings?.find(w=>/nenhum anúncio comparável/i.test(w))||"Ainda não existe um preço de mercado independente utilizável. Atualiza a pesquisa e consulta os anúncios excluídos.");
   const marketCache=currentMarketData?.market?.market_cache;
   const snapshotNote=marketCache?.snapshot_at
     ?" Mercado fixado em "+historyDate.format(new Date(marketCache.snapshot_at))+" por 24 h"+(marketCache.hit?" e reutilizado para manter a mesma cotação.":".")
@@ -656,13 +670,15 @@ function renderResult(result,sourceHost,riskFlags=[]){
       :result.purchase?.provisionalEligible
         ?"Compra estimada após custos, reserva e margem objetivo. Valor provisório; a amostra é limitada ou não está verificada."
         :"Ainda não existe base suficiente para calcular um valor de compra.")
-    :"Ainda não existe uma referência de mercado suficiente.";
+    :"Não foi possível estabelecer um preço de mercado independente. As reparações foram calculadas separadamente, mas não são a causa do bloqueio. Atualiza a pesquisa ou consulta os anúncios excluídos.";
   renderComparables(result.comparables);
   renderEvidence(result);
   renderRisks(riskFlags,result.warnings);
   renderConditionCosts(result);
   const calcBox=q("calcBox");
   if(calcBox)calcBox.innerHTML=
+    "Compra sem reparações: <strong>"+esc(fmt(result.purchase?.purchaseWithoutRepairs))+"</strong><br>"+
+    "Compra com reparações: <strong>"+esc(fmt(result.purchase?.purchaseWithRepairs))+"</strong><br>"+
     "Preparação aplicada: <strong>"+esc(fmt(result.reconditioning?.appliedGross))+"</strong><br>"+
     "Custos totais (base económica): <strong>"+esc(fmt(result.purchase?.fixedCosts))+"</strong><br>"+
     "Margem objetivo: <strong>"+esc(fmt(result.purchase?.targetMargin))+"</strong><br>"+
@@ -772,6 +788,7 @@ function valuationShareData(){
     meta:vehicleMeta(currentVehicle),
     summary,
     purchase,
+    purchaseWithoutRepairs:currentResult.purchase?.purchaseWithoutRepairs,
     saleFast,
     advertised:Number.isFinite(advertised)?advertised:null,
     source:String(q("sourceLabel")?.textContent||"").trim(),
@@ -788,7 +805,8 @@ function valuationShareText(data){
     data.meta
   ];
   lines.push("");
-  lines.push((data.provisional?"Valor comercial de compra provisório: ":"Valor comercial de compra: ")+fmt(data.purchase));
+  lines.push("Compra sem reparações: "+fmt(data.purchaseWithoutRepairs));
+  lines.push((data.provisional?"Compra com reparações (provisória): ":"Compra com reparações: ")+fmt(data.purchase));
   lines.push("Venda rápida estimada: "+fmt(data.saleFast));
   lines.push("Preparação considerada: "+fmt(data.preparation)+(data.preparationPending?" · "+data.preparationPending+" custo(s)/verificação(ões) pendente(s)":""));
   if(data.advertised!==null)lines.push("Preço do anúncio: "+fmt(data.advertised));
@@ -969,7 +987,8 @@ function printValuationSummary(){
     advertised+
     '<div class="line"><span>Preparação considerada'+(data.preparationPending?" (orçamento incompleto)":"")+'</span><strong>'+esc(fmt(data.preparation))+'</strong></div>'+
     '<div class="quotes">'+
-      '<div class="quote"><span>'+esc(purchaseLabel)+'</span><strong>'+esc(fmt(data.purchase))+'</strong></div>'+
+      '<div class="quote"><span>Compra sem reparações</span><strong>'+esc(fmt(data.purchaseWithoutRepairs))+'</strong></div>'+
+      '<div class="quote"><span>'+esc(purchaseLabel)+" com reparações"+'</span><strong>'+esc(fmt(data.purchase))+'</strong></div>'+
       '<div class="quote"><span>Cotação de venda ideal para vender rápido</span><strong>'+esc(fmt(data.saleFast))+'</strong></div>'+
     '</div>'+
     summary+

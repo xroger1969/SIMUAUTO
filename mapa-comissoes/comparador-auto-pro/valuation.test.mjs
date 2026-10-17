@@ -316,3 +316,86 @@ test("a aproximação não mistura híbrido com diesel nem duplica anúncios",()
   assert.ok(r.excluded.some(x=>/combustível diferente/.test(x.reason)));
   assert.ok(r.excluded.some(x=>/duplicado/.test(x.reason)));
 });
+
+test('repair costs produce two independent purchase quotes even when the repair estimate is high',()=>{
+  const base={subject,comparables:[professional(1),professional(2),professional(3)],
+    source_context:{is_auction:false,vehicle_location:'PT'},
+    costs:{reconditioning:450,transport:150},target_margin:3500};
+  const clean=evaluatePurchase(base);
+  const repair=evaluatePurchase({...base,condition_report:{
+    assessed:true,summary:'Danos confirmados nas fotografias',findings:[
+      {component:'front_bumper',label:'Para-choques dianteiro',category:'body',
+        action:'replace',status:'confirmed',quantity:1,evidence:'Peça partida na fotografia',
+        source_image:1,safety_critical:false,technician_marked:false,
+        cost:{parts_min_eur:null,parts_max_eur:null,labour_min_eur:null,labour_max_eur:null,price_basis:'unknown',source_url:null}}
+    ]},reconditioning_settings:{overrides:{front_bumper:9000}}});
+  assert.equal(repair.purchase.purchaseWithoutRepairs,clean.purchase.purchaseWithoutRepairs);
+  assert.equal(repair.purchase.purchaseWithRepairs,repair.purchase.effectiveCeiling);
+  assert.equal(repair.purchase.purchaseWithoutRepairs-repair.purchase.purchaseWithRepairs,9000);
+  assert.equal(repair.purchase.eligible,true);
+});
+
+test('large dispersion lowers confidence without erasing either buy price',()=>{
+  const a=professional(1,{price:14500});
+  const b=professional(2,{price:23500});
+  const c=professional(3,{price:36500});
+  const r=evaluatePurchase({subject,comparables:[a,b,c],costs:{reconditioning:886},target_margin:3500});
+  assert.ok(r.market.dispersion>.45);
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(r.market.confidencePct<=35);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(Number.isFinite(r.purchase.purchaseWithRepairs));
+  assert.equal(r.purchase.purchaseWithoutRepairs-r.purchase.purchaseWithRepairs,886);
+  assert.match(r.purchase.decision,/dispersos/);
+  assert.ok(r.warnings.some(x=>/muito dispersos/i.test(x)));
+});
+
+test('deductible VAT repair is discounted exactly once in both quotes',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],
+    tax:{mode:'deductible',vat_rate:.23},costs:{reconditioning:100}});
+  assert.ok(Math.abs((r.purchase.purchaseWithoutRepairs-r.purchase.purchaseWithRepairs)-123)<=1);
+  assert.equal(r.reconditioning.appliedGross,123);
+});
+
+test('asking price alone is not an independent market reference for either quote',()=>{
+  const r=evaluatePurchase({subject:{...subject,price:7800},current_purchase_price:7800,comparables:[],
+    costs:{reconditioning:886}});
+  assert.ok(!Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(!Number.isFinite(r.purchase.purchaseWithRepairs));
+  assert.ok(r.warnings.some(x=>/Nenhum anúncio comparável válido/.test(x)));
+  assert.ok(!r.warnings.some(x=>/Dispersão de preços demasiado elevada/.test(x)));
+});
+
+test('Smart fortwo electric drive listings with Coupé wording remain comparable',()=>{
+  const smart={make:'Smart',model:'fortwo',trim:'electric drive 60 kW',fuel:'electric',
+    year:2017,mileage_km:45424,transmission:'automatic',price:7800};
+  const ads=[professional(1,{make:'Smart',model:'fortwo Coupé electric drive',trim:'60 kW',
+    fuel:'electric',year:2017,mileage_km:53000,price:9800,battery_kwh:null,power_cv:82}),
+    professional(2,{make:'Smart',model:'fortwo',trim:'electric drive',
+    fuel:'electric',year:2018,mileage_km:61000,price:10500,battery_kwh:null,power_cv:82})];
+  const r=evaluatePurchase({subject:smart,comparables:ads,costs:{reconditioning:886}});
+  assert.equal(r.market.comparablesUsed,2);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(Number.isFinite(r.purchase.purchaseWithRepairs));
+});
+
+test('strictly excluded but compatible near-match advertisements may yield cautious fallback',()=>{
+  const far=professional(10,{trim:'Standard Range',generation:'2',year:2020,
+    mileage_km:150000,drivetrain:'RWD',transmission:'manual',price:17600});
+  const r=evaluatePurchase({subject,comparables:[far]});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.equal(r.market.broadenedMarket,true);
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(r.market.confidencePct<=35);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(r.warnings.some(x=>/semelhança reduzida|referências mais aproximadas/i.test(x)));
+});
+test('second-tier fallback never compares electric vehicles against diesel alternatives',()=>{
+  const wrong=professional(10,{make:'Smart',model:'fortwo',fuel:'diesel',price:8000});
+  const electric={make:'Smart',model:'fortwo',fuel:'electric',year:2017,mileage_km:45424};
+  const r=evaluatePurchase({subject:electric,comparables:[wrong]});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.ok(!Number.isFinite(r.purchase.purchaseWithRepairs));
+});

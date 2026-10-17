@@ -815,3 +815,17 @@ body::before {
 .condition-checks{display:grid;gap:8px;margin:14px 0}.condition-checks div{padding:9px 0;border-bottom:1px solid rgba(125,184,241,.15)}
 .assumptions-form select{width:100%;min-height:44px;padding:10px;border:1px solid #40617c;border-radius:10px;background:#10283d;color:#fff;font:inherit}
 @media(max-width:520px){.condition-details>summary{align-items:start;flex-direction:column;gap:5px}.condition-item-head{flex-direction:column;gap:4px}.condition-item label{align-items:start;flex-direction:column;gap:5px}.condition-item input{max-width:none}}
+
+/* Two quotes share one market estimate; only the preparation cost differs. */
+.decision-card .purchase-before{
+  display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:11px 0 9px;margin:10px 0 5px;border-top:1px solid rgba(201,228,255,.24)
+}
+.decision-card .purchase-before span{color:#c6d9ed;font-size:11px}
+.decision-card .purchase-before strong{color:#e4f2ff;font-size:clamp(21px,3vw,29px);white-space:nowrap;letter-spacing:-.035em}
+.decision-card .purchase-comparison-note{margin:0 0 9px;color:#bed9f3;font-size:10px;line-height:1.5}
+@media(max-width:560px){
+  .decision-card .purchase-before{display:block;padding-top:10px;margin-top:7px}
+  .decision-card .purchase-before strong{display:block;font-size:24px;margin-top:4px}
+  .decision-card .purchase-before span{font-size:10px}
+}
