@@ -533,8 +533,14 @@ function purchaseSignal(result){
     ?purchase.absoluteMax
     :purchase.provisionalAbsoluteMax;
   const absolute=Number(absoluteRaw);
+  if(purchase.priceScenario===true){
+    return {tone:"neutral",label:"Simulação",detail:"Só existe o preço conhecido; não há revenda nem mercado confirmados. Não é uma recomendação de compra."};
+  }
+  if(purchase.needsLocationConfirmation===true){
+    return {tone:"neutral",label:"Confirmar origem",detail:"O cenário inclui um custo de importação presumido. Confirma o país antes de comprar."};
+  }
   if(!Number.isFinite(target)){
-    return {tone:"neutral",label:"Sem referência",detail:"Ainda não existem comparáveis válidos para avaliar o preço do mercado."};
+    return {tone:"neutral",label:"Sem referência",detail:"Falta um preço conhecido ou um comparável real para calcular valores."};
   }
   if(Number(result?.market?.dispersion)>.45||result?.market?.broadenedMarket===true){
     return {tone:"neutral",label:"Mercado incerto",detail:"Preços muito dispersos ou anúncios pouco semelhantes: apenas cenários indicativos, não uma decisão de compra."};
@@ -610,7 +616,9 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   renderVehicleReadout(currentVehicle,currentMarketData);
-  q("confidencePill").textContent="Confiança estimada "+(result.market?.confidencePct??0)+"%"+(result.purchase?.provisionalEligible&&!result.purchase?.eligible?" · provisória":"");
+  q("confidencePill").textContent=result.purchase?.priceScenario
+    ?"Nível 4 · cenário sem mercado verificado"
+    :"Nível "+(result.market?.searchTier||1)+" · confiança estimada "+(result.market?.confidencePct??0)+"%"+(result.purchase?.provisionalEligible&&!result.purchase?.eligible?" · provisória":"");
   const rawCeiling=result.purchase?.effectiveCeiling;
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
   const acquisition=result.purchase?.acquisition||{};
@@ -621,8 +629,8 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const prep=result.reconditioning||{};
   const prepNote=prep.hasUnpriced?" · orçamento incompleto: o custo real pode ser superior.":"";
   q("purchaseComparisonNote").textContent=Number.isFinite(displayedCeiling)
-    ?"Diferença efetiva: "+fmt(Math.max(0,Number(result.purchase.purchaseWithoutRepairs)-Number(result.purchase.purchaseWithRepairs)))+". Preparação considerada: "+fmt(prep.appliedGross)+" com IVA. Margem e restantes custos idênticos."+prepNote
-    :"Sem comparáveis válidos não é possível calcular nenhuma das duas cotações. As reparações não causaram este bloqueio.";
+    ?"Diferença efetiva: "+fmt(Math.max(0,Number(result.purchase.purchaseWithoutRepairs)-Number(result.purchase.purchaseWithRepairs)))+". Preparação considerada: "+fmt(prep.appliedGross)+" com IVA. Margem e restantes custos idênticos."+prepNote+(result.purchase?.priceScenario?" ATENÇÃO: apenas simulação pelo preço conhecido, sem valor de mercado confirmado.":"")
+    :"Para obter valores em euros, indica um preço de anúncio/licitação ou fornece pelo menos um anúncio comparável.";
   const currentLabel=q("currentPrice")?.previousElementSibling;
   if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
@@ -631,12 +639,13 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("saleFast").textContent=fmt(result.market?.saleFast);
   const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
   q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
-  if(q("expectedMarginNote"))q("expectedMarginNote").textContent=hasCurrent
-    ?(askingPrice?"se comprasses ao preço pedido":"se comprares ao preço/licitação atual")
+  if(q("expectedMarginNote"))q("expectedMarginNote").textContent=result.purchase?.priceScenario
+    ?"hipótese matemática sem revenda confirmada"
+    :hasCurrent?(askingPrice?"se comprasses ao preço pedido":"se comprares ao preço/licitação atual")
     :"comprando ao teto comercial";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=Number.isFinite(displayedCeiling)
-    ?(result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
+    ?(result.purchase?.priceScenario?"SIMULAÇÃO FINANCEIRA · mercado não confirmado":result.purchase?.needsLocationConfirmation?"Cenário provisório · confirmar localização":result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
     :(result.purchase?.decision||"—");
   const auctionQuestion=q("auctionLocationQuestion");
   if(auctionQuestion){
@@ -648,17 +657,21 @@ function renderResult(result,sourceHost,riskFlags=[]){
       :"";
   }
   const gap=hasCurrent&&Number.isFinite(displayedCeiling)?Number(result.purchase.currentPrice)-displayedCeiling:NaN;
-  q("gapText").textContent=Number.isFinite(gap)
-    ?(gap>0
-      ?(askingPrice?"Negociar pelo menos "+fmt(gap):fmt(gap)+" acima do teto comercial")
-      :(askingPrice?fmt(Math.abs(gap))+" abaixo do teto comercial":fmt(Math.abs(gap))+" de margem até ao teto"))
-    :"—";
+  q("gapText").textContent=result.purchase?.priceScenario
+    ?"Não utilizar para decidir a compra sem confirmar preços de mercado"
+    :Number.isFinite(gap)
+      ?(gap>0
+        ?(askingPrice?"Negociar pelo menos "+fmt(gap):fmt(gap)+" acima do teto comercial")
+        :(askingPrice?fmt(Math.abs(gap))+" abaixo do teto comercial":fmt(Math.abs(gap))+" de margem até ao teto"))
+      :"—";
   const verified=result.market?.verifiedProfessionals??0;
-  const quality=result.purchase?.eligible
-    ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
-    :Number.isFinite(Number(result.market?.marketValue))
-      ?"Cenários calculados por aproximação ponderada a partir de "+(result.market?.comparablesUsed??0)+" anúncio(s), valor de revenda e margem comercial. A percentagem é um índice heurístico de confiança, não uma probabilidade comprovada de acerto."
-      :(result.warnings?.find(w=>/nenhum anúncio comparável/i.test(w))||"Ainda não existe um preço de mercado independente utilizável. Atualiza a pesquisa e consulta os anúncios excluídos.");
+  const quality=result.purchase?.priceScenario
+    ?"NÍVEL 4: dois resultados financeiros com base apenas no "+result.purchase.referenceSource+" ("+fmt(result.purchase.referencePrice)+"). Não existe mercado independente nem revenda verificada. Os valores NÃO são recomendação de compra."
+    :result.purchase?.eligible
+      ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
+      :Number.isFinite(Number(result.market?.marketValue))
+        ?"Cenários calculados por aproximação ponderada a partir de "+(result.market?.comparablesUsed??0)+" anúncio(s). A confiança é um índice heurístico, não uma probabilidade comprovada de acerto."
+        :(result.warnings?.find(w=>/Sem comparáveis e sem preço conhecido/i.test(w))||"Não existe preço independente utilizável. Introduz um preço ou atualiza a pesquisa.");
   const marketCache=currentMarketData?.market?.market_cache;
   const snapshotNote=marketCache?.snapshot_at
     ?" Mercado fixado em "+historyDate.format(new Date(marketCache.snapshot_at))+" por 24 h"+(marketCache.hit?" e reutilizado para manter a mesma cotação.":".")
@@ -670,7 +683,9 @@ function renderResult(result,sourceHost,riskFlags=[]){
       :result.purchase?.provisionalEligible
         ?"Compra estimada após custos, reserva e margem objetivo. Valor provisório; a amostra é limitada ou não está verificada."
         :"Ainda não existe base suficiente para calcular um valor de compra.")
-    :"Não foi possível estabelecer um preço de mercado independente. As reparações foram calculadas separadamente, mas não são a causa do bloqueio. Atualiza a pesquisa ou consulta os anúncios excluídos.";
+    :result.purchase?.priceScenario
+      ?"Sem comparáveis: hipótese de revenda calculada APENAS a partir do "+result.purchase.referenceSource+" de "+fmt(result.purchase.referencePrice)+". Não equivale ao valor comercial do carro. Confirma anúncios reais antes de comprar."
+      :"Sem comparáveis e sem preço conhecido: indica o preço ou adiciona uma referência verificável.";
   renderComparables(result.comparables);
   renderEvidence(result);
   renderRisks(riskFlags,result.warnings);
@@ -688,6 +703,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
         ?result.purchase.absoluteMax
         :result.purchase?.provisionalAbsoluteMax
     ))+"</strong><br>"+
+    (result.purchase?.priceScenario?"Base exclusivamente hipotética: <strong>"+esc(fmt(result.purchase.referencePrice))+"</strong> · não é uma cotação de mercado<br>":"")+
     "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
   const shareReady=Number.isFinite(Number(result.purchase?.effectiveCeiling))&&Number.isFinite(Number(result.market?.saleFast));
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
@@ -1785,9 +1801,11 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,marketPayload,"analysis");
     const completion=result.purchase?.eligible
       ?"Análise concluída com evidência profissional suficiente para emitir o teto."
-      :result.purchase?.provisionalEligible
-        ?"Pesquisa concluída com teto provisório. Confirma a evidência antes de fechar a compra."
-        :"Pesquisa concluída sem base suficiente para calcular um valor de compra.";
+      :result.purchase?.priceScenario
+        ?"Sem anúncios independentes: mostro duas simulações pelo preço conhecido. Não são cotações de mercado. Confirma o preço de revenda antes de comprar."
+        :result.purchase?.provisionalEligible
+          ?"Pesquisa concluída com teto provisório. Confirma os anúncios antes de comprar."
+          :"Falta um preço conhecido ou anúncio verificável para apresentar valores monetários.";
     addMsg("assistant",completion);await storeMessage("assistant",completion);
   }catch(err){
     q("emptyState").classList.remove("hidden");
