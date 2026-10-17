@@ -476,7 +476,9 @@ export function evaluatePurchase(input,custom={}){
   if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
   if(valid.length)warnings.push("Confiança "+confidencePct+"%: índice estimado da qualidade dos comparáveis, não uma probabilidade comprovada de acerto no preço.");
   if(acquisition.needsLocationConfirmation)warnings.push("Localização do leilão por confirmar: reservados provisoriamente "+config.auctionImportCost+" € de importação, apenas para o cenário.");
-  if(!eligible&&provisionalEligible)warnings.unshift("Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
+  if(!eligible&&provisionalEligible)warnings.unshift(priceScenario
+    ?"Nível 4: simulação financeira sem anúncios comparáveis. NÃO é um preço comercial confirmado nem uma recomendação de compra."
+    :"Estimativa indicativa com "+valid.length+" comparável(is) aceite(s)"+(marketBasis!=="professional"?" sem base profissional confirmada":"")+". Baixa confiança: confirmar estado, quilómetros e preços antes de comprar.");
 
   const tax=input.tax||{},vatRate=num(tax.vat_rate,.23);
   const taxMode=tax.mode==="deductible"?"deductible":"gross";
@@ -517,7 +519,7 @@ export function evaluatePurchase(input,custom={}){
 
   let decision=valid.length?"Referência provisória — dados por confirmar":"sem dados";
   if(priceScenario&&provisionalEligible)decision="Simulação pelo preço conhecido — SEM valor de mercado confirmado; não é recomendação de compra";
-  else if(acquisition.needsLocationConfirmation)decision="Cenário com importação presumida — confirmar localização antes de comprar";
+  else if(acquisition.needsLocationConfirmation)decision="Confirmar localização do leilão — cenário provisório com importação presumida";
   else if(eligible){
     if(!Number.isFinite(currentPrice))decision="Teto estimado — indica o preço de compra";
     else if(currentPrice<=maxPurchase*.97)decision="compra muito interessante";
