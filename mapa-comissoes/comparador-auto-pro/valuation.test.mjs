@@ -56,8 +56,22 @@ test('two comparables cannot show the same confidence ceiling as three',()=>{
   assert.equal(two.purchase.eligible,true);
   assert.ok(three.market.confidencePct>=two.market.confidencePct);
 });
-test('no comparables still cannot produce a purchase estimate',()=>{
-  const r=evaluatePurchase({subject,comparables:[]});
+test('no comparables but a known price still produces two clearly hypothetical values',()=>{
+  const r=evaluatePurchase({subject,comparables:[],costs:{reconditioning:600}});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.equal(r.market.searchTier,4);
+  assert.equal(r.market.confidencePct,0);
+  assert.ok(Number.isNaN(r.market.saleLikely));
+  assert.equal(r.purchase.priceScenario,true);
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.equal(r.purchase.purchaseWithoutRepairs-r.purchase.purchaseWithRepairs,600);
+  assert.match(r.purchase.decision,/SEM valor de mercado confirmado/);
+});
+test('no market and no observed price cannot invent a monetary quote',()=>{
+  const r=evaluatePurchase({subject:{...subject,price:null},comparables:[]});
+  assert.equal(r.purchase.priceScenario,false);
   assert.equal(r.purchase.provisionalEligible,false);
   assert.ok(!Number.isFinite(r.purchase.effectiveCeiling));
 });
@@ -358,13 +372,20 @@ test('deductible VAT repair is discounted exactly once in both quotes',()=>{
   assert.equal(r.reconditioning.appliedGross,123);
 });
 
-test('asking price alone is not an independent market reference for either quote',()=>{
-  const r=evaluatePurchase({subject:{...subject,price:7800},current_purchase_price:7800,comparables:[],
-    costs:{reconditioning:886}});
-  assert.ok(!Number.isFinite(r.purchase.purchaseWithoutRepairs));
-  assert.ok(!Number.isFinite(r.purchase.purchaseWithRepairs));
-  assert.ok(r.warnings.some(x=>/Nenhum anúncio comparável válido/.test(x)));
-  assert.ok(!r.warnings.some(x=>/Dispersão de preços demasiado elevada/.test(x)));
+test('Smart 7800 EUR without comparable shows provisional buy quotes, not a validated resale',()=>{
+  const r=evaluatePurchase({subject:{make:'Smart',model:'fortwo',fuel:'electric',year:2017,mileage_km:45424,price:7800},
+    current_purchase_price:7800,comparables:[],costs:{reconditioning:886}});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.equal(r.market.searchTier,4);
+  assert.ok(!Number.isFinite(r.market.marketValue));
+  assert.ok(!Number.isFinite(r.market.saleFast));
+  assert.equal(r.purchase.priceScenario,true);
+  assert.equal(r.purchase.eligible,false);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(Number.isFinite(r.purchase.purchaseWithRepairs));
+  assert.equal(r.purchase.purchaseWithoutRepairs-r.purchase.purchaseWithRepairs,886);
+  assert.match(r.purchase.decision,/não é recomendação de compra/);
+  assert.ok(r.warnings.some(x=>/NÃO confirmam o valor de revenda/.test(x)));
 });
 
 test('Smart fortwo electric drive listings with Coupé wording remain comparable',()=>{
@@ -390,7 +411,27 @@ test('strictly excluded but compatible near-match advertisements may yield cauti
   assert.equal(r.purchase.provisionalEligible,true);
   assert.ok(r.market.confidencePct<=35);
   assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
-  assert.ok(r.warnings.some(x=>/semelhança reduzida|referências mais aproximadas/i.test(x)));
+  assert.ok(r.warnings.some(x=>/Nível 2|Nível 3|aproximados/i.test(x)));
+});
+test('third tier uses a distant but real same-model and same-fuel advert with confidence capped',()=>{
+  const distant=professional(15,{trim:'City',generation:'9',year:2018,mileage_km:170000,
+    drivetrain:'RWD',transmission:'manual',price:17000});
+  const r=evaluatePurchase({subject,comparables:[distant]});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.equal(r.market.searchTier,3);
+  assert.ok(r.market.confidencePct<=25);
+  assert.equal(r.purchase.eligible,false);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(Number.isFinite(r.purchase.purchaseWithRepairs));
+});
+test('unknown auction location uses only a conservative provisional import allowance',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1),professional(2)],
+    source_url:'https://www.auto1.com/pt/vehicle/X',source_context:{is_auction:true,vehicle_location:'unknown'}});
+  assert.equal(r.purchase.needsLocationConfirmation,true);
+  assert.equal(r.purchase.importCost,1200);
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithRepairs));
 });
 test('second-tier fallback never compares electric vehicles against diesel alternatives',()=>{
   const wrong=professional(10,{make:'Smart',model:'fortwo',fuel:'diesel',price:8000});
