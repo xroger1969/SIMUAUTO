@@ -76,9 +76,11 @@ testes e SOH documentado. A segunda fase pesquisa preços de peças e serviços
 em fontes portuguesas. Preserva os danos observados e acrescenta os preços;
 não utiliza o estado dos comparáveis como se fosse o da viatura analisada.
 
-- Pintura simples: referência editável da oficina de **80–100 €/painel com IVA**,
-  ou referências online selecionáveis nas premissas. Chapa, substituição e
-  polimento requerem orçamento próprio.
+- Pintura simples: preços publicados de oficinas pesquisados por defeito. A
+  referência de **80–100 €/painel com IVA** é apenas uma hipótese provisória
+  quando falta preço aplicável; pode ser substituída por orçamento do utilizador.
+  Promoções e preços «desde» não são tratados como tabela normal nem teto garantido.
+  Chapa, substituição e polimento requerem orçamento próprio.
 - Peças e mão de obra são discriminadas; um preço sem mão de obra continua
   parcial. Só são utilizados preços pesquisados com URL presente nas fontes da
   ferramenta web e base de IVA conhecida. Uma referência não é uma média nacional
@@ -90,9 +92,13 @@ não utiliza o estado dos comparáveis como se fosse o da viatura analisada.
 - Os custos totais por componente podem ser corrigidos no ecrã. Estes valores
   pertencem à avaliação, não se tornam preços globais de outras viaturas. Cada
   recálculo guarda relatório, fontes, alterações e resultado no histórico.
-- Zonas com triângulos de aviso, espessuras N/A ou um teste sem anomalias não
-  comprovam número de painéis danificados, ausência de avarias ou SOH. Custos
-  pendentes mantêm a avaliação provisória; não são apresentados como gratuitos.
+- Nos relatórios AUTO1, triângulos amarelos assinalam danos identificados pelo
+  técnico (`technician_marked=true`). Nas zonas exteriores é considerado pelo
+  menos um trabalho de reparação/pintura por zona, com custo pesquisado, mantendo
+  os painéis exatos por confirmar. O detalhe por painel substitui a zona para
+  evitar duplicação. Danos de interior usam serviço próprio, nunca pintura de chapa.
+  N/A e espessuras isoladas não são danos; um teste sem anomalias não comprova
+  ausência de avarias nem SOH. Custos pendentes mantêm a avaliação provisória.
 - A cache de comparáveis não transporta danos/localização de fotografias
   anteriores. Quando existem novos danos, os comparáveis fixados podem ser
   conservados enquanto os novos custos são pesquisados. A cache exata das mesmas

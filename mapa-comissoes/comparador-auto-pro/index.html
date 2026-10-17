@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261017-condition-costs-v1">
+  <link rel="stylesheet" href="./styles.css?v=20261017-technician-damage-v2">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -282,9 +282,9 @@
           <label>Margem mínima (€)<input id="minimumMarginInput" type="number" min="0" step="50"></label>
           <label>Transporte (€)<input id="transportCostInput" type="number" min="0" step="10"></label>
           <label>Reserva mínima de preparação (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
-          <label>Preço de pintura<select id="paintPriceModeInput"><option value="trade">Minha oficina</option><option value="web">Referências pesquisadas</option></select></label>
-          <label>Pintura mínima/painel (€ com IVA)<input id="paintMinInput" type="number" min="0" step="5"></label>
-          <label>Pintura máxima/painel (€ com IVA)<input id="paintMaxInput" type="number" min="0" step="5"></label>
+          <label>Preço de pintura<select id="paintPriceModeInput"><option value="web">Preços publicados (prioritário)</option><option value="trade">Minha oficina (definir preço)</option></select></label>
+          <label>Referência provisória mínima/painel (€ com IVA)<input id="paintMinInput" type="number" min="0" step="5"></label>
+          <label>Referência provisória máxima/painel (€ com IVA)<input id="paintMaxInput" type="number" min="0" step="5"></label>
           <label>Garantia/reserva (€)<input id="warrantyCostInput" type="number" min="0" step="10"></label>
           <label>Financiamento de stock (€)<input id="stockCostInput" type="number" min="0" step="10"></label>
           <label>Comissão de leilão (€)<input id="auctionCostInput" type="number" min="0" step="10"></label>
@@ -351,7 +351,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261017-condition-costs-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261017-technician-damage-v2"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->

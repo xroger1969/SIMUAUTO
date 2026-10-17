@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261017-condition-costs-v1";
+import { evaluatePurchase } from "./valuation.js?v=20261017-technician-damage-v2";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing } from "./input.js";
 
@@ -39,7 +39,7 @@ let recordingTimer=null;
 
 const DEFAULT_DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
-  reconditioning:{paint_mode:"trade",paint_min_eur:80,paint_max_eur:100},
+  reconditioning:{paint_mode:"web",pricing_version:2,paint_min_eur:80,paint_max_eur:100},
   target_margin:3500,
   minimum_margin:1200
 };
@@ -700,14 +700,16 @@ function renderConditionCosts(result){
   q("conditionCostList").innerHTML=prep.items.length?prep.items.map(item=>{
     const basis=item.basis==="trade"?"Referência da tua oficina · por painel · inclui IVA"
       :item.basis==="manual"?"Custo corrigido pelo utilizador · total com IVA"
-      :item.basis==="web"?"Referência pesquisada · total com IVA"+(item.partial?" · falta "+(item.parts?"mão de obra/serviço":"preço de peças")+" no orçamento":"")
+      :item.basis==="web"?"Referência pesquisada · total com IVA"
+      :item.basis==="fallback"?"Hipótese provisória · sem preço publicado aplicável"
       :"Custo pendente — não foi considerado como reparação gratuita";
     const canOverride=item.status==="confirmed"||(item.status==="suspected"&&item.action==="diagnose");
     const source=item.source?'<a href="'+esc(item.source)+'" target="_blank" rel="noopener noreferrer">'+esc(item.sourceTitle||"Ver fonte do preço")+'</a>'+(item.observedAt?' · consultada '+esc(historyDate.format(new Date(item.observedAt))):""):"";
     return '<article class="condition-item"><div class="condition-item-head"><strong>'+esc(item.label)+'</strong><span>'+esc(costRange(item.low,item.high))+(item.partial?" (parcial)":"")+'</span></div>'+
       '<small>'+esc(actions[item.action]||item.action)+' · '+esc(statuses[item.status]||item.status)+(item.quantity>1?' · '+item.quantity+' unidades':"")+'</small>'+
+      (item.technicianMarked?'<small>Dano identificado pelo técnico avaliador</small>':"")+
       '<small>'+esc(item.evidence)+(item.sourceImage?' · Imagem '+item.sourceImage:"")+'</small>'+
-      '<small>'+esc(basis)+'</small>'+(source?'<small>'+source+'</small>':"")+
+      '<small>'+esc(basis)+'</small>'+(item.pendingReason?'<small>'+esc(item.pendingReason)+'</small>':"")+(source?'<small>'+source+'</small>':"")+
       (item.fitmentNote?'<small>'+esc(item.fitmentNote)+'</small>':"")+
       (canOverride?'<label>Custo total confirmado (€ com IVA)<input type="number" min="0" max="100000" step="0.01" data-condition-key="'+esc(item.key)+'" value="'+esc(overrides[item.key]??"")+'" placeholder="'+(item.high!==null?esc(Math.round(item.high)):"Orçamento da oficina")+'"></label>':"")+
       '</article>';
@@ -1061,7 +1063,7 @@ function mergeDeal(settings){
     if(Number.isFinite(value)&&value>=0)out[key]=value;
   }
   const prep=src.reconditioning||{};
-  out.reconditioning={paint_mode:prep.paint_mode==="web"?"web":"trade",paint_min_eur:Math.max(0,Number.isFinite(Number(prep.paint_min_eur))?Number(prep.paint_min_eur):80),paint_max_eur:Math.max(0,Number.isFinite(Number(prep.paint_max_eur))?Number(prep.paint_max_eur):100)};
+  out.reconditioning={paint_mode:prep.pricing_version===2&&prep.paint_mode==="trade"?"trade":"web",pricing_version:2,paint_min_eur:Math.max(0,Number.isFinite(Number(prep.paint_min_eur))?Number(prep.paint_min_eur):80),paint_max_eur:Math.max(0,Number.isFinite(Number(prep.paint_max_eur))?Number(prep.paint_max_eur):100)};
   out.reconditioning.paint_max_eur=Math.max(out.reconditioning.paint_min_eur,out.reconditioning.paint_max_eur);
   out.minimum_margin=Math.min(out.minimum_margin,out.target_margin);
   return out;
@@ -1087,7 +1089,7 @@ function dealFromForm(){
   const read=id=>Math.max(0,Number(q(id)?.value||0));
   return mergeDeal({
     target_margin:read("targetMarginInput"),minimum_margin:read("minimumMarginInput"),
-    reconditioning:{paint_mode:q("paintPriceModeInput")?.value,paint_min_eur:read("paintMinInput"),paint_max_eur:read("paintMaxInput")},
+    reconditioning:{paint_mode:q("paintPriceModeInput")?.value,pricing_version:2,paint_min_eur:read("paintMinInput"),paint_max_eur:read("paintMaxInput")},
     costs:{
       transport:read("transportCostInput"),reconditioning:read("reconditioningCostInput"),
       warranty_reserve:read("warrantyCostInput"),stock_finance:read("stockCostInput"),
