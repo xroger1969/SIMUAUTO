@@ -379,3 +379,23 @@ test('Smart fortwo electric drive listings with Coupé wording remain comparable
   assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
   assert.ok(Number.isFinite(r.purchase.purchaseWithRepairs));
 });
+
+test('strictly excluded but compatible near-match advertisements may yield cautious fallback',()=>{
+  const far=professional(10,{trim:'Standard Range',generation:'2',year:2020,
+    mileage_km:150000,drivetrain:'RWD',transmission:'manual',price:17600});
+  const r=evaluatePurchase({subject,comparables:[far]});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.equal(r.market.broadenedMarket,true);
+  assert.equal(r.purchase.eligible,false);
+  assert.equal(r.purchase.provisionalEligible,true);
+  assert.ok(r.market.confidencePct<=35);
+  assert.ok(Number.isFinite(r.purchase.purchaseWithoutRepairs));
+  assert.ok(r.warnings.some(x=>/semelhança reduzida|referências mais aproximadas/i.test(x)));
+});
+test('second-tier fallback never compares electric vehicles against diesel alternatives',()=>{
+  const wrong=professional(10,{make:'Smart',model:'fortwo',fuel:'diesel',price:8000});
+  const electric={make:'Smart',model:'fortwo',fuel:'electric',year:2017,mileage_km:45424};
+  const r=evaluatePurchase({subject:electric,comparables:[wrong]});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.ok(!Number.isFinite(r.purchase.purchaseWithRepairs));
+});
