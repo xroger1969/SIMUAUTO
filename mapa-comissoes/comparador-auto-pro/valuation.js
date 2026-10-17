@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-17-condition-costs-v1";
+export const ENGINE_VERSION="2026-10-17-technician-damage-v2";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -37,22 +37,29 @@ const sellerType=c=>{
 export function estimateReconditioning(report={},settings={},subject={},minimum=0,taxMode="gross",vatRate=.23){
   const paintMin=Math.max(0,num(settings.paint_min_eur,80));
   const paintMax=Math.max(paintMin,num(settings.paint_max_eur,100));
-  const mode=settings.paint_mode==="web"?"web":"trade";
+  const mode=settings.paint_mode==="trade"?"trade":"web";
   const overrides=settings.overrides||{};
   const byComponent=new Map(),notes=[];
   const componentKey=v=>norm(v).replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
   const electric=fuel(subject.fuel)==="electric";
-  const range=(a,b)=>known(a)&&known(b)&&Number.isFinite(Number(a))&&Number.isFinite(Number(b))&&Number(a)>=0&&Number(b)>=Number(a)?[Number(a),Number(b)]:null;
+  const range=(a,b)=>known(a)&&Number.isFinite(Number(a))&&Number(a)>=0&&(!known(b)||(Number.isFinite(Number(b))&&Number(b)>=Number(a)))?[Number(a),known(b)?Number(b):Number(a)]:null;
+  const genericKey=v=>/^(front|rear|left|right|interior|frente|traseira|esquerdo|direito|carrocaria|body|unknown|desconhecido)$/.test(v);
+  const zone=v=>/^left/.test(v)?"left":/^right/.test(v)?"right":/^(front|bonnet)/.test(v)?"front":/^(rear|boot)/.test(v)?"rear":null;
+  const findings=(Array.isArray(report?.findings)?report.findings:[]).slice(0,30);
+  const detailedZones=new Set(findings.filter(f=>f?.status==="confirmed"&&["paint","body"].includes(f.category)&&!genericKey(componentKey(f.component))).map(f=>zone(componentKey(f.component))).filter(Boolean));
   const priority={inspect:0,diagnose:1,polish:2,paint:3,service:3,repair:4,repair_and_paint:5,replace:6};
-  for(const f of (Array.isArray(report?.findings)?report.findings:[]).slice(0,30)){
+  for(const f of findings){
     if(!f?.evidence||!f.component||f.status==="ok")continue;
     if(electric&&f.category==="maintenance"&&/engine_oil|oil_filter|fuel_filter|timing_belt|oleo.{0,8}motor|filtro.{0,8}(oleo|combustivel)|correia.{0,8}distribuicao/.test(componentKey(f.component+" "+f.label))){
       notes.push("Manutenção de motor de combustão excluída: esta viatura é elétrica.");continue;
     }
     const key=componentKey(f.component);
-    // A body-map warning is an area, never a count of paintable panels.
-    const generic=/^(front|rear|left|right|interior|frente|traseira|esquerdo|direito|carrocaria|body|unknown|desconhecido)$/.test(key);
-    const confirmed=f.status==="confirmed"&&!generic;
+    // Technician-marked zones carry a minimum repair budget, without inventing panel counts.
+    const generic=genericKey(key);
+    const marked=f.technician_marked===true;
+    if(generic&&marked&&detailedZones.has(key)){notes.push("Zona "+key+" já orçamentada nos painéis identificados; não foi somada novamente.");continue;}
+    const provisionalZone=generic&&marked;
+    const confirmed=f.status==="confirmed"&&(!generic||marked);
     const diagnostic=f.action==="diagnose"&&f.status==="suspected"&&!generic;
     let low=null,high=null,partial=false,basis="unpriced",source=null,parts=null,labour=null;
     const quantity=["paint","polish","repair_and_paint"].includes(f.action)?1:Math.max(1,Math.min(8,Math.trunc(num(f.quantity,1))));
@@ -60,7 +67,7 @@ export function estimateReconditioning(report={},settings={},subject={},minimum=
     if(confirmed||diagnostic){
       if(known(overrides[key])&&Number.isFinite(Number(overrides[key]))&&Number(overrides[key])>=0&&Number(overrides[key])<=100000){
         low=high=Number(overrides[key]);basis="manual";
-      }else if(f.action==="paint"&&mode==="trade"){
+      }else if(f.action==="paint"&&["paint","body"].includes(f.category)&&mode==="trade"){
         low=paintMin;high=paintMax;basis="trade";
       }else if(c.source_verified===true&&c.source_url&&["gross","net"].includes(c.price_basis)){
         parts=range(c.parts_min_eur,c.parts_max_eur);labour=range(c.labour_min_eur,c.labour_max_eur);
@@ -68,11 +75,15 @@ export function estimateReconditioning(report={},settings={},subject={},minimum=
           const vat=c.price_basis==="net"?1+vatRate:1;
           low=((parts?.[0]||0)+(labour?.[0]||0))*quantity*vat;
           high=((parts?.[1]||0)+(labour?.[1]||0))*quantity*vat;
-          partial=!parts||!labour;basis="web";source=c.source_url;
+          partial=!parts||!labour||(parts&&!known(c.parts_max_eur))||(labour&&!known(c.labour_max_eur));basis="web";source=c.source_url;
         }
       }
     }
-    const row={key,label:f.label||f.component,category:f.category,action:f.action,status:generic?"unassessed":f.status,
+    if(confirmed&&f.action==="paint"&&["paint","body"].includes(f.category)&&high===null){low=paintMin;high=paintMax;basis="fallback";partial=true;}
+    const fromPrice=basis==="web"&&((parts&&!known(c.parts_max_eur))||(labour&&!known(c.labour_max_eur)));
+    if(provisionalZone&&basis!=="manual")partial=true;
+    const pendingReason=provisionalZone&&basis!=="manual"?"Dano confirmado pelo técnico; mínimo de uma intervenção nesta zona, com painéis exatos por confirmar.":fromPrice?"Preço publicado desde este valor; a fonte não confirma um máximo.":basis==="fallback"?"Hipótese provisória de 80–100 €; não foi encontrado preço publicado aplicável.":partial?"Orçamento incompleto: falta preço de peças ou de mão de obra.":"";
+    const row={key,label:f.label||f.component,category:f.category,action:f.action,status:generic&&!marked?"unassessed":f.status,technicianMarked:marked,provisionalZone,pendingReason,fromPrice,
       evidence:f.evidence,sourceImage:f.source_image||null,quantity,low,high,partial,basis,source,
       sourceTitle:c.source_title||"",observedAt:c.observed_at||null,fitmentNote:c.fitment_note||"",parts,labour,
       safetyCritical:f.safety_critical===true};
@@ -430,7 +441,7 @@ export function evaluatePurchase(input,custom={}){
   const baseFixedCosts=["auction_fee","transport","registration","warranty_reserve","stock_finance","other"]
     .reduce((t,k)=>t+Math.max(0,num(costs[k])),0)+reconditioning.appliedEconomic;
   const fixedCosts=baseFixedCosts+acquisition.importCost;
-  const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&!x.partial).map(x=>x.key));
+  const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&(!x.partial||x.basis==="fallback")).map(x=>x.key));
   const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(pricedComponents.has(norm(r.related_component).replace(/[^a-z0-9]+/g,"_"))?0:Math.max(0,num(r.reserve_eur))),0);
   const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
   const targetMargin=Math.max(0,num(input.target_margin,config.targetMargin));

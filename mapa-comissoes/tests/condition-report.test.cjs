@@ -103,7 +103,7 @@ test('electric vehicle excludes engine oil and timing belt maintenance',async()=
 test('web painting is selected explicitly and a single source is not treated as a national average',async()=>{
   const {estimateReconditioning}=await engine;
   const item=finding('front_bumper',{cost:webCost({parts_min_eur:0,parts_max_eur:0,labour_min_eur:150,labour_max_eur:150})});
-  const trade=estimateReconditioning(report([item]),{},car);
+  const trade=estimateReconditioning(report([item]),{paint_mode:'trade'},car);
   const web=estimateReconditioning(report([item]),{paint_mode:'web'},car);
   assert.equal(trade.estimatedMax,100);assert.equal(web.estimatedMax,184.5);assert.equal(web.items[0].source,item.cost.source_url);
 });
@@ -131,4 +131,49 @@ test('the extraction schema records inspection history and test limitations sepa
   const p=conditionSchema.properties;
   assert.ok(p.inspection.properties.mileage_km);assert.ok(p.battery_soh_pct);
   assert.ok(p.checks.items.properties.result.enum.includes('no_findings_reported'));
+});
+
+test('four exterior technician triangles create four minimum repair budgets from published prices',async()=>{
+  const {estimateReconditioning}=await engine;
+  const cost=webCost({parts_min_eur:0,parts_max_eur:0,labour_min_eur:150,labour_max_eur:150});
+  const r=estimateReconditioning(report(['front','rear','left','right'].map(x=>finding(x,{technician_marked:true,cost}))),{},car,450);
+  assert.equal(r.items.length,4);assert.equal(r.estimatedMax,738);assert.equal(r.appliedGross,738);
+  assert.ok(r.items.every(x=>x.status==='confirmed'&&x.technicianMarked&&x.provisionalZone));
+  assert.equal(r.hasUnpriced,true); // damage confirmed; exact panel count remains an estimate.
+});
+test('detailed painted panels replace the corresponding zone without cancelling unrelated exterior scratches',async()=>{
+  const {estimateReconditioning}=await engine;
+  const r=estimateReconditioning(report([
+    finding('front',{technician_marked:true}),finding('front_bumper',{technician_marked:true}),
+    finding('left',{technician_marked:true}),finding('left_brake_pads',{category:'mechanical',action:'replace'})
+  ]));
+  assert.equal(r.items.some(x=>x.key==='front'),false);
+  assert.equal(r.items.some(x=>x.key==='left'),true);
+  assert.equal(r.estimatedMax,200);
+});
+test('default painting uses the researched normal price before the 80 to 100 EUR hypothesis',async()=>{
+  const {estimateReconditioning}=await engine;
+  const cost=webCost({parts_min_eur:0,parts_max_eur:0,labour_min_eur:180,labour_max_eur:200});
+  const r=estimateReconditioning(report([finding('left_door',{cost})]));
+  assert.equal(r.items[0].basis,'web');assert.equal(r.estimatedMin,221.4);assert.equal(r.estimatedMax,246);
+});
+test('a published from-price becomes a lower-bound budget and never falls back to a cheaper hypothetical rate',async()=>{
+  const {estimateReconditioning}=await engine;
+  const cost=webCost({parts_min_eur:0,parts_max_eur:0,labour_min_eur:180,labour_max_eur:null});
+  const r=estimateReconditioning(report([finding('left_door',{cost})]));
+  assert.equal(r.estimatedMin,221.4);assert.equal(r.estimatedMax,221.4);
+  assert.equal(r.items[0].basis,'web');assert.equal(r.items[0].fromPrice,true);assert.equal(r.hasUnpriced,true);
+});
+test('technician damage in the interior cannot use the bodywork flat painting rate',async()=>{
+  const {estimateReconditioning}=await engine;
+  const r=estimateReconditioning(report([finding('interior',{technician_marked:true,category:'interior',action:'repair'})]));
+  assert.equal(r.items[0].status,'confirmed');assert.equal(r.estimatedMax,0);assert.equal(r.items[0].basis,'unpriced');
+});
+test('missing web prices are explicitly provisional and technician attribution survives normalization',async()=>{
+  const {estimateReconditioning}=await engine;
+  const raw=report([finding('right',{technician_marked:true})]);
+  const normalized=normalizeConditionReport(raw);
+  assert.equal(normalized.findings[0].technician_marked,true);
+  const r=estimateReconditioning(normalized);
+  assert.equal(r.items[0].basis,'fallback');assert.equal(r.estimatedMax,100);assert.equal(r.hasUnpriced,true);
 });

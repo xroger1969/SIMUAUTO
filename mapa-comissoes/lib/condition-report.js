@@ -17,14 +17,14 @@ const conditionSchema={
     assessed:{type:"boolean"},summary:{type:"string"},
     findings:{type:"array",maxItems:30,items:{
       type:"object",additionalProperties:false,
-      required:["component","label","category","action","status","quantity","evidence","source_image","safety_critical","cost"],
+      required:["component","label","category","action","status","quantity","evidence","source_image","safety_critical","technician_marked","cost"],
       properties:{
         component:{type:"string",description:"Identificador físico inequívoco, por exemplo front_bumper, left_door, right_rear_wing, front_brake_pads. Uma zona genérica não é um painel."},
         label:{type:"string"},category:{type:"string",enum:["paint","body","mechanical","maintenance","tyres","interior","electrical","inspection"]},
         action:{type:"string",enum:["polish","paint","repair","repair_and_paint","replace","service","diagnose","inspect"]},
         status:{type:"string",enum:["confirmed","suspected","unassessed","ok"]},
         quantity:{type:"integer",minimum:1,maximum:8},evidence:{type:"string"},
-        source_image:{type:["integer","null"],minimum:1,maximum:6},safety_critical:{type:"boolean"},cost:costSchema
+        source_image:{type:["integer","null"],minimum:1,maximum:6},safety_critical:{type:"boolean"},technician_marked:{type:"boolean"},cost:costSchema
       }
     }},
     checks:{type:"array",maxItems:20,items:{type:"object",additionalProperties:false,required:["system","result","note"],properties:{
@@ -57,7 +57,7 @@ function normalizeConditionReport(raw={},sources=[],observedAt=new Date().toISOS
       status:statuses.includes(item.status)?item.status:"unassessed",
       quantity:Math.max(1,Math.min(8,Math.trunc(Number(item.quantity)||1))),evidence:clip(item.evidence),
       source_image:Number.isInteger(item.source_image)&&item.source_image>=1&&item.source_image<=6?item.source_image:null,
-      safety_critical:item.safety_critical===true,
+      safety_critical:item.safety_critical===true,technician_marked:item.technician_marked===true,
       cost:{
         parts_min_eur:amount(c.parts_min_eur),parts_max_eur:amount(c.parts_max_eur),
         labour_min_eur:amount(c.labour_min_eur),labour_max_eur:amount(c.labour_max_eur),
