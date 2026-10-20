@@ -18,7 +18,7 @@ function inputSignature(body={}){
     description:String(body.description||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," "),
     images:images.map(image=>sha256(image))
   };
-  return "input-v5-universal-photo-damage-20261017:"+sha256(JSON.stringify(signaturePayload));
+  return "input-v6-spottd-year-20261020:"+sha256(JSON.stringify(signaturePayload));
 }
 
 function canonicalUrl(raw){
@@ -116,6 +116,14 @@ function registrationFromMetadata(meta={}){
     trim:meta.cap_reg_trim||null,
     year:Number.isInteger(year)&&year>1900?year:null,
     first_registration:meta.cap_reg_first_registration||null,
+    registration_date_pt:meta.cap_reg_registration_date_pt||null,
+    provider:meta.cap_reg_provider||null,
+    commercial_model:meta.cap_reg_commercial_model||null,
+    vehicle_type:meta.cap_reg_vehicle_type||null,
+    category:meta.cap_reg_category||null,
+    weight_kg:Number(meta.cap_reg_weight_kg)||null,
+    power_kw:Number(meta.cap_reg_power_kw)||null,
+    co2_g_km:meta.cap_reg_co2_g_km===undefined?null:Number(meta.cap_reg_co2_g_km),
     fuel:meta.cap_reg_fuel||null,
     body_type:meta.cap_reg_body_type||null,
     engine_cc:Number(meta.cap_reg_engine_cc)||null,
@@ -167,7 +175,7 @@ function marketCacheKey(subject={},context={}){
   const plate=normalizeRegistration(subject.registration);
   let identity="";
   if(plate){
-    identity="plate:"+plate;
+    identity="plate:"+plate+"|year:"+(Number.isInteger(Number(subject.year))?Number(subject.year):"unknown");
   }else{
     const make=canonicalMake(subject.make),model=normalizeIdentity(subject.model);
     if(!make||!model)return null;
@@ -183,7 +191,7 @@ function marketCacheKey(subject={},context={}){
       normalizeIdentity(subject.drivetrain)
     ].join("|");
   }
-  return "market-v3-approximate-20261016|"+identity;
+  return "market-v4-spottd-year-20261020|"+identity;
 }
 function cacheAllowed(context={}){
   return context.force_market_refresh!==true && !(Array.isArray(context.refinement_history)&&context.refinement_history.length);
@@ -206,6 +214,26 @@ function mergeRegistration(subject,registration){
     if((result[key]===null||result[key]===undefined||result[key]==="")&&registration[key]!==null&&registration[key]!==undefined&&registration[key]!=="")result[key]=registration[key];
   }
   if((!result.origin||result.origin==="unknown")&&registration.origin)result.origin=registration.origin;
+  if(registration.provider==="spottd"){
+    // O ano de fabrico verificado por matrícula prevalece sobre o ano deduzido
+    // da matrícula portuguesa, da fotografia ou de uma pesquisa da IA.
+    const built=Number(registration.year);
+    if(Number.isInteger(built)&&built>=1900&&built<=new Date().getFullYear()+1){
+      result.year=built;
+      result.year_source="spottd.year_built";
+    }
+    if(registration.registration_date_pt){
+      result.registration_date_pt=registration.registration_date_pt;
+      // A data PT não prova a primeira matrícula internacional.
+      if(result.first_registration&&String(result.first_registration).slice(0,7)===String(registration.registration_date_pt).slice(0,7)){
+        result.first_registration=null;
+      }
+    }
+    for(const key of ["commercial_model","vehicle_type","category","power_kw","weight_kg","co2_g_km"]){
+      if((result[key]===null||result[key]===undefined||result[key]==="")&&registration[key]!==null&&registration[key]!==undefined&&registration[key]!=="")result[key]=registration[key];
+    }
+    result.registration_provider="spottd";
+  }
   return result;
 }
 
@@ -289,7 +317,12 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
     registration=null;
   }
 
+  const originalYear=Number(parsed.subject?.year);
   parsed.subject=mergeRegistration(parsed.subject,registration);
+  if(registration?.provider==="spottd"&&Number.isInteger(originalYear)&&originalYear!==Number(parsed.subject.year)){
+    parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
+    parsed.data_quality.notes=[parsed.data_quality.notes,"Ano "+originalYear+" da leitura automática substituído por "+parsed.subject.year+" (ano de fabrico confirmado pela Spottd)."].filter(Boolean).join(" ");
+  }
   if(submittedPlate&&!normalizeRegistration(parsed.subject.registration))parsed.subject.registration=displayRegistration(submittedPlate);
   parsed.subject.mileage_estimated=parsed.subject.mileage_estimated===true;
 
@@ -557,7 +590,7 @@ const marketSchema={
 const instructions=[
   "És o radar de mercado do Comparador Auto Pro para comerciantes profissionais de automóveis usados em Portugal.",
   "Identifica primeiro a viatura analisada. Nunca inventes versão, quilómetros, preço, potência, bateria, IVA ou origem.",
-  "Se registration_data existir, usa-a para identificação, mas nunca apagues nem substituas preço, quilómetros ou versão confirmados por outra fonte independente.",
+  "Se registration_data existir, usa-a para identificação, mas nunca apagues nem substituas preço, quilómetros ou versão confirmados por outra fonte independente. Se provider=spottd, year é o ano de fabrico (year_built) e registration_date_pt é apenas a data de matrícula portuguesa, NÃO o ano de fabrico nem a primeira matrícula mundial. Nunca derives year de registration_date_pt.",
   "Se registration_input existir mas registration_data não existir, mantém essa matrícula como dado fornecido pelo utilizador. Não deduzas marca/modelo pelos caracteres da matrícula. Usa fotografias, anúncio e pesquisa para identificar a viatura.",
   "Uma indisponibilidade do fornecedor externo de matrícula não é, por si só, um conflito de identidade e não deve bloquear a avaliação. Só um conflito real entre matrícula, fotografias/anúncio e marca/modelo deve bloquear.",
   "Se previous_subject existir, preserva campos previamente confirmados quando não houver evidência nova e melhor.",
@@ -798,6 +831,14 @@ module.exports=endpoint(async function handler(req,res){
     if(registrationData.trim)metadata.cap_reg_trim=clip(registrationData.trim,120);
     if(registrationData.year)metadata.cap_reg_year=String(registrationData.year);
     if(registrationData.first_registration)metadata.cap_reg_first_registration=clip(registrationData.first_registration,20);
+    if(registrationData.provider)metadata.cap_reg_provider=clip(registrationData.provider,32);
+    if(registrationData.registration_date_pt)metadata.cap_reg_registration_date_pt=clip(registrationData.registration_date_pt,20);
+    if(registrationData.commercial_model)metadata.cap_reg_commercial_model=clip(registrationData.commercial_model,120);
+    if(registrationData.vehicle_type)metadata.cap_reg_vehicle_type=clip(registrationData.vehicle_type,60);
+    if(registrationData.category)metadata.cap_reg_category=clip(registrationData.category,60);
+    if(registrationData.weight_kg)metadata.cap_reg_weight_kg=String(registrationData.weight_kg);
+    if(registrationData.power_kw)metadata.cap_reg_power_kw=String(registrationData.power_kw);
+    if(registrationData.co2_g_km!==null&&registrationData.co2_g_km!==undefined)metadata.cap_reg_co2_g_km=String(registrationData.co2_g_km);
     if(registrationData.fuel)metadata.cap_reg_fuel=clip(registrationData.fuel,40);
     if(registrationData.body_type)metadata.cap_reg_body_type=clip(registrationData.body_type,60);
     if(registrationData.engine_cc)metadata.cap_reg_engine_cc=String(registrationData.engine_cc);
