@@ -1,6 +1,6 @@
 import { evaluatePurchase } from "./valuation.js?v=20261017-progressive-quote-v4";
 import { relevantMemories } from "./memory.js";
-import { parseVehicleInput,manualMissing } from "./input.js";
+import { parseVehicleInput,manualMissing,formatVehiclePlate } from "./input.js";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -1461,6 +1461,7 @@ function appendDictation(text){
   const input=q("vehicleUrl");
   const current=input.value.trim();
   input.value=(current?current+" ":"")+String(text||"").trim();
+  input.dispatchEvent(new Event("input",{bubbles:true}));
   input.focus();
 }
 function setMicActive(active){
@@ -1531,6 +1532,11 @@ async function startVoiceInput(){
 }
 
 q("vehiclePhoto").addEventListener("change",ev=>attachImageFiles(ev.target.files));
+q("vehicleUrl").addEventListener("input",ev=>{
+  // Ao escrever bm55dn, apresentar logo BM-55-DN, sem exigir hífens ou Shift.
+  const formatted=formatVehiclePlate(ev.target.value);
+  if(formatted&&ev.target.value!==formatted)ev.target.value=formatted;
+});
 q("vehicleUrl").addEventListener("paste",ev=>{
   const files=Array.from(ev.clipboardData?.files||[]).filter(file=>String(file.type||"").startsWith("image/"));
   if(!files.length){const file=imageFromClipboard(ev);if(file)files.push(file)}
@@ -1548,6 +1554,10 @@ q("vehicleUrl").addEventListener("paste",ev=>{
       ev.preventDefault();
       q("vehicleUrl").value=parsed.url.toString();
       toast("Link reconhecido.");
+    }else if(parsed.registration){
+      ev.preventDefault();
+      q("vehicleUrl").value=parsed.registration;
+      toast("Matrícula reconhecida: "+parsed.registration);
     }
   }catch{}
 });
@@ -1683,6 +1693,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   try{entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"}}
   catch(error){toast(error.message);return}
   if(entry.mode==="url"&&entry.url)q("vehicleUrl").value=entry.url.toString();
+  else if(entry.registration)q("vehicleUrl").value=entry.registration;
 
   const operation=beginOperation("analysis");
   const url=entry.url;
