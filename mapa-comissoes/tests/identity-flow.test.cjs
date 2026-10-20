@@ -297,3 +297,20 @@ test('legacy cached Spottd date is migrated without another paid API request',as
  assert.equal(actual.cache_hit,true);
  assert.equal(h.counts().providerCalls,0);
 });
+
+test('metadados OpenAI respeitam o limite e os campos Spottd seguem no contexto',async()=>{
+  const h=harness();let body;
+  h.ctx.fetch=async(u,options)=>{
+    body=JSON.parse(options.body);
+    return {ok:true,json:async()=>({id:'resp_metadata',status:'queued'})};
+  };
+  const allMetadata={cap_job_id:'00000000-0000-4000-8000-000000000001',cap_registration:'BM-55-DN',cap_source_url:'plate:BM55DN'};
+  for(let i=0;i<30;i++)allMetadata['cap_reg_extra_'+i]='extra-'+i;
+  const reg={provider:'spottd',registration:'BM-55-DN',year:2020,registration_date_pt:'2024-07-17',make:'MERCEDES-BENZ',model:'CLA 180 d'};
+  await h.ctx.module.exports._test.startResponse({registration_data:reg,registration_input:'BM-55-DN'},[],allMetadata,false);
+  assert.ok(Object.keys(body.metadata).length<=4);
+  assert.equal(body.metadata.cap_registration,'BM-55-DN');
+  assert.equal(body.metadata.cap_reg_extra_0,undefined);
+  assert.ok(body.input.includes('"year":2020'));
+  assert.ok(body.input.includes('"registration_date_pt":"2024-07-17"'));
+});

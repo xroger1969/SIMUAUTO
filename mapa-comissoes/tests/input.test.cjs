@@ -15,3 +15,27 @@ test('shared iPhone text extracts the embedded link and ignores the introductory
   assert.equal(r.url.toString(),'https://example.com/carro/123?x=1');
   assert.equal(r.description,'');
 });
+
+test('matrícula escrita sem hífens ou maiúsculas é formatada antes da pesquisa',async()=>{
+  const {parseVehicleInput,formatVehiclePlate}=await modulePromise;
+  for(const raw of ['bm55dn','BM55DN','bm-55-dn','Bm 55 dN','bm.55.dn']){
+    assert.equal(formatVehiclePlate(raw),'BM-55-DN');
+    const result=parseVehicleInput(raw);
+    assert.equal(result.registration,'BM-55-DN');
+    assert.equal(result.description,'BM-55-DN');
+    assert.equal(result.sourceUrl,'plate:BM55DN');
+    assert.equal(result.mode,'manual');
+  }
+  assert.equal(formatVehiclePlate('55bm55'),'55-BM-55');
+  assert.equal(formatVehiclePlate('00aa00'),'00-AA-00');
+  assert.equal(formatVehiclePlate('AA0000'),'AA-00-00');
+  assert.equal(formatVehiclePlate('Tesla Y 2023'),null);
+  assert.equal(formatVehiclePlate('bm55d'),null);
+  assert.equal(formatVehiclePlate('bm55dn7'),null);
+});
+test('o formulário apresenta automaticamente a matrícula validada',()=>{
+  const script=fs.readFileSync(require('node:path').join(__dirname,'../comparador-auto-pro/app-v2.js'),'utf8');
+  assert.match(script,/addEventListener\("input",ev=>\{/);
+  assert.match(script,/formatVehiclePlate\(ev.target.value\)/);
+  assert.match(script,/else if\(entry.registration\)q\("vehicleUrl"\).value=entry.registration;/);
+});
