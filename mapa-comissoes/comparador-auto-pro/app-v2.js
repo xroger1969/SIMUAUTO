@@ -1,6 +1,6 @@
-import { evaluatePurchase } from "./valuation.js?v=20261017-progressive-quote-v4";
+import { evaluatePurchase } from "./valuation.js?v=20261020-spottd-year-v5";
 import { relevantMemories } from "./memory.js";
-import { parseVehicleInput,manualMissing,formatVehiclePlate } from "./input.js";
+import { parseVehicleInput,manualMissing,formatVehiclePlate } from "./input.js?v=20261020-plate-input-v1";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
