@@ -285,3 +285,15 @@ test('Spottd unknown year preserves existing year; market cache separates true y
  const newer=marketCacheKey({...subject,registration:'BM-55-DN',year:2024});
  assert.notEqual(older,newer);
 });
+
+test('legacy cached Spottd date is migrated without another paid API request',async()=>{
+ const cached={data:{provider:'spottd',registration:'BM-55-DN',make:'MERCEDES-BENZ',
+   model:'CLA 180 d W118',year:2020,first_registration:'2024-07-17'}};
+ const h=harness({cache:[cached]});
+ const actual=await h.ctx.module.exports._test.lookupRegistrationCached('test','BM-55-DN');
+ assert.equal(actual.year,2020);
+ assert.equal(actual.registration_date_pt,'2024-07-17');
+ assert.equal(actual.first_registration,null);
+ assert.equal(actual.cache_hit,true);
+ assert.equal(h.counts().providerCalls,0);
+});
