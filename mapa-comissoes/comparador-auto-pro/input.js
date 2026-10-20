@@ -6,11 +6,23 @@ function embeddedHttpUrl(value){
   return raw;
 }
 
+const PORTUGUESE_PLATE=/^(?:[A-Z]{2}\d{4}|\d{4}[A-Z]{2}|\d{2}[A-Z]{2}\d{2}|[A-Z]{2}\d{2}[A-Z]{2})$/;
+
+// Apenas matrículas portuguesas completas: nunca interpretar uma descrição livre como matrícula.
+export function formatVehiclePlate(raw){
+  const cleaned=String(raw||"").trim().toUpperCase().replace(/[\s.\-]/g,"");
+  if(!PORTUGUESE_PLATE.test(cleaned))return null;
+  return cleaned.replace(/^(.{2})(.{2})(.{2})$/,"$1-$2-$3");
+}
+
 export function parseVehicleInput(raw){
   const value=String(raw||"").trim();
   if(value.length<3||value.length>4000)throw new Error("Cola um link ou descreve a viatura (até 4000 caracteres).");
-  const plate=value.toUpperCase().replace(/[\s-]/g,"");
-  if(/^(?:[A-Z]{2}\d{4}|\d{4}[A-Z]{2}|\d{2}[A-Z]{2}\d{2}|[A-Z]{2}\d{2}[A-Z]{2})$/.test(plate))return {mode:"manual",registration:plate,url:null,description:value,sourceUrl:"plate:"+plate,sourceDomain:"matricula.co.pt"};
+  const displayPlate=formatVehiclePlate(value);
+  if(displayPlate){
+    const plate=displayPlate.replace(/-/g,"");
+    return {mode:"manual",registration:displayPlate,url:null,description:displayPlate,sourceUrl:"plate:"+plate,sourceDomain:"matricula.co.pt"};
+  }
 
   const extracted=embeddedHttpUrl(value);
   if(extracted){
