@@ -649,6 +649,18 @@ const instructions=[
   "O teu resultado alimenta um motor determinístico. Não emitas a decisão final de compra."
 ].join("\n");
 
+function boundedResponseMetadata(raw={}){
+  // Só identificadores curtos de execução: a ficha completa segue no contexto.
+  // A API Responses rejeita metadata com mais de 16 propriedades.
+  const allowed=["cap_job_id","cap_source_url","cap_registration","cap_registration_lookup"];
+  const safe={};
+  for(const key of allowed){
+    const value=raw?.[key];
+    if(value!==null&&value!==undefined&&String(value)!=="")safe[key]=String(value).slice(0,480);
+  }
+  return safe;
+}
+
 async function startResponse(context,imageDataUrls,metadata,identify){
   const response=await fetch("https://api.openai.com/v1/responses",{
       method:"POST",
@@ -658,7 +670,7 @@ async function startResponse(context,imageDataUrls,metadata,identify){
         model:process.env.OPENAI_MODEL||"gpt-6-sol",
         background:true,
         store:false,
-        metadata,
+        metadata:boundedResponseMetadata(metadata),
         instructions:identify?instructions.replace("Pesquisa obrigatoriamente a web antes de devolver comparáveis.","Nesta fase não pesquises comparáveis.")+"\nFASE DE IDENTIFICAÇÃO: identifica apenas a viatura a partir das fontes fornecidas. Se necessário consulta o anúncio original. Se houver registration_input sem registration_data e não houver fotografia/anúncio suficiente, podes pesquisar a matrícula exata; só usa resultados que coincidam claramente. Nunca inventes marca/modelo com base no formato da matrícula. Devolve comparables vazio. Não pesquises preços de mercado. Lê a identidade visual independentemente de registration_data; diferenças serão validadas pelo servidor. Dados em falta ficam null.":instructions,
         input:imageDataUrls.length?[{
           role:"user",
@@ -831,31 +843,9 @@ module.exports=endpoint(async function handler(req,res){
   const metadata={cap_job_id:job.id,cap_source_url:clip(url,480)};
   if(suppliedPlate)metadata.cap_registration=clip(displayRegistration(suppliedPlate)||suppliedPlate,20);
   if(registrationLookupWarning)metadata.cap_registration_lookup="unavailable";
-  if(registrationData){
-    if(registrationData.registration)metadata.cap_registration=clip(registrationData.registration,20);
-    metadata.cap_reg_make=clip(registrationData.make,120);
-    metadata.cap_reg_model=clip(registrationData.model,120);
-    if(registrationData.trim)metadata.cap_reg_trim=clip(registrationData.trim,120);
-    if(registrationData.year)metadata.cap_reg_year=String(registrationData.year);
-    if(registrationData.first_registration)metadata.cap_reg_first_registration=clip(registrationData.first_registration,20);
-    if(registrationData.provider)metadata.cap_reg_provider=clip(registrationData.provider,32);
-    if(registrationData.registration_date_pt)metadata.cap_reg_registration_date_pt=clip(registrationData.registration_date_pt,20);
-    if(registrationData.commercial_model)metadata.cap_reg_commercial_model=clip(registrationData.commercial_model,120);
-    if(registrationData.vehicle_type)metadata.cap_reg_vehicle_type=clip(registrationData.vehicle_type,60);
-    if(registrationData.category)metadata.cap_reg_category=clip(registrationData.category,60);
-    if(registrationData.weight_kg)metadata.cap_reg_weight_kg=String(registrationData.weight_kg);
-    if(registrationData.power_kw)metadata.cap_reg_power_kw=String(registrationData.power_kw);
-    if(registrationData.co2_g_km!==null&&registrationData.co2_g_km!==undefined)metadata.cap_reg_co2_g_km=String(registrationData.co2_g_km);
-    if(registrationData.fuel)metadata.cap_reg_fuel=clip(registrationData.fuel,40);
-    if(registrationData.body_type)metadata.cap_reg_body_type=clip(registrationData.body_type,60);
-    if(registrationData.engine_cc)metadata.cap_reg_engine_cc=String(registrationData.engine_cc);
-    if(registrationData.power_cv)metadata.cap_reg_power_cv=String(registrationData.power_cv);
-    if(registrationData.transmission)metadata.cap_reg_transmission=clip(registrationData.transmission,60);
-    if(registrationData.doors)metadata.cap_reg_doors=String(registrationData.doors);
-    if(registrationData.seats)metadata.cap_reg_seats=String(registrationData.seats);
-    if(registrationData.color)metadata.cap_reg_color=clip(registrationData.color,60);
-    metadata.cap_reg_origin=clip(registrationData.origin||"unknown",20);
-  }
+  // Todos os dados técnicos da Spottd já estão em context.registration_data,
+  // guardado no job. Não duplicar dezenas de campos em Responses.metadata
+  // (limite da API: 16 propriedades), nem perder a ficha da matrícula.
 
   try{
     const forcedBase=context.force_market_refresh&&context.previous_subject&&typeof context.previous_subject==="object"
@@ -900,5 +890,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
 
