@@ -264,3 +264,24 @@ test('plate-only identification uses web search even when the text sample is the
   assert.equal(body.tool_choice,'auto');
 });
 
+
+test('Spottd manufacture year 2020 prevails over 2024 Portuguese registration date',()=>{
+ const source={...subject,make:'MERCEDES-BENZ',model:'CLA 180 d W118',year:2024,first_registration:'2024-07',price:22000,mileage_km:119283,trim:'180 d'};
+ const verified={provider:'spottd',make:'MERCEDES-BENZ',model:'CLA 180 d W118',year:2020,registration_date_pt:'2024-07-17',power_cv:116,weight_kg:2075,origin:'unknown'};
+ const result=mergeRegistration(source,verified);
+ assert.equal(result.year,2020);
+ assert.equal(result.year_source,'spottd.year_built');
+ assert.equal(result.registration_date_pt,'2024-07-17');
+ assert.equal(result.first_registration,null);
+ assert.equal(result.price,22000);
+ assert.equal(result.mileage_km,119283);
+ assert.equal(result.trim,'180 d');
+ assert.equal(result.weight_kg,2075);
+});
+test('Spottd unknown year preserves existing year; market cache separates true year',()=>{
+ assert.equal(mergeRegistration(subject,{provider:'spottd',year:null}).year,2023);
+ assert.equal(mergeRegistration(subject,{provider:'mycarplate',year:2020}).year,2023);
+ const older=marketCacheKey({...subject,registration:'BM-55-DN',year:2020});
+ const newer=marketCacheKey({...subject,registration:'BM-55-DN',year:2024});
+ assert.notEqual(older,newer);
+});
