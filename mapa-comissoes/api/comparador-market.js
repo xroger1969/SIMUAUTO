@@ -100,7 +100,14 @@ async function lookupRegistrationCached(token,value){
   const plate=normalizeRegistration(value);
   if(!plate)throw appError("Matrícula portuguesa inválida.",400,"invalid_registration");
   const cached=await cachedRegistration(token,plate);
-  if(cached)return {...cached,cache_hit:true};
+  if(cached){
+    // Migrar em memória resultados Spottd antigos que guardavam a data PT
+    // no campo de primeira matrícula original. Não consumir um novo crédito.
+    if(cached.provider==="spottd"&&!cached.registration_date_pt&&cached.first_registration){
+      return {...cached,registration_date_pt:cached.first_registration,first_registration:null,cache_hit:true};
+    }
+    return {...cached,cache_hit:true};
+  }
   const fresh=await lookupRegistration(plate);
   await storeRegistrationCache(token,plate,fresh);
   return {...fresh,cache_hit:false};
@@ -893,5 +900,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
 
