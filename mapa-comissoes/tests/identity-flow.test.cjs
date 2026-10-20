@@ -59,7 +59,7 @@ test('same vehicle produces the same 24h market cache key across input sources',
   const manual={input_mode:'manual',original_url:null};
   const listing={input_mode:'url',original_url:'https://www.standvirtual.com/carros/anuncio/abc'};
   const a=marketCacheKey(subject,manual),b=marketCacheKey({...subject},listing);
-  assert.equal(a,b);assert.match(a,/market-v3-approximate-20261016\|vehicle-v1/);
+  assert.equal(a,b);assert.match(a,/market-v4-spottd-year-20261020\|vehicle-v1/);
   assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},manual));
 });
 test('identical uploaded photos generate the same exact-input signature',()=>{
@@ -67,7 +67,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
-  assert.match(a,/^input-v5-universal-photo-damage-20261017:/);
+  assert.match(a,/^input-v6-spottd-year-20261020:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{
@@ -264,3 +264,36 @@ test('plate-only identification uses web search even when the text sample is the
   assert.equal(body.tool_choice,'auto');
 });
 
+
+test('Spottd manufacture year 2020 prevails over 2024 Portuguese registration date',()=>{
+ const source={...subject,make:'MERCEDES-BENZ',model:'CLA 180 d W118',year:2024,first_registration:'2024-07',price:22000,mileage_km:119283,trim:'180 d'};
+ const verified={provider:'spottd',make:'MERCEDES-BENZ',model:'CLA 180 d W118',year:2020,registration_date_pt:'2024-07-17',power_cv:116,weight_kg:2075,origin:'unknown'};
+ const result=mergeRegistration(source,verified);
+ assert.equal(result.year,2020);
+ assert.equal(result.year_source,'spottd.year_built');
+ assert.equal(result.registration_date_pt,'2024-07-17');
+ assert.equal(result.first_registration,null);
+ assert.equal(result.price,22000);
+ assert.equal(result.mileage_km,119283);
+ assert.equal(result.trim,'180 d');
+ assert.equal(result.weight_kg,2075);
+});
+test('Spottd unknown year preserves existing year; market cache separates true year',()=>{
+ assert.equal(mergeRegistration(subject,{provider:'spottd',year:null}).year,2023);
+ assert.equal(mergeRegistration(subject,{provider:'mycarplate',year:2020}).year,2023);
+ const older=marketCacheKey({...subject,registration:'BM-55-DN',year:2020});
+ const newer=marketCacheKey({...subject,registration:'BM-55-DN',year:2024});
+ assert.notEqual(older,newer);
+});
+
+test('legacy cached Spottd date is migrated without another paid API request',async()=>{
+ const cached={data:{provider:'spottd',registration:'BM-55-DN',make:'MERCEDES-BENZ',
+   model:'CLA 180 d W118',year:2020,first_registration:'2024-07-17'}};
+ const h=harness({cache:[cached]});
+ const actual=await h.ctx.module.exports._test.lookupRegistrationCached('test','BM-55-DN');
+ assert.equal(actual.year,2020);
+ assert.equal(actual.registration_date_pt,'2024-07-17');
+ assert.equal(actual.first_registration,null);
+ assert.equal(actual.cache_hit,true);
+ assert.equal(h.counts().providerCalls,0);
+});

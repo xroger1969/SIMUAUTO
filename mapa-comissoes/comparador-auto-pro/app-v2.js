@@ -317,7 +317,10 @@ const originLabel=v=>v==="national"?"Nacional":v==="imported"?"Importado":"Orige
 const sellerLabel=v=>v==="professional"?"Profissional":v==="private"?"Particular":"Vendedor por confirmar";
 function vehicleMeta(v){
   const bits=[];
-  if(v.first_registration)bits.push(v.first_registration.slice(0,7).split("-").reverse().join("/"));
+  if(v.year_source==="spottd.year_built"&&v.year){
+    bits.push(v.year+" (fabrico Spottd)");
+    if(v.registration_date_pt)bits.push("matrícula PT "+formatRegistrationDate(v.registration_date_pt));
+  }else if(v.first_registration)bits.push(v.first_registration.slice(0,7).split("-").reverse().join("/"));
   else if(v.year)bits.push(v.year);
   if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km"+(v.mileage_estimated?" estimados · média Standvirtual":""));
   if(v.power_cv)bits.push(v.power_cv+" cv");
@@ -381,10 +384,13 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Matrícula",v.registration],
     ["Marca",v.make],
     ["Modelo",v.model],
+    ["Modelo comercial (Spottd)",v.commercial_model],
     ["Versão",v.trim],
     ["Geração",v.generation],
-    ["1.ª matrícula",formatRegistrationDate(v.first_registration)],
-    ["Ano",v.year],
+    ["Ano de fabrico / ano de referência",v.year],
+    ["Fonte do ano",v.year_source==="spottd.year_built"?"Spottd · ano de fabrico":null],
+    ["Matrícula portuguesa",v.registration_date_pt?formatRegistrationDate(v.registration_date_pt):null],
+    ["1.ª matrícula original",v.first_registration?formatRegistrationDate(v.first_registration):null],
     [v.mileage_estimated?"Quilómetros estimados (média Standvirtual)":"Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
     ["Preço anunciado",v.price!=null?fmt(v.price):null],
     ["Combustível",v.fuel],
@@ -392,6 +398,11 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Bateria",v.battery_kwh!=null?v.battery_kwh+" kWh":null],
     ["Autonomia",v.range_km!=null?v.range_km+" km":null],
     ["Cilindrada",v.engine_cc!=null?Number(v.engine_cc).toLocaleString("pt-PT")+" cc":null],
+    ["Potência (kW)",v.power_kw!=null?v.power_kw+" kW":null],
+    ["Peso bruto",v.weight_kg!=null?v.weight_kg+" kg":null],
+    ["CO₂",v.co2_g_km!=null?v.co2_g_km+" g/km":null],
+    ["Tipo de veículo",v.vehicle_type],
+    ["Categoria",v.category],
     ["Tração",v.drivetrain],
     ["Caixa",v.transmission],
     ["Carroçaria",v.body_type],
@@ -638,6 +649,8 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
   const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
+  const marginLabel=q("expectedMargin")?.previousElementSibling;
+  if(marginLabel)marginLabel.textContent=hasCurrent?"Margem no preço atual":"Margem no teto estimado";
   q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
   if(q("expectedMarginNote"))q("expectedMarginNote").textContent=result.purchase?.priceScenario
     ?"hipótese matemática sem revenda confirmada"

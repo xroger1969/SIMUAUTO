@@ -440,3 +440,15 @@ test('second-tier fallback never compares electric vehicles against diesel alter
   assert.equal(r.market.comparablesUsed,0);
   assert.ok(!Number.isFinite(r.purchase.purchaseWithRepairs));
 });
+
+test('Mercedes 2020 imported and plated in 2024 has no four-year artificial age premium',()=>{
+  const car={...subject,make:'Mercedes-Benz',model:'CLA',trim:'180 d',generation:'W118',
+    fuel:'diesel',year:2020,first_registration:'2024-07',
+    mileage_km:119283,power_cv:116,origin:'imported',price:20000};
+  const comparable=professional(1,{...car,price:24100,first_registration:'2020-07'});
+  const r=evaluatePurchase({subject:car,comparables:[comparable],target_margin:3500});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.equal(r.comparables[0].adjustedPrice,24100);
+  assert.equal(r.market.marketValue,24100);
+  assert.ok(r.purchase.purchaseWithRepairs<r.market.saleLikely);
+});

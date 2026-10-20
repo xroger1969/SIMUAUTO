@@ -158,11 +158,15 @@ function parseSpottdData(payload,requestedPlate){
   return {
     registration:displayRegistration(returned||requested)||null,
     make,model,
+    commercial_model:field(data.commercial_model)||null,
     trim:rawTrim&&!/^(?:\?|n\/?a|unknown|null|desconhecido)$/i.test(rawTrim)?rawTrim:null,
     year:Number.isInteger(built)&&built>=1900&&built<=new Date().getFullYear()+1?built:null,
     description:null,
     fuel:field(data.fuel)||null,
-    first_registration:normalizeDate(data.registration_date),
+    // O fornecedor documenta a data da PRIMEIRA matrícula EM PORTUGAL.
+    // Nunca a usar como data da primeira matrícula mundial, sobretudo em importados.
+    first_registration:null,
+    registration_date_pt:normalizeDate(data.registration_date),
     body_type:field(data.body_type)||null,
     vehicle_type:field(data.vehicle_type)||null,
     category:field(data.category)||null,

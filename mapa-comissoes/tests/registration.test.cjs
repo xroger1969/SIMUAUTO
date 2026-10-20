@@ -30,7 +30,7 @@ test('Spottd identifies a plate first and correctly converts kW to CV',async()=>
   assert.equal(r.provider,'spottd');
   assert.equal(r.registration,'23-ZZ-90');
   assert.equal(r.make,'FORD');assert.equal(r.model,'FOCUS');
-  assert.equal(r.trim,null);assert.equal(r.year,2019);assert.equal(r.first_registration,'2019-12-10');
+  assert.equal(r.trim,null);assert.equal(r.year,2019);assert.equal(r.first_registration,null);assert.equal(r.registration_date_pt,'2019-12-10');
   assert.equal(r.engine_cc,999);assert.equal(r.power_kw,92);assert.equal(r.power_cv,125);
   assert.equal(r.co2_g_km,null);assert.equal(r.weight_kg,1925);assert.equal(r.origin,'unknown');
   assert.equal(parseSpottdData({data:payload.data},'23-ZZ-90').make,'FORD');
@@ -72,4 +72,21 @@ test('Spottd partial data does not invent trim, power, CO2 or origin',()=>{
   assert.equal(r.trim,null);assert.equal(r.power_cv,null);assert.equal(r.co2_g_km,null);
   assert.equal(r.year,null);assert.equal(r.origin,'unknown');
   assert.throws(()=>parseSpottdData({data:{make:'BMW',model:'320d',license_plate:'11-AA-11'}},'14-ID-91'));
+});
+
+test('Spottd imported Mercedes: 2020 manufacture and July 2024 Portugal plate are independent',()=>{
+  const {parseSpottdData}=require('../lib/registration');
+  const r=parseSpottdData({data:{
+    license_plate:'BM-55-DN',make:'MERCEDES-BENZ',model:'CLA 180 D(W118)',
+    commercial_model:'CLA 180 D',year_built:2020,registration_date:'2024-07-17',
+    fuel:'GASOLEO',engine_power:85,engine_displacement:1461,
+    colour:'PRETO',vehicle_type:'PASSAGEIROS',category:'LIGEIRO',weight:2075,seats:5
+  }},'BM-55-DN');
+  assert.equal(r.year,2020);
+  assert.equal(r.registration_date_pt,'2024-07-17');
+  assert.equal(r.first_registration,null);
+  assert.equal(r.commercial_model,'CLA 180 D');
+  assert.equal(r.power_cv,116);
+  assert.equal(r.weight_kg,2075);
+  assert.equal(r.provider,'spottd');
 });
