@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-17-progressive-quote-v4";
+export const ENGINE_VERSION="2026-10-20-spottd-year-v5";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -157,7 +157,15 @@ function monthIndex(v){
 }
 
 function ageDelta(subject,comp){
-  const a=monthIndex(subject.first_registration),b=monthIndex(comp.first_registration);
+  // A primeira matrícula portuguesa pode ser vários anos posterior ao fabrico,
+  // especialmente num importado. Não serve como idade real da viatura.
+  const ageMonth=vehicle=>{
+    const month=monthIndex(vehicle.first_registration);
+    if(month===null)return null;
+    if(known(vehicle.year)&&Math.abs(Math.floor(month/12)-num(vehicle.year))>1)return null;
+    return month;
+  };
+  const a=ageMonth(subject),b=ageMonth(comp);
   if(a!==null&&b!==null)return a-b;
   return known(subject.year)&&known(comp.year)?(num(subject.year)-num(comp.year))*12:0;
 }
