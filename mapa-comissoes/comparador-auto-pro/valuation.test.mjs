@@ -452,3 +452,70 @@ test('Mercedes 2020 imported and plated in 2024 has no four-year artificial age 
   assert.equal(r.market.marketValue,24100);
   assert.ok(r.purchase.purchaseWithRepairs<r.market.saleLikely);
 });
+
+
+test("parecer comercial parte da revenda e subtrai custos e margem-alvo",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    current_purchase_price:29000,
+    costs:{auction_fee:250,transport:300,reconditioning:650,warranty_reserve:350,stock_finance:150,other:100},
+    source_context:{is_auction:true,vehicle_location:"PT"},target_margin:3500
+  });
+  assert.equal(r.commercial.hasIndependentMarket,true);
+  assert.equal(r.commercial.saleLikely,r.market.saleLikely);
+  assert.equal(r.commercial.targetCeiling,r.purchase.effectiveCeiling);
+  assert.equal(r.commercial.fixedCosts,r.purchase.fixedCosts);
+  assert.equal(r.commercial.expectedMargin,r.purchase.expectedMargin);
+  assert.equal(r.commercial.targetMargin,3500);
+  assert.equal(r.commercial.profitShortfall,Math.max(0,3500-r.purchase.expectedMargin));
+  assert.equal(r.commercial.excessBid,Math.max(0,29000-r.purchase.effectiveCeiling));
+  assert.ok(r.commercial.saleRange.low<=r.commercial.saleRange.high);
+  assert.equal(r.commercial.askingPricesNotTransactions,true);
+});
+
+test("eletrico sem SOH não recebe parecer verde apesar de teto favorável",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    current_purchase_price:14000
+  });
+  assert.equal(r.purchase.eligible,true);
+  assert.equal(r.commercial.missingBatteryHealth,true);
+  assert.equal(r.commercial.documentedSoh,null);
+  assert.equal(r.commercial.tone,"neutral");
+  assert.match(r.commercial.risks.join(" "),/SOH/);
+});
+test("SOH documentado desbloqueia o alerta da bateria",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    current_purchase_price:14000,
+    condition_report:{assessed:true,battery_soh_pct:91,findings:[]}
+  });
+  assert.equal(r.commercial.missingBatteryHealth,false);
+  assert.equal(r.commercial.documentedSoh,91);
+  assert.equal(r.commercial.tone,"green");
+});
+test("leilão acima da margem mínima apresenta não comprar e aviso de taxas",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[professional(1),professional(2),professional(3)],
+    current_purchase_price:40000,
+    source_url:"https://www.auto1.com/pt/vehicle/test",
+    source_context:{is_auction:true,vehicle_location:"PT"},
+    costs:{auction_fee:500,reconditioning:100}
+  });
+  assert.equal(r.commercial.tone,"red");
+  assert.match(r.commercial.verdict,/Não comprar/);
+  assert.ok(r.commercial.risks.some(x=>x.includes("comissão")));
+});
+test("sem comparáveis não inventar intervalo de mercado nem margem verificada",()=>{
+  const r=evaluatePurchase({
+    subject,comparables:[],current_purchase_price:25000,
+    source_url:"https://www.auto1.com/pt/vehicle/test",
+    source_context:{is_auction:true,vehicle_location:"PT"}
+  });
+  assert.equal(r.commercial.hasIndependentMarket,false);
+  assert.equal(r.commercial.saleLikely,null);
+  assert.equal(r.commercial.saleRange,null);
+  assert.equal(r.commercial.expectedMargin,null);
+  assert.equal(r.commercial.tone,"neutral");
+  assert.match(r.commercial.verdict,/Simulação/);
+});

@@ -138,3 +138,31 @@ as duas variáveis **apenas nos segredos de servidor**, publicar e testar com
 créditos gratuitos; confirmar no dashboard o consumo de 1 crédito por pedido
 com resultado. Não se fizeram chamadas reais à Spottd nesta implementação.
 
+
+## Parecer comercial de compra profissional (21/10/2026)
+
+A análise mostra primeiro a **revenda realista** suportada pelos anúncios profissionais,
+não confunde preços anunciados com vendas concluídas, e calcula o **teto de
+compra de trás para a frente**: revenda económica - margem objetivo (3 500 €
+por defeito) - custos - reserva de risco. Mantém a separação entre compra
+**sem reparações** e **com reparações**.
+
+O novo cartão de parecer mostra revenda, compra máxima, custos totais
+(incluindo preparação), margem no preço/licitação atual, margem objetivo e
+diferença a negociar. O intervalo de revenda ajustado só existe com pelo
+menos dois comparáveis independentes. A compra é marcada como provisória
+quando os anúncios ou o estado não permitem segurança comercial.
+
+A conclusão tem prioridade para falta de mercado, localização/custos de
+importação não confirmados, excesso face à margem mínima, excesso face à
+margem-alvo e riscos por confirmar. Em elétricos, **SOH não documentado**
+é mostrado como alerta de decisão: nunca é inferido a partir de autonomia
+apresentada ou de um teste dinâmico sem anomalias; a interface não mostra
+sinal verde enquanto faltar esse dado.
+
+Em leilões é obrigatória a verificação do preço total, comissão, IVA que
+for efetivamente aplicável, transporte, preparação e garantia. A comissão
+não é somada em duplicado quando estiver incorporada na licitação.
+O programa não inventa a taxa de leilão nem IVA adicionais se o relatório
+não fornecer essa informação. O módulo é determinístico, auditável e
+recalculado quando o comerciante muda as premissas.

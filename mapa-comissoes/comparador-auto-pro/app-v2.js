@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261021-model-fuel-v6";
+import { evaluatePurchase } from "./valuation.js?v=20261021-commercial-insight-v7";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing,formatVehiclePlate } from "./input.js?v=20261020-plate-input-v1";
 
@@ -517,6 +517,7 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   q("purchaseComparisonNote").textContent="Ainda falta confirmar a viatura para calcular os dois cenários.";
   q("currentPrice").textContent=fmt(currentVehicle.price);
   applyPurchaseSignal(null);
+  q("commercialPanel")?.classList.add("hidden");
   q("saleLikely").textContent="—";
   q("saleFast").textContent="—";
   q("expectedMargin").textContent="—";
@@ -538,8 +539,8 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
 
 function purchaseSignal(result){
   const purchase=result?.purchase||{};
-  const current=Number(purchase.currentPrice);
-  const target=Number(purchase.effectiveCeiling);
+  const current=purchase.currentPrice!==null&&purchase.currentPrice!==undefined&&Number.isFinite(Number(purchase.currentPrice))?Number(purchase.currentPrice):NaN;
+  const target=purchase.effectiveCeiling!==null&&purchase.effectiveCeiling!==undefined&&Number.isFinite(Number(purchase.effectiveCeiling))?Number(purchase.effectiveCeiling):NaN;
   const absoluteRaw=purchase.absoluteMax!==null&&purchase.absoluteMax!==undefined&&Number.isFinite(Number(purchase.absoluteMax))
     ?purchase.absoluteMax
     :purchase.provisionalAbsoluteMax;
@@ -560,7 +561,10 @@ function purchaseSignal(result){
     return {tone:"neutral",label:"A aguardar preço",detail:"Indica o preço ou a licitação atual para classificar a compra."};
   }
   if(current<=target){
-    return {tone:"green",label:"Avançar",detail:"Preço dentro ou abaixo do teto comercial de compra."};
+    if(result?.commercial?.missingBatteryHealth===true||result?.commercial?.unpricedRepairs===true||purchase.eligible!==true){
+      return {tone:"neutral",label:"Confirmar riscos",detail:"Preço dentro do teto provisório, mas falta confirmar bateria, danos ou evidência de mercado."};
+    }
+    return {tone:"green",label:"Avançar",detail:"Preço dentro ou abaixo do teto comercial de compra, sujeito a inspeção final."};
   }
   if(Number.isFinite(absolute)&&current<=absolute){
     return {tone:"amber",label:"Risco",detail:"Preço acima do alvo comercial, mas ainda dentro do limite de margem mínima."};
@@ -615,6 +619,45 @@ function renderEvidence(result){
   if(!(result.excluded||[]).length)excluded.innerHTML='<div class="evidence-empty">Sem exclusões adicionais.</div>';
   if(summary)summary.textContent="Ver evidência completa · "+(result.comparables?.length||0)+" usados · "+(result.excluded?.length||0)+" excluídos";
 }
+
+function renderCommercialDiagnosis(result){
+  const info=result?.commercial||{};
+  const panel=q("commercialPanel");
+  if(!panel)return;
+  panel.classList.remove("hidden");
+  panel.classList.remove("commercial-green","commercial-amber","commercial-red","commercial-neutral");
+  panel.classList.add("commercial-"+(info.tone||"neutral"));
+  q("commercialVerdict").textContent=info.verdict||"A aguardar dados suficientes";
+  q("commercialSale").textContent=fmt(info.saleLikely);
+  q("commercialCeiling").textContent=fmt(info.targetCeiling);
+  q("commercialCosts").textContent=fmt(info.fixedCosts);
+  q("commercialMargin").textContent=fmt(info.expectedMargin);
+  q("commercialTarget").textContent=fmt(info.targetMargin);
+  q("commercialGap").textContent=fmt(info.excessBid);
+  const range=q("commercialSaleRange");
+  if(range)range.textContent=info.saleRange
+    ?"Intervalo de referências ajustadas: "+fmt(info.saleRange.low)+" – "+fmt(info.saleRange.high)
+    :"Sem intervalo fiável (menos de 2 comparáveis independentes).";
+  const note=q("commercialEvidenceNote");
+  if(note)note.textContent=info.hasIndependentMarket
+    ?String(info.comparablesUsed||0)+" anúncios usados: são preços pedidos, não vendas comprovadas. O valor de revenda já considera negociação."
+    :"Sem anúncios comparáveis independentes: qualquer cálculo é uma simulação, não uma recomendação.";
+  const riskBox=q("commercialRisks");
+  if(riskBox){
+    riskBox.replaceChildren();
+    for(const risk of info.risks||[]){
+      const li=document.createElement("li");
+      li.textContent=risk;
+      riskBox.appendChild(li);
+    }
+    if(!(info.risks||[]).length){
+      const li=document.createElement("li");
+      li.textContent="Sem riscos adicionais identificados nos dados recebidos; inspeção e documentação continuam necessárias.";
+      riskBox.appendChild(li);
+    }
+  }
+}
+
 function renderResult(result,sourceHost,riskFlags=[]){
   hideVehicleFollowup();
   currentResult=result||null;
@@ -646,6 +689,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(currentLabel)currentLabel.textContent=askingPrice?"Preço pedido":"Preço / licitação atual";
   q("currentPrice").textContent=fmt(result.purchase?.currentPrice);
   applyPurchaseSignal(result);
+  renderCommercialDiagnosis(result);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
   const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));

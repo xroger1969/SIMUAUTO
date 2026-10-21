@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-21-model-fuel-v6";
+export const ENGINE_VERSION="2026-10-21-commercial-insight-v7";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -320,6 +320,89 @@ export function resolveAcquisitionContext(input,config=DEFAULT_CONFIG){
   return {isAuction:true,vehicleLocation:"unknown",priceRole:"acquisition_price",importCost:0,needsLocationConfirmation:true,reason:"auction_location_unknown"};
 }
 
+
+/**
+ * Parecer comercial independente da apresentação.
+ * A pergunta essencial do comprador profissional é: "Com o preço realista de
+ * revenda, TODOS os custos e a margem-alvo, quanto posso pagar?".
+ * Intervalos de venda apenas quando há mais de um comparável independente.
+ */
+export function commercialDiagnosis(result){
+  const market=result.market||{},purchase=result.purchase||{},report=result.condition_report||{};
+  const subject=result.subject||{},prep=result.reconditioning||{},comps=result.comparables||[];
+  const finite=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
+  const euro=v=>Math.round(Number(v));
+  const hasMarket=market.hasIndependentMarket===true&&finite(market.saleLikely);
+  const current=finite(purchase.currentPrice)?Number(purchase.currentPrice):NaN;
+  const ceiling=finite(purchase.effectiveCeiling)?Number(purchase.effectiveCeiling):NaN;
+  const margin=finite(purchase.expectedMargin)?Number(purchase.expectedMargin):NaN;
+  const target=finite(purchase.targetMargin)?Number(purchase.targetMargin):NaN;
+  const profitShortfall=Number.isFinite(margin)&&Number.isFinite(target)?Math.max(0,target-margin):NaN;
+  const excessBid=Number.isFinite(current)&&Number.isFinite(ceiling)?Math.max(0,current-ceiling):NaN;
+  const discount=finite(market.marketValue)&&Number(market.marketValue)>0
+    ?Number(market.saleLikely)/Number(market.marketValue):NaN;
+  const adjusted=comps.map(c=>Number(c.adjustedPrice)).filter(x=>Number.isFinite(x)&&x>0);
+  const enoughRange=hasMarket&&adjusted.length>=2&&Number.isFinite(discount);
+  const saleRange=enoughRange
+    ?{low:euro(Math.min(...adjusted)*discount),high:euro(Math.max(...adjusted)*discount)}
+    :null;
+  const electric=fuel(subject.fuel)==="electric";
+  const soh=finite(report.battery_soh_pct)&&Number(report.battery_soh_pct)>0&&Number(report.battery_soh_pct)<=100
+    ?Number(report.battery_soh_pct):null;
+  const missingBatteryHealth=electric&&soh===null;
+  const unpriced=prep.hasUnpriced===true;
+  const auction=purchase.acquisition?.isAuction===true;
+  const costs=result.parameters?.costs||{};
+  const auctionFee=finite(costs.auction_fee)?Math.max(0,Number(costs.auction_fee)):0;
+  const risks=[];
+  if(!hasMarket)risks.push("Sem anúncios independentes: não existe preço de revenda verificado.");
+  if(market.comparablesUsed===1)risks.push("Só um anúncio compatível: confirmar com outras referências.");
+  if(market.broadenedMarket||Number(market.dispersion)>.25)risks.push("Mercado pouco homogéneo: os preços podem variar significativamente.");
+  if(missingBatteryHealth)risks.push("Bateria: SOH não documentado. Pedir leitura/relatório antes de comprar.");
+  if(unpriced)risks.push("Há intervenções ou danos por orçamentar; o teto de compra pode descer.");
+  if(prep.hasCriticalUnpriced)risks.push("Existe diagnóstico de segurança ou mecânica crítico pendente.");
+  if(purchase.needsLocationConfirmation)risks.push("Confirmar a localização física antes de fechar custos de importação.");
+  if(auction)risks.push(auctionFee>0
+    ?"Confirmar se a comissão do leilão já está incluída no lance: não duplicar custos nem esquecer IVA."
+    :"Confirmar comissão, IVA aplicável e demais taxas do leilão antes de licitar.");
+  if(report.assessed!==true)risks.push("Estado físico não integralmente confirmado; pedir inspeção e histórico.");
+  let verdict="Referência insuficiente",tone="neutral";
+  if(purchase.priceScenario||!hasMarket){
+    verdict="Simulação financeira — não recomendar compra sem mercado independente";
+  }else if(!Number.isFinite(ceiling)||purchase.needsLocationConfirmation){
+    verdict="Confirmar custos e identificação antes de licitar";
+  }else if(!Number.isFinite(current)){
+    verdict="Preço máximo calculado — falta confirmar o preço de compra";
+  }else if(finite(purchase.provisionalAbsoluteMax)&&current>Number(purchase.provisionalAbsoluteMax)
+    ||finite(purchase.absoluteMax)&&current>Number(purchase.absoluteMax)){
+    verdict="Não comprar — margem mínima insuficiente";tone="red";
+  }else if(current>ceiling){
+    verdict="Negociar — preço acima do teto para a margem pretendida";tone="amber";
+  }else if(missingBatteryHealth||unpriced||!purchase.eligible){
+    verdict="Preço potencialmente interessante — confirmar riscos antes de comprar";tone="neutral";
+  }else{
+    verdict="Compra dentro do objetivo de margem, sujeita a confirmação final";tone="green";
+  }
+  return {
+    hasIndependentMarket:hasMarket,comparablesUsed:market.comparablesUsed||0,
+    saleLikely:hasMarket?Number(market.saleLikely):null,
+    saleFast:hasMarket&&finite(market.saleFast)?Number(market.saleFast):null,
+    saleRange,askingPricesNotTransactions:true,
+    currentPrice:Number.isFinite(current)?current:null,
+    purchaseRole:purchase.acquisition?.priceRole||"unknown",
+    targetCeiling:Number.isFinite(ceiling)?ceiling:null,
+    excessBid:Number.isFinite(excessBid)?euro(excessBid):null,
+    expectedMargin:hasMarket&&Number.isFinite(margin)?margin:null,
+    targetMargin:Number.isFinite(target)?target:null,
+    profitShortfall:hasMarket&&Number.isFinite(profitShortfall)?euro(profitShortfall):null,
+    fixedCosts:finite(purchase.fixedCosts)?Number(purchase.fixedCosts):null,
+    preparation:finite(prep.appliedGross)?Number(prep.appliedGross):null,
+    riskReserve:finite(purchase.riskReserve)?Number(purchase.riskReserve):null,
+    missingBatteryHealth,documentedSoh:soh,unpricedRepairs:unpriced,
+    verdict,tone,risks
+  };
+}
+
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
   const s=input.subject||{},rows=[],excluded=[],nearMatches=[],wideMatches=[],seenUrls=new Set(),seenFingerprints=new Set();
@@ -549,7 +632,7 @@ export function evaluatePurchase(input,custom={}){
     else decision="Teto provisório — preço acima do alvo; confirmar evidência";
   }
 
-  return {
+  const result = {
     engine_version:ENGINE_VERSION,
     subject:s,
     market:{
@@ -597,5 +680,7 @@ export function evaluatePurchase(input,custom={}){
     excluded,
     warnings
   };
+  result.commercial=commercialDiagnosis(result);
+  return result;
 }
 
