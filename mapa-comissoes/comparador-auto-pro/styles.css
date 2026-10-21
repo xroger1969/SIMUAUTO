@@ -829,3 +829,25 @@ body::before {
   .decision-card .purchase-before strong{display:block;font-size:24px;margin-top:4px}
   .decision-card .purchase-before span{font-size:10px}
 }
+
+
+/* Parecer profissional: diagnóstico de margem a partir da revenda realista. */
+.commercial-panel{margin:14px 0;padding:19px;border:1px solid #416587;border-radius:18px;background:linear-gradient(165deg,#183954,#122a43);box-shadow:var(--shadow)}
+.commercial-heading h3{font-size:20px;margin:7px 0 8px}
+.commercial-heading>strong{display:block;color:#c9d9ed;font-size:13px;line-height:1.5}
+.commercial-panel.commercial-green .commercial-heading>strong{color:#a5e8c0}
+.commercial-panel.commercial-amber .commercial-heading>strong{color:#ffe09c}
+.commercial-panel.commercial-red .commercial-heading>strong{color:#ffc0c0}
+.commercial-numbers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:15px 0}
+.commercial-numbers>div{min-width:0;border:1px solid #345777;border-radius:12px;background:#102a42;padding:13px}
+.commercial-numbers span,.commercial-numbers strong{display:block}
+.commercial-numbers span{font-size:10px;color:#a9bed6;line-height:1.4}
+.commercial-numbers strong{font-size:clamp(16px,2.2vw,23px);margin-top:7px;font-variant-numeric:tabular-nums;letter-spacing:-.035em;overflow-wrap:anywhere}
+.commercial-note{font-size:11px;color:#bbcee3;margin:7px 0;line-height:1.5}
+.commercial-risk-details{margin-top:13px;border-top:1px solid #385775;padding-top:11px}
+.commercial-risk-details summary{font-size:12px;color:#e5f0fa}
+.commercial-risk-details ul{margin:10px 0;padding-left:19px;color:#f4d9a4;font-size:11px;line-height:1.65}
+.commercial-risk-details li+li{margin-top:5px}
+.commercial-disclaimer{font-size:10px;color:#9caec2;margin:10px 0 0;line-height:1.5}
+@media(max-width:700px){.commercial-numbers{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:390px){.commercial-panel{padding:14px}.commercial-numbers>div{padding:10px}.commercial-numbers strong{font-size:16px}}
