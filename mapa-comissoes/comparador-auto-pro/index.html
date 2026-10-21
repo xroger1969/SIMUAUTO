@@ -33,7 +33,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261017-dual-buy-quotes-v3">
+  <link rel="stylesheet" href="./styles.css?v=20261021-commercial-insight-v7">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -208,6 +208,29 @@
         </div>
       </div>
 
+
+      <section class="commercial-panel hidden" id="commercialPanel" aria-label="Parecer comercial para compra profissional">
+        <div class="commercial-heading">
+          <span class="eyebrow">Parecer do comprador profissional</span>
+          <h3>Vale a pena comprar?</h3>
+          <strong id="commercialVerdict">A analisar mercado e riscos</strong>
+        </div>
+        <div class="commercial-numbers">
+          <div><span>Revenda realista</span><strong id="commercialSale">—</strong></div>
+          <div><span>Compra máxima para a margem</span><strong id="commercialCeiling">—</strong></div>
+          <div><span>Custos totais previstos</span><strong id="commercialCosts">—</strong></div>
+          <div><span>Margem ao preço atual</span><strong id="commercialMargin">—</strong></div>
+          <div><span>Margem objetivo</span><strong id="commercialTarget">—</strong></div>
+          <div><span>Excesso face ao teto de compra</span><strong id="commercialGap">—</strong></div>
+        </div>
+        <p class="commercial-note" id="commercialSaleRange">Intervalo de mercado por confirmar.</p>
+        <p class="commercial-note" id="commercialEvidenceNote">Preços anunciados não são vendas comprovadas.</p>
+        <details class="commercial-risk-details" open>
+          <summary>Riscos e verificações antes de comprar</summary>
+          <ul id="commercialRisks"></ul>
+        </details>
+        <p class="commercial-disclaimer">Os custos dependem das premissas e dos orçamentos existentes. Confirma taxas de leilão, IVA, transporte, garantia, histórico e estado técnico. Podes alterá-los em “Premissas da compra”.</p>
+      </section>
 
       <div class="valuation-share-bar hidden" id="valuationShareBar">
         <button class="valuation-share-main" type="button" id="shareValuationBtn">
