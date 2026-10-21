@@ -59,7 +59,7 @@ test('same vehicle produces the same 24h market cache key across input sources',
   const manual={input_mode:'manual',original_url:null};
   const listing={input_mode:'url',original_url:'https://www.standvirtual.com/carros/anuncio/abc'};
   const a=marketCacheKey(subject,manual),b=marketCacheKey({...subject},listing);
-  assert.equal(a,b);assert.match(a,/market-v4-spottd-year-20261020\|vehicle-v1/);
+  assert.equal(a,b);assert.match(a,/market-v5-model-fuel-20261021\|vehicle-v1/);
   assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},manual));
 });
 test('identical uploaded photos generate the same exact-input signature',()=>{
@@ -67,7 +67,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
-  assert.match(a,/^input-v6-spottd-year-20261020:/);
+  assert.match(a,/^input-v7-model-fuel-20261021:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{

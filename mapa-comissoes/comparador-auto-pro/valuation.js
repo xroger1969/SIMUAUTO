@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-20-spottd-year-v5";
+export const ENGINE_VERSION="2026-10-21-model-fuel-v6";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -24,8 +24,10 @@ const fuel=v=>({
   gasolina:"petrol",petrol:"petrol",
   gasoleo:"diesel",diesel:"diesel",
   hibrido:"hybrid",hybrid:"hybrid",
-  "hibrido plug-in":"phev","plug-in hybrid":"phev",phev:"phev"
-}[norm(v)]||norm(v));
+  "hibrido plug in":"phev","plug in hybrid":"phev",phev:"phev",
+  "gasolina plug in":"phev","gasolina plugin":"phev",
+  "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev"
+}[norm(v).replace(/[-_]+/g," ").replace(/\s+/g," ")]||norm(v));
 const sellerType=c=>{
   const t=norm(c?.seller_type||c?.sellerType);
   if(["professional","dealer","stand","trade"].includes(t))return "professional";
@@ -105,8 +107,12 @@ export function estimateReconditioning(report={},settings={},subject={},minimum=
 }
 
 function modelKey(make,model){
-  const m=norm(make),v=norm(model);
+  const m=norm(make);
+  let v=norm(model);
   if(!v)return "";
+  // Só normalizar grafias conhecidas; manter códigos de motor e carroçarias.
+  if(m==="bmw")v=v.replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
+  if(m==="citroen")v=v.replace(/\bgrand c4 picasso\b/g,"c4 grand picasso");
   if(m==="smart"&&/^(?:fortwo|for two)(?:\s|$)/.test(v))return /\bcabrio\b|\bconvertible\b/.test(v)?"fortwo cabrio":"fortwo";
   if(m==="bmw"){
     const is4=/\bserie 4\b|\bseries 4\b|\b4\d{2}[a-z]{0,2}\b/.test(v);
@@ -147,7 +153,7 @@ function vehicleFingerprint(c){
   if(known(c?.registration))return "plate:"+norm(c.registration).replace(/[^a-z0-9]/g,"");
   const keys=["make","model","trim","year","mileage_km","price"];
   if(!keys.every(k=>known(c?.[k])))return null;
-  return keys.map(k=>norm(c[k])).join("|");
+  return keys.map(k=>k==="model"?modelKey(c.make,c.model):norm(c[k])).join("|");
 }
 
 function monthIndex(v){
@@ -198,7 +204,8 @@ function trimSimilarity(a,b){
 }
 
 function derivativeCode(v){
-  const model=norm(v?.model),trim=norm(v?.trim),joined=(model+" "+trim).trim();
+  const model=norm(v?.model),trim=norm(v?.trim);
+  const joined=(model+" "+trim).trim().replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
   const direct=joined.match(/\b([1-8]\d{2})([a-z]{1,2})\b/);
   if(direct)return direct[1]+direct[2];
   const base=model.match(/\b([1-8]\d{2})\b/);
