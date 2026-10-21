@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261020-spottd-year-v5";
+import { evaluatePurchase } from "./valuation.js?v=20261021-model-fuel-v6";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing,formatVehiclePlate } from "./input.js?v=20261020-plate-input-v1";
 

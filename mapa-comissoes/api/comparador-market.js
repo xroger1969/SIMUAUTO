@@ -18,7 +18,7 @@ function inputSignature(body={}){
     description:String(body.description||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," "),
     images:images.map(image=>sha256(image))
   };
-  return "input-v6-spottd-year-20261020:"+sha256(JSON.stringify(signaturePayload));
+  return "input-v7-model-fuel-20261021:"+sha256(JSON.stringify(signaturePayload));
 }
 
 function canonicalUrl(raw){
@@ -150,8 +150,21 @@ function canonicalMake(value){
   const make=normalizeIdentity(value);
   return ({vw:"volkswagen","mercedes benz":"mercedes","mercedesbenz":"mercedes"})[make]||make;
 }
-function modelCompatible(a,b){
-  const A=normalizeIdentity(a),B=normalizeIdentity(b);
+function canonicalFuel(value){
+  const fuel=normalizeIdentity(value);
+  return ({eletrico:"electric",electrico:"electric",gasolina:"petrol",gasoleo:"diesel",
+    hibrido:"hybrid","hibrido plug in":"phev","plug in hybrid":"phev",
+    "gasolina plug in":"phev","gasolina plugin":"phev",
+    "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev"})[fuel]||fuel;
+}
+function modelCompatible(a,b,make){
+  const modelKey=value=>{
+    let model=normalizeIdentity(value);
+    if(canonicalMake(make)==="bmw")model=model.replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
+    if(canonicalMake(make)==="citroen")model=model.replace(/\bgrand c4 picasso\b/g,"c4 grand picasso");
+    return model;
+  };
+  const A=modelKey(a),B=modelKey(b);
   if(!A||!B||A===B)return true;
   // A ficha pode dizer «Kona 1.6 Hybrid» enquanto a matrícula devolve «Kona».
   const extended=(short,long)=>short.length>=3&&long.startsWith(short+" ")
@@ -161,7 +174,7 @@ function modelCompatible(a,b){
 function registrationCompatible(subject,registration){
   const a=canonicalMake(subject?.make),b=canonicalMake(registration?.make);
   if(a&&b&&a!==b)return false;
-  return modelCompatible(subject?.model,registration?.model);
+  return modelCompatible(subject?.model,registration?.model,subject?.make||registration?.make);
 }
 function missingIdentity(subject={}){
   const known=v=>v!==null&&v!==undefined&&String(v).trim()!==""&&!/^(unknown|desconhecido|por confirmar|n\/a)$/i.test(String(v).trim());
@@ -198,7 +211,7 @@ function marketCacheKey(subject={},context={}){
       normalizeIdentity(subject.drivetrain)
     ].join("|");
   }
-  return "market-v4-spottd-year-20261020|"+identity;
+  return "market-v5-model-fuel-20261021|"+identity;
 }
 function cacheAllowed(context={}){
   return context.force_market_refresh!==true && !(Array.isArray(context.refinement_history)&&context.refinement_history.length);
@@ -254,7 +267,7 @@ function estimateMileage(result){
     let host="";try{host=new URL(url).hostname}catch{return false}
     if(!(host==="standvirtual.com"||host.endsWith(".standvirtual.com"))||c.country!=="PT"||c.availability!=="available")return false;
     if(!c.make||!c.model||!registrationCompatible(subject,c))return false;
-    if(subject.fuel&&c.fuel&&normalizeIdentity(c.fuel)!==normalizeIdentity(subject.fuel))return false;
+    if(subject.fuel&&c.fuel&&canonicalFuel(c.fuel)!==canonicalFuel(subject.fuel))return false;
     if(c.mileage_km===null||c.mileage_km===undefined||c.mileage_km===""||!Number.isFinite(Number(c.mileage_km))||Number(c.mileage_km)<0)return false;
     seen.add(url);return true;
   });
