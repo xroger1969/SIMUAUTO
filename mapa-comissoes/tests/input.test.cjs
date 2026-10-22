@@ -1,6 +1,13 @@
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../comparador-auto-pro/input.js'),'utf8');
 const modulePromise=import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+test('optional mileage accepts Portuguese separators, zero and an empty field',async()=>{
+  const {parseOptionalMileage}=await modulePromise;
+  for(const text of ['', '  '])assert.equal(parseOptionalMileage(text),null);
+  for(const text of ['125 000','125.000','125000'])assert.equal(parseOptionalMileage(text),125000);
+  assert.equal(parseOptionalMileage('0'),0);
+  for(const text of ['-100','12,5','unknown','2000001'])assert.throws(()=>parseOptionalMileage(text));
+});
 test('Tesla short description enters manual AI research without a fabricated URL',async()=>{const {parseVehicleInput}=await modulePromise;const r=parseVehicleInput('Tesla Y dual motor 2023');assert.equal(r.mode,'manual');assert.equal(r.url,null);assert.equal(r.description,'Tesla Y dual motor 2023')});
 test('URL mode preserves automatic AUTO1 source recognition',async()=>{const {parseVehicleInput}=await modulePromise;const r=parseVehicleInput('https://auto1.com/pt/app/merchant/car/BD03818?x=1');assert.equal(r.mode,'url');assert.equal(r.sourceDomain,'www.auto1.com')});
 test('unknown km or trim require clarification before purchase ceiling',async()=>{const {manualMissing}=await modulePromise;assert.deepEqual(manualMissing({year:2023}),['quilómetros','versão exata']);assert.deepEqual(manualMissing({year:2023,mileage_km:0,trim:'Long Range'}),[])});

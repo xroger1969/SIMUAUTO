@@ -33,7 +33,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
-  <link rel="stylesheet" href="./styles.css?v=20261021-commercial-insight-v7">
+  <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
+  <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -112,7 +113,15 @@
             <input id="vehiclePhoto" type="file" accept="image/*" multiple hidden>
           </div>
         </div>
-        <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
+        <div class="mileage-input-group">
+          <label for="vehicleMileage">Quilómetros <span>opcional</span></label>
+          <input id="vehicleMileage" type="text" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Ex.: 125 000" aria-describedby="mileageHelp">
+          <small id="mileageHelp">Se não souberes, deixa vazio. Uso a média e o intervalo dos anúncios comparáveis.</small>
+        </div>
+        <div class="search-actions">
+          <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
+          <button class="btn ghost" type="button" id="startNewAnalysisBtn">Nova avaliação</button>
+        </div>
       </form>
       <div class="attachment-status hidden" id="attachmentStatus">
         <span id="attachmentName">Fotografia pronta para a IA</span>
@@ -139,7 +148,7 @@
         </div>
         <div class="vehicle-head-actions">
           <span class="confidence" id="confidencePill">Confiança —</span>
-          <button class="btn ghost small new-search-btn" type="button" id="newSearchBtn">Nova pesquisa</button>
+          <button class="btn ghost small new-search-btn" type="button" id="newSearchBtn">Nova avaliação</button>
         </div>
       </div>
 
@@ -187,6 +196,8 @@
           <small id="vehicleFollowupPhotoCount">Podes enviar fotos do anúncio, documento, quadrante ou emblema da versão.</small>
         </form>
       </section>
+
+      <section class="mileage-reference hidden" id="mileageReference" aria-live="polite"></section>
 
       <div class="decision-card">
         <div>
@@ -379,7 +390,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261021-commercial-insight-v7"></script>
+  <script type="module" src="./app-v2.js?v=20261022-optional-mileage-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->

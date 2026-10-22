@@ -1,6 +1,6 @@
-import { evaluatePurchase } from "./valuation.js?v=20261021-commercial-insight-v7";
+import { evaluatePurchase } from "./valuation.js?v=20261022-optional-mileage-v1";
 import { relevantMemories } from "./memory.js";
-import { parseVehicleInput,manualMissing,formatVehiclePlate } from "./input.js?v=20261020-plate-input-v1";
+import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -322,7 +322,7 @@ function vehicleMeta(v){
     if(v.registration_date_pt)bits.push("matrícula PT "+formatRegistrationDate(v.registration_date_pt));
   }else if(v.first_registration)bits.push(v.first_registration.slice(0,7).split("-").reverse().join("/"));
   else if(v.year)bits.push(v.year);
-  if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km"+(v.mileage_estimated?" estimados · média Standvirtual":""));
+  if(v.mileage_km!=null)bits.push(Number(v.mileage_km).toLocaleString("pt-PT")+" km"+(v.mileage_estimated?" de referência · média dos comparáveis":""));
   if(v.power_cv)bits.push(v.power_cv+" cv");
   if(v.battery_kwh)bits.push(v.battery_kwh+" kWh");
   bits.push(originLabel(v.origin));
@@ -391,7 +391,7 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Fonte do ano",v.year_source==="spottd.year_built"?"Spottd · ano de fabrico":null],
     ["Matrícula portuguesa",v.registration_date_pt?formatRegistrationDate(v.registration_date_pt):null],
     ["1.ª matrícula original",v.first_registration?formatRegistrationDate(v.first_registration):null],
-    [v.mileage_estimated?"Quilómetros estimados (média Standvirtual)":"Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
+    [v.mileage_estimated?"Quilómetros de referência (média dos anúncios)":"Quilómetros",v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null],
     ["Preço anunciado",v.price!=null?fmt(v.price):null],
     ["Combustível",v.fuel],
     ["Potência",v.power_cv!=null?v.power_cv+" cv":null],
@@ -441,7 +441,6 @@ const VALUATION_REQUIRED_FIELDS=[
   {key:"make_model",label:"marca e modelo",present:v=>confirmedText(v?.make)&&confirmedText(v?.model)},
   {key:"trim",label:"versão",present:v=>confirmedText(v?.trim)},
   {key:"year",label:"ano / 1.ª matrícula",present:v=>validVehicleYear(v?.year)},
-  {key:"mileage_km",label:"quilómetros",present:v=>v?.mileage_km!==null&&v?.mileage_km!==undefined&&String(v.mileage_km).trim()!==""&&Number.isFinite(Number(v.mileage_km))&&Number(v.mileage_km)>=0},
   {key:"fuel",label:"combustível",present:v=>confirmedText(v?.fuel)}
 ];
 function confirmedText(value){
@@ -658,6 +657,23 @@ function renderCommercialDiagnosis(result){
   }
 }
 
+function renderMileageReference(result){
+  const panel=q("mileageReference"),v=result.subject||{},estimate=v.mileage_estimate;
+  panel.classList.toggle("hidden",!v.mileage_estimated);
+  if(!v.mileage_estimated){panel.textContent="";return}
+  const km=value=>Number(value).toLocaleString("pt-PT")+" km";
+  const range=estimate?km(estimate.min_km)+" a "+km(estimate.max_km):"intervalo indisponível";
+  panel.replaceChildren();
+  const title=document.createElement("strong");title.textContent="Avaliação pela quilometragem média do mercado";
+  const detail=document.createElement("p");
+  detail.textContent="Referência de "+km(v.mileage_km)+" · intervalo "+range+(estimate?" · "+estimate.sample_size+" anúncio(s)":"")+". Os quilómetros reais desta viatura não foram indicados.";
+  const price=document.createElement("p");
+  price.textContent=Number.isFinite(result.market?.marketValue)
+    ?"Preço médio ajustado dos comparáveis aceites: "+fmt(result.market.marketValue)+". Revenda estimada: "+fmt(result.market.saleLikely)+"; compra máxima após custos e margem: "+fmt(result.purchase?.effectiveCeiling)+"."
+    :"A pesquisa continua sem exigir quilómetros. Ainda não existe uma referência de preço suficiente.";
+  panel.append(title,detail,price);
+}
+
 function renderResult(result,sourceHost,riskFlags=[]){
   hideVehicleFollowup();
   currentResult=result||null;
@@ -670,6 +686,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   renderVehicleReadout(currentVehicle,currentMarketData);
+  renderMileageReference(result);
   q("confidencePill").textContent=result.purchase?.priceScenario
     ?"Nível 4 · cenário sem mercado verificado"
     :"Nível "+(result.market?.searchTier||1)+" · confiança estimada "+(result.market?.confidencePct??0)+"%"+(result.purchase?.provisionalEligible&&!result.purchase?.eligible?" · provisória":"");
@@ -1126,7 +1143,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
+  for(const id of ["analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -1345,6 +1362,7 @@ function setImageStatus(name){
 function resetSearchInput({announce=true,focus=true}={}){
   const input=q("vehicleUrl");
   input.value="";
+  q("vehicleMileage").value="";
   imageGeneration++;selectedImages=[];
   selectedImageData=null;
   selectedImageName="";
@@ -1396,6 +1414,7 @@ function resetAnalysisView(){
   q("result").classList.add("hidden");
   q("emptyState").classList.add("hidden");
   q("valuationShareBar")?.classList.add("hidden");
+  q("mileageReference").classList.add("hidden");
   q("auto1Connection").classList.add("hidden");
   q("chat").innerHTML="";
   q("refineInput").value="";
@@ -1610,6 +1629,7 @@ q("removeImage").addEventListener("click",()=>{
 });
 q("resetSearchBtn").addEventListener("click",resetSearchInput);
 q("newSearchBtn").addEventListener("click",resetAnalysisView);
+q("startNewAnalysisBtn").addEventListener("click",resetAnalysisView);
 q("shareValuationBtn").addEventListener("click",shareValuationSummary);
 q("printValuationBtn").addEventListener("click",printValuationSummary);
 q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
@@ -1731,10 +1751,13 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   ev.preventDefault();
   if(activeOperation){toast("Já existe uma análise em curso.");return}
   if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
-  let entry;
+  let entry,mileageInput;
   const rawInput=q("vehicleUrl").value.trim();
   if(!rawInput&&!selectedImageData){toast("Escreve uma matrícula, cola um link, dita ou anexa uma fotografia.");return}
-  try{entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"}}
+  try{
+    mileageInput=parseOptionalMileage(q("vehicleMileage").value);
+    entry=rawInput?parseVehicleInput(rawInput):{mode:"manual",registration:null,url:null,description:"Fotografia anexada para identificação da viatura.",sourceUrl:"photo:"+Date.now(),sourceDomain:"photo"};
+  }
   catch(error){toast(error.message);return}
   if(entry.mode==="url"&&entry.url)q("vehicleUrl").value=entry.url.toString();
   else if(entry.registration)q("vehicleUrl").value=entry.registration;
@@ -1743,6 +1766,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
   q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
+  q("mileageReference").classList.add("hidden");hideVehicleFollowup();
   currentAnalysisId=null;currentVehicle=null;currentResult=null;currentMarketData=null;lastAnalysisContext=null;auctionLocationOverride=null;q("chat").innerHTML="";conversation=[];
 
   try{
@@ -1814,7 +1838,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar concorrência profissional em Portugal.");
     const imagesForAnalysis=selectedImages.map(image=>image.data);
     const marketPayload={
-      url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,
+      url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,mileage_input_km:mileageInput,
       page:reader.page||{},image_data_urls:imagesForAnalysis,dealer_memories:allRules.slice(0,20),refinement_history:[]
     };
     let sourceHost=entry.registration?"Matrícula":reader?.source_kind==="authenticated_browser"?url.hostname:imagesForAnalysis.length?"photo":entry.mode==="manual"?"manual":url.hostname;
@@ -1958,6 +1982,7 @@ q("refineForm").addEventListener("submit",async ev=>{
     const history=[...(lastAnalysisContext.marketPayload?.refinement_history||[]),text].slice(-5);
     const payload={
       ...lastAnalysisContext.marketPayload,
+      mileage_input_km:null,
       refinement_history:history,
       previous_subject:currentVehicle||null,
       previous_condition_report:currentMarketData?.market?.condition_report||null,

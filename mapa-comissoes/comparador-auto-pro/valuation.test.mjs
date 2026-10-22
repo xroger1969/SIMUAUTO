@@ -29,6 +29,16 @@ const professional=(i,overrides={})=>({
   ...overrides
 });
 
+test('unknown mileage uses the mean adjusted price and still subtracts costs and target margin',()=>{
+  const s={...subject,mileage_km:70000,mileage_estimated:true};
+  const r=evaluatePurchase({subject:s,comparables:[professional(1,{price:29000}),professional(2,{price:31000}),professional(3,{price:37000})],target_margin:3500,costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100}});
+  const mean=Math.round(r.comparables.reduce((sum,c)=>sum+c.adjustedPrice,0)/r.comparables.length);
+  assert.equal(r.market.marketValue,mean);
+  assert.equal(r.purchase.provisionalEligible,true);assert.equal(r.purchase.eligible,false);
+  assert.ok(r.purchase.effectiveCeiling<=r.market.saleLikely-3500);
+  assert.ok(r.market.confidencePct<=45);
+});
+
 test("one private advert issues only a low-confidence provisional buying estimate",()=>{
   const privateAd={...subject,url:"https://classifieds.example/1",seller_type:"private",price:32000};
   const r=evaluatePurchase({subject,comparables:[privateAd],current_purchase_price:22000,source_url:"https://auction.example/x"});
