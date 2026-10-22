@@ -1,0 +1,28 @@
+name: Avaliador Auto Pro - simulador fiscal
+on:
+  pull_request:
+    paths:
+      - 'mapa-comissoes/comparador-auto-pro/tax-simulator-*.mjs'
+      - 'mapa-comissoes/comparador-auto-pro/tax-simulator-*.js'
+      - '.github/workflows/avaliador-fiscal.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mapa-comissoes/comparador-auto-pro/tax-simulator-*.mjs'
+      - 'mapa-comissoes/comparador-auto-pro/tax-simulator-*.js'
+      - '.github/workflows/avaliador-fiscal.yml'
+permissions:
+  contents: read
+jobs:
+  fiscal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validar sintaxe do motor fiscal
+        run: node --check mapa-comissoes/comparador-auto-pro/tax-simulator-calc.mjs
+      - name: Testes fiscais
+        run: node --test mapa-comissoes/comparador-auto-pro/tax-simulator-calc.test.mjs
