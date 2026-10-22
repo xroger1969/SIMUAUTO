@@ -47,13 +47,22 @@ test('plate text, manual input and photographs never claim a public announcement
   assert.equal(ctx.q('adReadStatus').textContent,'Leitura pelas fotografias fornecidas');
 });
 
-test('original risk flags and calculation warnings reach the visible risk list',()=>{
+test('assessment alerts start closed and close on each new result while preserving the warnings',()=>{
   assert.match(html,/id="riskList"[^>]*aria-live="polite"/);
+  const details=html.match(/<details\b[^>]*id="assessmentRisks"[^>]*>/)?.[0];
+  assert.ok(details,'Assessment alerts must remain an accessible details panel');
+  assert.doesNotMatch(details,/\bopen(?:[\s=>])/);
   const ctx=harness({document:{createElement:()=>({})}});
   vm.runInContext(source('function renderRisks','function comparableElement'),ctx);
+  ctx.q('assessmentRisks').open=true;
   ctx.renderRisks([{label:'Bateria por verificar',severity:'high'}],['Quilómetros estimados','Bateria por verificar']);
+  assert.equal(ctx.q('assessmentRisks').open,false);
   assert.deepEqual(ctx.q('riskList').children.map(x=>x.textContent),['Bateria por verificar','Quilómetros estimados']);
   assert.equal(ctx.q('riskList').children[0].className,'risk high');
+  ctx.q('assessmentRisks').open=true; // The user can still expand the retained content.
+  assert.equal(ctx.q('riskList').children[0].textContent,'Bateria por verificar');
+  ctx.renderRisks([],['Nova avaliação']);
+  assert.equal(ctx.q('assessmentRisks').open,false);
 });
 
 test('a failed history write retains the calculated snapshot and can be retried',async()=>{
@@ -105,7 +114,7 @@ test('real page loads the shared identity module before the current valuation en
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
   assert.match(app,/valuation\.js\?v=20261022-commercial-cohort-v2/);
-  assert.match(html,/tax-simulator-ui\.js\?v=20261022-compact-audit-v3/);
+  assert.match(html,/tax-simulator-ui\.js\?v=20261022-[a-z0-9-]+/);
 });
 
 test('simultaneous save retries do not duplicate the same evidence write',async()=>{

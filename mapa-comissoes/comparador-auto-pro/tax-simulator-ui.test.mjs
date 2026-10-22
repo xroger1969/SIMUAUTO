@@ -11,7 +11,7 @@ function boot(storage=new Map(),shown=true,assessment=null){
  const data={taxSimPurchase:"19600",taxSimSale:"22990",taxSimCosts:"500",taxSimQuarterly:"3",taxSimIrsRate:""};
  const elements={};
  function create(id,value=""){
-  const el={id,value,textContent:"",hidden:false,open:false,title:"",dataset:{},listeners:{},tagName:id==="taxSimQuarterly"?"SELECT":"INPUT",
+  const el={id,value,type:id==="taxSimSocialEnabled"?"checkbox":"text",checked:false,textContent:"",hidden:false,open:false,title:"",dataset:{},listeners:{},tagName:id==="taxSimQuarterly"?"SELECT":"INPUT",
    options:[{value:"1"},{value:"2"},{value:"3"},{value:"4"},{value:"6"}],
    classList:{contains:classname=>classname==="hidden"?!shown:false},
    addEventListener:(name,callback)=>{el.listeners[name]=callback;},
@@ -20,7 +20,7 @@ function boot(storage=new Map(),shown=true,assessment=null){
   elements[id]=el;return el;
  }
  for(const [id,value] of Object.entries(data))create(id,value);
- for(const id of ["taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimAfterIRS","taxSimIrs","taxSimSummary","taxSimWarning","taxSimError","taxSimUseAssessment","taxSimOpenBtn","taxSimFromResult","taxSimulator","result","currentPrice","commercialSale"])create(id);
+ for(const id of ["taxSimSocialEnabled","taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimAfterIRS","taxSimIrs","taxSimSummary","taxSimWarning","taxSimError","taxSimUseAssessment","taxSimOpenBtn","taxSimFromResult","taxSimulator","result","currentPrice","commercialSale"])create(id);
  const context={calculateTaxSim,AutoProAssessment:assessment,document:{getElementById:id=>elements[id]||null},
   localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)}};
  vm.runInNewContext(source,context,{filename:"tax-simulator-ui.js"});
@@ -169,4 +169,52 @@ test("valores inválidos não exibem lucro incorreto",()=>{
  app.trigger("taxSimSale","input");
  assert.equal(app.elements.taxSimError.hidden,false);
  assert.equal(app.elements.taxSimBeforeIRS.textContent,"—");
+});
+
+test("a opção visível começa desligada e recalcula apenas a contribuição da Segurança Social",()=>{
+ assert.match(html,/<label[^>]*for="taxSimSocialEnabled"[^>]*><input id="taxSimSocialEnabled" type="checkbox">Incluir Segurança Social<\/label>/);
+ const app=boot(),e=app.elements;
+ e.taxSimPurchase.value="33990";e.taxSimSale.value="36035";e.taxSimCosts.value="1416";e.taxSimIrsRate.value="20";
+ app.trigger("taxSimIrsRate","input");
+ const eur=n=>n.toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
+ assert.equal(e.taxSimSocialEnabled.checked,false);
+ assert.equal(e.taxSimSocial.textContent,eur(0));
+ assert.equal(e.taxSimBeforeIRS.textContent,eur(246.6));
+ assert.equal(e.taxSimAfterIRS.textContent,eur(-822.98));
+ assert.match(e.taxSimSummary.textContent,/SS não incluída/);
+ assert.doesNotMatch(e.taxSimWarning.textContent,/SS mensal estimada/);
+ const vat=e.taxSimVat.textContent,taxable=e.taxSimTaxable.textContent,irs=e.taxSimIrs.textContent;
+ e.taxSimSocialEnabled.checked=true;app.trigger("taxSimSocialEnabled","change");
+ assert.equal(e.taxSimSocial.textContent,eur(1255.46));
+ assert.equal(e.taxSimBeforeIRS.textContent,eur(-1008.86));
+ assert.equal(e.taxSimAfterIRS.textContent,eur(-2078.44));
+ assert.equal(e.taxSimVat.textContent,vat);assert.equal(e.taxSimTaxable.textContent,taxable);assert.equal(e.taxSimIrs.textContent,irs);
+ assert.match(e.taxSimWarning.textContent,/SS mensal estimada/);
+ e.taxSimSocialEnabled.checked=false;app.trigger("taxSimSocialEnabled","change");
+ assert.equal(e.taxSimSocial.textContent,eur(0));
+ assert.equal(e.taxSimBeforeIRS.textContent,eur(246.6));
+ assert.equal(e.taxSimCosts.value,"1416");
+});
+
+test("a escolha da Segurança Social persiste ao recarregar e não é alterada ao importar outra avaliação",()=>{
+ const storage=new Map();let app=boot(storage,true,assessment());
+ app.elements.taxSimSocialEnabled.checked=true;app.trigger("taxSimSocialEnabled","change");
+ app=boot(storage,false,assessment());
+ assert.equal(app.elements.taxSimSocialEnabled.checked,true);
+ assert.ok(JSON.parse(storage.get("aap-tax-sim-v2")).taxSimSocialEnabled);
+ app.elements.result.classList.contains=()=>false;
+ app.trigger("taxSimUseAssessment","click");
+ assert.equal(app.elements.taxSimSocialEnabled.checked,true);
+ app.elements.taxSimSocialEnabled.checked=false;app.trigger("taxSimSocialEnabled","change");
+ app=boot(storage);
+ assert.equal(app.elements.taxSimSocialEnabled.checked,false);
+});
+
+test("montantes antigos são preservados sem ligar a Segurança Social por coerção de texto",()=>{
+ for(const flag of [undefined,"false","true"]){
+  const storage=new Map([["aap-tax-sim-v2",JSON.stringify({taxSimPurchase:"18000",taxSimSocialEnabled:flag})]]);
+  const app=boot(storage);
+  assert.equal(app.elements.taxSimPurchase.value,"18000");
+  assert.equal(app.elements.taxSimSocialEnabled.checked,false);
+ }
 });

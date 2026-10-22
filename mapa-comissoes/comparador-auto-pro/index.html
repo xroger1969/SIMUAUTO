@@ -35,7 +35,7 @@
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
   <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
   <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">
-  <link rel="stylesheet" href="./tax-simulator.css?v=20261022-compact-v2">
+  <link rel="stylesheet" href="./tax-simulator.css?v=20261022-social-option-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -154,6 +154,7 @@
           </label>
         </div>
         <div class="tax-sim-action">
+          <label class="tax-sim-social-option" for="taxSimSocialEnabled"><input id="taxSimSocialEnabled" type="checkbox">Incluir Segurança Social</label>
           <button class="tax-sim-use-prices" id="taxSimUseAssessment" type="button">Usar avaliação <span aria-hidden="true">↗</span></button>
         </div>
         <div class="tax-sim-result" aria-live="polite">
@@ -307,7 +308,7 @@
         <button class="btn ghost small" type="button" id="taxSimFromResult">Simular lucro líquido desta avaliação</button>
       </section>
 
-      <details class="panel" open>
+      <details class="panel" id="assessmentRisks">
         <summary>Alertas da avaliação</summary>
         <div class="risk-list" id="riskList" aria-live="polite"></div>
       </details>
@@ -461,8 +462,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
-  <script type="module" src="./app-v2.js?v=20261022-audit-corrections-v1"></script>
-  <script type="module" src="./tax-simulator-ui.js?v=20261022-compact-audit-v3"></script>
+  <script type="module" src="./app-v2.js?v=20261022-social-alerts-v2"></script>
+  <script type="module" src="./tax-simulator-ui.js?v=20261022-social-option-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->

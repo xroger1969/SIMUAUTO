@@ -1,15 +1,15 @@
-import {calculateTaxSim} from "./tax-simulator-calc.mjs";
+import {calculateTaxSim} from "./tax-simulator-calc.mjs?v=20261022-social-option-v1";
 
 // Os montantes pertencem ao simulador, não à pesquisa de viaturas.
 // A "Nova avaliação" nunca os deve substituir nem limpar.
 const STORAGE_KEY="aap-tax-sim-v2";
-const FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate"];
+const FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate","taxSimSocialEnabled"];
 const byId=id=>document.getElementById(id);
 const eur=n=>Number(n).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
 function saveState(){
  try{
   const value={};
-  FIELD_IDS.forEach(id=>{value[id]=byId(id)?.value??"";});
+  FIELD_IDS.forEach(id=>{const el=byId(id);value[id]=el?.type==="checkbox"?el.checked:el?.value??"";});
   localStorage.setItem(STORAGE_KEY,JSON.stringify(value));
  }catch{ /* armazenamento bloqueado: continuar sem guardar */ }
 }
@@ -19,6 +19,7 @@ function restoreState(){
   if(!data||typeof data!=="object")return;
   FIELD_IDS.forEach(id=>{
    const el=byId(id),value=data[id];
+   if(el?.type==="checkbox"){if(typeof value==="boolean")el.checked=value;return;}
    if(el&&typeof value==="string"&&(el.tagName!=="SELECT"||[...el.options].some(o=>o.value===value)))el.value=value;
   });
  }catch{ /* sem dados válidos */ }
@@ -45,23 +46,24 @@ function render(){
  saveState();
  try{
   const irs=byId("taxSimIrsRate").value.trim();
+  const includeSocialSecurity=byId("taxSimSocialEnabled")?.checked===true;
   const r=calculateTaxSim({
    purchase:numberFrom("taxSimPurchase"),sale:numberFrom("taxSimSale"),
    costs:numberFrom("taxSimCosts"),quarterlySales:numberFrom("taxSimQuarterly"),
-   irsRate:irs?irs.replace(",","."):null
+   irsRate:irs?irs.replace(",","."):null,includeSocialSecurity
   });
   error.hidden=true;error.textContent="";
   const ids={taxSimMargin:r.grossMargin,taxSimVat:r.marginVat,taxSimExpense:r.costs,taxSimSocial:r.socialPerCar,taxSimTaxable:r.taxableIncome,taxSimBeforeIRS:r.beforeIRS};
   Object.entries(ids).forEach(([id,val])=>{byId(id).textContent=eur(val);});
   byId("taxSimIrs").textContent=r.irsEstimate===null?"—":eur(r.irsEstimate);
   byId("taxSimAfterIRS").textContent=r.afterIRS===null?"—":eur(r.afterIRS);
-  byId("taxSimSummary").textContent="Margem "+eur(r.grossMargin)+" · IVA "+eur(r.marginVat)+" · SS "+eur(r.socialPerCar)+" · Despesas "+eur(r.costs);
+  byId("taxSimSummary").textContent="Margem "+eur(r.grossMargin)+" · IVA "+eur(r.marginVat)+" · "+(includeSocialSecurity?"SS "+eur(r.socialPerCar):"SS não incluída")+" · Despesas "+eur(r.costs);
   const warnings=[];
   if(r.exceedsSimplifiedSingleYearThreshold)warnings.push("Projeção anual superior a 250.000 €: confirmar a obrigatoriedade de contabilidade organizada no ano seguinte.");
   else if(r.requiresAnnualReview)warnings.push("Projeção anual superior a 200.000 €: confirmar o enquadramento fiscal.");
   if(r.socialMonthly>0)warnings.push("SS mensal estimada: "+eur(r.socialMonthly)+".");
   if(r.irsEstimate===null)warnings.push("Para estimar o resultado após IRS, introduz uma taxa. O imposto anual real pode ser diferente.");
-  if(r.grossMargin<0)warnings.push("Margem negativa: a venda continua relevante para IRS e SS.");
+  if(r.grossMargin<0)warnings.push("Margem negativa: a venda continua relevante para "+(includeSocialSecurity?"IRS e SS.":"IRS."));
   byId("taxSimWarning").textContent=warnings.join(" ");
  }catch(e){
   clearOutputs();

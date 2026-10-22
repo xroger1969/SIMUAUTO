@@ -633,6 +633,7 @@ function applyPurchaseSignal(result){
 
 function renderRisks(flags,warnings){
   const list=q("riskList");if(!list)return;list.innerHTML="";
+  const panel=q("assessmentRisks");if(panel)panel.open=false;
   const all=[...(flags||[]).map(x=>({text:typeof x==="string"?x:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))]
     .filter((item,index,rows)=>item.text&&rows.findIndex(other=>other.text===item.text)===index);
   if(!all.length)all.push({text:"Sem alertas relevantes registados nesta análise.",severity:"low"});
