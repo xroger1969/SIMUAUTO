@@ -34,12 +34,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
   <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
-  <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">
+  <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">\n  <link rel="stylesheet" href="./tax-simulator.css?v=20261022-fiscal-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
     (() => {
-      const rogueNewlineOnly = /^(?:\s*\\n\s*)+$/;
+      const rogueNewlineOnly = /^(?:\s*\n\s*)+$/;
       const clean = root => {
         if (!root) return;
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -90,7 +90,7 @@
       </div>
       <div class="top-actions">
         <span class="status-dot" id="saveStatus">Ligado</span>
-        <button class="btn ghost small" type="button" id="historyBtn">Histórico</button>
+        <button class="btn ghost small" type="button" id="taxSimOpenBtn">Lucro ENI</button>\n        <button class="btn ghost small" type="button" id="historyBtn">Histórico</button>
         <button class="btn ghost small" id="logoutBtn">Sair</button>
       </div>
     </header>
@@ -131,7 +131,43 @@
       <div class="hint"><a href="https://apps.apple.com/pt/app/spottd/id1516876698" target="_blank" rel="noopener noreferrer">Consultar Spottd ↗</a> · Também podes colar uma fotografia no campo, ditar ou usar o clipe para a IA ler.</div>
     </section>
 
-    <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
+
+    <details class="tax-simulator" id="taxSimulator" aria-label="Simulador de lucro líquido do revendedor">
+      <summary><span><strong>Simulador de lucro ENI</strong><small>Compra, venda, IVA da margem, IRS e Segurança Social · 2026</small></span><span class="tax-simulator-chevron" aria-hidden="true">⌄</span></summary>
+      <div class="tax-simulator-body">
+        <p class="tax-sim-intro">Simula o que sobra em cada negócio. Perfil: ENI, regime simplificado, IVA da margem (Portugal continental), acumulação com trabalho por conta de outrem. Não substitui o apuramento anual de IRS.</p>
+        <div class="tax-sim-fields">
+          <label for="taxSimPurchase">Compra (€)<input id="taxSimPurchase" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" value="19600"></label>
+          <label for="taxSimSale">Venda (€)<input id="taxSimSale" type="number" inputmode="decimal" min="0.01" max="10000000" step="0.01" value="22990"></label>
+          <label for="taxSimCosts">Despesas totais (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" step="0.01" value="500"><small>Comissões, transporte, preparação e garantia; valores finais suportados.</small></label>
+          <label for="taxSimQuarterly">Vendas no trimestre<select id="taxSimQuarterly"><option value="1">1 carro</option><option value="2">2 carros</option><option value="3" selected>3 carros (1/mês)</option><option value="4">4 carros</option><option value="6">6 carros</option></select><small>Para estimar a SS, assume valores de venda semelhantes.</small></label>
+        </div>
+        <div class="tax-sim-action"><button class="btn ghost small" id="taxSimUseAssessment" type="button">Usar preços desta avaliação</button><span id="taxSimSource" aria-live="polite">Exemplo Peugeot; valores editáveis.</span></div>
+        <div class="tax-sim-result" aria-live="polite">
+          <div class="tax-sim-principal"><span id="taxSimMainLabel">Disponível antes do IRS</span><strong id="taxSimBeforeIRS">—</strong></div>
+          <div class="tax-sim-principal secondary"><span>Depois do IRS estimado</span><strong id="taxSimAfterIRS">Por configurar</strong></div>
+        </div>
+        <div class="tax-sim-breakdown">
+          <div><span>Margem comercial</span><strong id="taxSimMargin">—</strong></div>
+          <div><span>IVA sobre a margem</span><strong id="taxSimVat">—</strong></div>
+          <div><span>Despesas da viatura</span><strong id="taxSimExpense">—</strong></div>
+          <div><span>Segurança Social imputada à viatura</span><strong id="taxSimSocial">—</strong></div>
+          <div><span>Rendimento coletável para IRS (15% da venda sem IVA)</span><strong id="taxSimTaxable">—</strong></div>
+          <div><span>IRS estimado (não é imposto cobrado por carro)</span><strong id="taxSimIrs">—</strong></div>
+        </div>
+        <details class="tax-sim-options" id="taxSimOptions">
+          <summary>Estimar IRS e ver critérios fiscais</summary>
+          <label for="taxSimIrsRate">Taxa marginal ilustrativa de IRS (%)<input id="taxSimIrsRate" type="number" inputmode="decimal" min="0" max="53" step="0.1" placeholder="Introduzir taxa — ex.: 31,1"></label>
+          <p>O IRS real depende do salário <em>bruto</em> anual, demais rendimentos, agregado familiar, deduções e possíveis pagamentos por conta. Sem taxa introduzida, não apresentamos um falso lucro «líquido».</p>
+          <p>Segurança Social: estimativa de 25,2% (ENI) apenas sobre o excesso de rendimento relevante mensal acima de 4 IAS de 2026 (2.148,52 €), pressupondo que cumpres as condições de acumulação. Pode haver acertos trimestrais e opções de base contributiva.</p>
+          <p><a href="https://info.portaldasfinancas.gov.pt/pt/informacao_fiscal/codigos_tributarios/cirs_rep/Pages/irs31.aspx" target="_blank" rel="noopener noreferrer">CIRS artigo 31.º ↗</a> · <a href="https://www.gov.pt/servicos/requerer-a-isencao-do-pagamento-de-contribuicoes-para-a-seguranca-social" target="_blank" rel="noopener noreferrer">Isenção da Segurança Social ↗</a> · <a href="https://info.portaldasfinancas.gov.pt/pt/apoio_contribuinte/questoes_frequentes/pages/faqs-01007.aspx" target="_blank" rel="noopener noreferrer">Regime da margem de IVA ↗</a></p>
+        </details>
+        <p class="tax-sim-warning" id="taxSimWarning" role="status"></p>
+        <p class="tax-sim-footnote" id="taxSimFootnote">Simulação por viatura, não substitui o contabilista. O IVA de despesas dedutível, os regimes especiais e despesas fixas anuais requerem apuramento separado. Preços de venda usados para referência de SS não são lucro.</p>
+        <p class="tax-sim-error" id="taxSimError" role="alert" hidden></p>
+      </div>
+    </details>
+\n    <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
       <div class="spinner"></div>
       <div>
         <strong id="progressTitle">A analisar…</strong>
@@ -240,7 +276,7 @@
           <summary>Riscos e verificações antes de comprar</summary>
           <ul id="commercialRisks"></ul>
         </details>
-        <p class="commercial-disclaimer">Os custos dependem das premissas e dos orçamentos existentes. Confirma taxas de leilão, IVA, transporte, garantia, histórico e estado técnico. Podes alterá-los em “Premissas da compra”.</p>
+        <p class="commercial-disclaimer">Os custos dependem das premissas e dos orçamentos existentes. Confirma taxas de leilão, IVA, transporte, garantia, histórico e estado técnico. Podes alterá-los em “Premissas da compra”.</p>\n        <button class="btn ghost small" type="button" id="taxSimFromResult">Simular lucro líquido desta avaliação</button>
       </section>
 
       <div class="valuation-share-bar hidden" id="valuationShareBar">
@@ -390,7 +426,7 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261022-optional-mileage-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261022-optional-mileage-v1"></script>\n  <script type="module" src="./tax-simulator-ui.js?v=20261022-fiscal-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
