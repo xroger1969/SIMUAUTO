@@ -25,4 +25,4 @@ jobs:
       - name: Validar sintaxe do motor fiscal
         run: node --check mapa-comissoes/comparador-auto-pro/tax-simulator-calc.mjs
       - name: Testes fiscais
-        run: node --test mapa-comissoes/comparador-auto-pro/tax-simulator-calc.test.mjs
+        run: node --test mapa-comissoes/comparador-auto-pro/tax-simulator-calc.test.mjs mapa-comissoes/comparador-auto-pro/tax-simulator-ui.test.mjs
