@@ -197,3 +197,19 @@ inventadas médias nem exigidos quilómetros para prosseguir.
 Validação: regressões do motor/API e quatro fluxos de integração DOM com
 serviços simulados (foto + km, reinício após sucesso/erro, média e intervalo,
 sem comparáveis). Não foram feitas consultas reais à Spottd nesta alteração.
+
+## Simulador de lucro fiscal ENI — Portugal, 2026
+
+Módulo autenticado no mesmo Avaliador Auto Pro, aberto no botão **Lucro ENI**. Não muda o motor de avaliação ou os custos do parecer comercial. Quatro campos principais: preço de compra, venda, despesas finais e número de viaturas vendidas no trimestre. A partir de uma avaliação concluída, **Usar preços desta avaliação** copia preço de compra atual e revenda realista se ambos existirem; nunca fabrica referências. Despesas ficam editáveis, para evitar importar uma estimativa de mercado como uma despesa comprovada.
+
+Cálculos são isolados e determinísticos em `tax-simulator-calc.mjs`, com testes em `tax-simulator-calc.test.mjs`:
+
+- IVA margem (Portugal continental): `max(0,venda-compra) × 23/123`, aplicado por viatura. Despesas não reduzem a base do IVA da margem; IVA das despesas dedutível exige apuramento separado.
+- Receita sem IVA: `venda - IVA da margem`. ENI/IRS simplificado: rendimento coletável da categoria B em venda de mercadorias = `0,15 × receita sem IVA`, não 15% do lucro.
+- SS para ENI que acumula emprego e satisfaz os requisitos de isenção: pressupõe que as `n` viaturas vendidas no trimestre têm o mesmo preço; rendimento relevante mensal `= 0,20 × receita sem IVA × n / 3`. Até 4 IAS de 2026 (`2 148,52 €`), isenção; acima, 25,2% sobre o excesso mensal, atribuído proporcionalmente aos automóveis. Estimativa e não liquidação; base contributiva efetiva e demais requisitos dependem da Segurança Social. Aplicam-se as regras de limiar de 5 € e contribuição mínima de 20 € quando o excesso gera pagamento.
+- IRS anual do agregado e do salário **não é inferível** de um salário *líquido* de 650 €; sem taxa marginal indicada a aplicação mostra saldo antes do IRS e não cria um lucro líquido fictício. Taxa marginal ilustrativa opcional, configurável e explicitamente não definitiva.
+- Aviso projetivo se vender volume anual semelhante acima de 200.000 €/250.000 €, com recomendação de revisão do regime de contabilidade.
+
+O módulo não recolhe dados fiscais sensíveis, não grava uma declaração e não altera o histórico de avaliações. Taxas/regras de 2026 precisam de revisão anual. Os valores com IVA são finais para efeitos do campo de despesas; deduções de IVA das despesas e fiscalidade de vendas fora do RETBSM não estão incluídos.
+
+Fontes: DL n.º 199/96 (regime da margem), artigo 31.º CIRS, artigo 157.º do código contributivo, IAS 2026 e documentação oficial da Segurança Social.
