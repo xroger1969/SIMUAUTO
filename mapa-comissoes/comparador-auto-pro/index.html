@@ -34,12 +34,14 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
   <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
-  <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">\n  <link rel="stylesheet" href="./tax-simulator.css?v=20261022-fiscal-v1">
+  <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">
+  <link rel="stylesheet" href="./tax-simulator.css?v=20261022-fiscal-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
     (() => {
-      const rogueNewlineOnly = /^(?:\s*\n\s*)+$/;
+      const rogueNewlineOnly = /^(?:\s*
+\s*)+$/;
       const clean = root => {
         if (!root) return;
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -90,7 +92,8 @@
       </div>
       <div class="top-actions">
         <span class="status-dot" id="saveStatus">Ligado</span>
-        <button class="btn ghost small" type="button" id="taxSimOpenBtn">Lucro ENI</button>\n        <button class="btn ghost small" type="button" id="historyBtn">Histórico</button>
+        <button class="btn ghost small" type="button" id="taxSimOpenBtn">Lucro ENI</button>
+        <button class="btn ghost small" type="button" id="historyBtn">Histórico</button>
         <button class="btn ghost small" id="logoutBtn">Sair</button>
       </div>
     </header>
@@ -167,7 +170,8 @@
         <p class="tax-sim-error" id="taxSimError" role="alert" hidden></p>
       </div>
     </details>
-\n    <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
+
+    <section aria-live="polite" class="progress-panel hidden" id="progressPanel">
       <div class="spinner"></div>
       <div>
         <strong id="progressTitle">A analisar…</strong>
@@ -276,7 +280,8 @@
           <summary>Riscos e verificações antes de comprar</summary>
           <ul id="commercialRisks"></ul>
         </details>
-        <p class="commercial-disclaimer">Os custos dependem das premissas e dos orçamentos existentes. Confirma taxas de leilão, IVA, transporte, garantia, histórico e estado técnico. Podes alterá-los em “Premissas da compra”.</p>\n        <button class="btn ghost small" type="button" id="taxSimFromResult">Simular lucro líquido desta avaliação</button>
+        <p class="commercial-disclaimer">Os custos dependem das premissas e dos orçamentos existentes. Confirma taxas de leilão, IVA, transporte, garantia, histórico e estado técnico. Podes alterá-los em “Premissas da compra”.</p>
+        <button class="btn ghost small" type="button" id="taxSimFromResult">Simular lucro líquido desta avaliação</button>
       </section>
 
       <div class="valuation-share-bar hidden" id="valuationShareBar">
@@ -426,7 +431,8 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261022-optional-mileage-v1"></script>\n  <script type="module" src="./tax-simulator-ui.js?v=20261022-fiscal-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261022-optional-mileage-v1"></script>
+  <script type="module" src="./tax-simulator-ui.js?v=20261022-fiscal-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
