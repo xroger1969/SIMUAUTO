@@ -22,9 +22,11 @@ on:
       - "mapa-comissoes/api/comparador-*.js"
       - "mapa-comissoes/lib/access.js"
       - "mapa-comissoes/lib/safe-fetch.js"
+      - "mapa-comissoes/lib/registration.js"
       - "mapa-comissoes/lib/condition-report.js"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
+      - ".github/workflows/comparador-auto-pro-check.yml"
 
 jobs:
   test:
@@ -46,8 +48,13 @@ jobs:
           node --check mapa-comissoes/lib/condition-report.js
           node --check mapa-comissoes/comparador-auto-pro/app-v2.js
           node --check mapa-comissoes/comparador-auto-pro/valuation.js
+          node --check mapa-comissoes/comparador-auto-pro/commercial-identity.js
+          node --check mapa-comissoes/comparador-auto-pro/tax-simulator-ui.js
+          node --check mapa-comissoes/comparador-auto-pro/tax-simulator-calc.mjs
+      - name: Install isolated database test runtime
+        run: npm ci --prefix mapa-comissoes/tests/db-runtime --ignore-scripts --no-audit --no-fund
       - name: Run active comparator regressions
-        run: node --test mapa-comissoes/tests/*.cjs mapa-comissoes/comparador-auto-pro/valuation.test.mjs
+        run: node --test mapa-comissoes/tests/*.cjs mapa-comissoes/comparador-auto-pro/*.test.mjs
       - name: Verify critical UI hooks
         run: |
           grep -q 'id="vehicleUrl"' mapa-comissoes/comparador-auto-pro/index.html

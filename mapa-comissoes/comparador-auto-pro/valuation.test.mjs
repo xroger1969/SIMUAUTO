@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 
+await import(new URL("./commercial-identity.js",import.meta.url));
 const source=await readFile(new URL("./valuation.js",import.meta.url),"utf8");
 const {evaluatePurchase,similarity}=await import("data:text/javascript;base64,"+Buffer.from(source).toString("base64"));
 
@@ -29,11 +30,11 @@ const professional=(i,overrides={})=>({
   ...overrides
 });
 
-test('unknown mileage uses the mean adjusted price and still subtracts costs and target margin',()=>{
+test('unknown mileage keeps the same weighted estimator and still subtracts costs and target margin',()=>{
   const s={...subject,mileage_km:70000,mileage_estimated:true};
   const r=evaluatePurchase({subject:s,comparables:[professional(1,{price:29000}),professional(2,{price:31000}),professional(3,{price:37000})],target_margin:3500,costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100}});
-  const mean=Math.round(r.comparables.reduce((sum,c)=>sum+c.adjustedPrice,0)/r.comparables.length);
-  assert.equal(r.market.marketValue,mean);
+  const fixed=evaluatePurchase({subject:{...s,mileage_estimated:false,mileage_km:70000},comparables:[professional(1,{price:29000}),professional(2,{price:31000}),professional(3,{price:37000})],target_margin:3500,costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100}});
+  assert.equal(r.market.marketValue,fixed.market.marketValue);
   assert.equal(r.purchase.provisionalEligible,true);assert.equal(r.purchase.eligible,false);
   assert.ok(r.purchase.effectiveCeiling<=r.market.saleLikely-3500);
   assert.ok(r.market.confidencePct<=45);
@@ -317,7 +318,7 @@ test("Hyundai Kona 2022 é avaliado por outro ano, quilometragem e versão",()=>
   assert.ok(Number.isFinite(result.purchase.effectiveCeiling));
   assert.ok(result.market.confidencePct>0&&result.market.confidencePct<=52);
   assert.equal(result.purchase.importCost,0);
-  assert.equal(result.market.confidenceMethod,"heuristic-evidence-v2");
+  assert.equal(result.market.confidenceMethod,"heuristic-evidence-v3");
 });
 
 test("dois anúncios aproximados verificados bastam sem três carros iguais",()=>{
@@ -412,9 +413,9 @@ test('Smart fortwo electric drive listings with Coupé wording remain comparable
 });
 
 test('strictly excluded but compatible near-match advertisements may yield cautious fallback',()=>{
-  const far=professional(10,{trim:'Standard Range',generation:'2',year:2020,
-    mileage_km:150000,drivetrain:'RWD',transmission:'manual',price:17600});
-  const r=evaluatePurchase({subject,comparables:[far]});
+  const far=professional(10,{trim:null,generation:null,year:2020,
+    mileage_km:150000,drivetrain:'AWD',transmission:'manual',price:17600});
+  const r=evaluatePurchase({subject,comparables:[far]},{minSimilarity:70});
   assert.equal(r.market.comparablesUsed,1);
   assert.equal(r.market.broadenedMarket,true);
   assert.equal(r.purchase.eligible,false);
@@ -424,8 +425,8 @@ test('strictly excluded but compatible near-match advertisements may yield cauti
   assert.ok(r.warnings.some(x=>/Nível 2|Nível 3|aproximados/i.test(x)));
 });
 test('third tier uses a distant but real same-model and same-fuel advert with confidence capped',()=>{
-  const distant=professional(15,{trim:'City',generation:'9',year:2018,mileage_km:170000,
-    drivetrain:'RWD',transmission:'manual',price:17000});
+  const distant=professional(15,{trim:null,generation:null,year:2018,mileage_km:170000,
+    drivetrain:'AWD',transmission:'manual',price:17000});
   const r=evaluatePurchase({subject,comparables:[distant]});
   assert.equal(r.market.comparablesUsed,1);
   assert.equal(r.market.searchTier,3);
@@ -528,4 +529,118 @@ test("sem comparáveis não inventar intervalo de mercado nem margem verificada"
   assert.equal(r.commercial.expectedMargin,null);
   assert.equal(r.commercial.tone,"neutral");
   assert.match(r.commercial.verdict,/Simulação/);
+});
+
+
+test('AL47IC real snapshot recognizes the commercial family and keeps power discrepancies provisional',async()=>{
+  const snapshot=JSON.parse(await readFile(new URL('../tests/fixtures/al47ic-market.json',import.meta.url),'utf8'));
+  const r=evaluatePurchase(snapshot);
+  assert.equal(r.subject.model,'Model Y');
+  assert.equal(r.subject.trim,'long range awd');
+  assert.equal(r.subject.commercial_identity.raw.model,'MODEL Y LONG RANGE AWD');
+  assert.ok(r.market.comparablesUsed>=2);
+  assert.ok(Number.isFinite(r.market.saleLikely));
+  assert.ok(Number.isFinite(r.purchase.effectiveCeiling));
+  assert.equal(r.purchase.eligible,false);
+  assert.ok(r.comparables.some(c=>c.power_discrepancy));
+  assert.ok(r.warnings.some(w=>/Potência divergente/.test(w)));
+  assert.ok(r.market.confidencePct<=45);
+});
+
+test('AWD, generation and electric variant guards survive broadened searches',()=>{
+  for(const [patch,reason] of [
+    [{drivetrain:'RWD',trim:'Long Range RWD'},/tração incompatível/],
+    [{generation:'2'},/geração incompatível/],
+    [{trim:'Performance'},/versão elétrica incompatível/],
+    [{fuel:'petrol'},/combustível diferente/],
+    [{battery_kwh:45},/bateria incompatível/]
+  ]){
+    const r=evaluatePurchase({subject,comparables:[professional(1,patch)]});
+    assert.equal(r.market.comparablesUsed,0,JSON.stringify(patch));
+    assert.ok(r.excluded.some(x=>reason.test(x.reason)),JSON.stringify(patch));
+  }
+});
+
+test('electric power is not waived for an unidentified variant',()=>{
+  const r=evaluatePurchase({subject:{...subject,trim:null},comparables:[professional(1,{power_cv:514})]});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.ok(r.excluded.some(x=>/potência incompatível/.test(x.reason)));
+});
+
+test('sold, foreign and unconfirmed conditioned prices cannot sustain a market',()=>{
+  for(const patch of [{availability:'sold'},{country:'FR'},{price_basis:'net'},{price_conditioned:true,cash_price:null}]){
+    const r=evaluatePurchase({subject,comparables:[professional(1,patch)]});
+    assert.equal(r.market.comparablesUsed,0,JSON.stringify(patch));
+    assert.equal(r.market.hasIndependentMarket,false);
+  }
+  const cash=evaluatePurchase({subject,comparables:[professional(1,{price:25000,price_conditioned:true,cash_price:32000})]});
+  assert.equal(cash.comparables[0].price,32000);
+});
+
+test('matching specs from independent sellers do not collapse into one vehicle',()=>{
+  const a=professional(1,{price:32000,mileage_km:55000});
+  const b={...a,seller_name:'Independent seller',url:'https://other.example/car/1'};
+  const r=evaluatePurchase({subject,comparables:[a,b]});
+  assert.equal(r.market.comparablesUsed,2);
+  const replicated=evaluatePurchase({subject,comparables:[a,{...a,url:'https://other.example/car/2'}]});
+  assert.equal(replicated.market.comparablesUsed,1);
+});
+
+test('age and mileage adjustments stay positive and bounded on cheap cars',()=>{
+  const car={make:'Renault',model:'Clio',fuel:'petrol',year:2005,mileage_km:200000};
+  const ad={...car,year:2010,mileage_km:50000,url:'https://stand.example/cheap',price:1000,country:'PT',availability:'available',price_basis:'gross',seller_type:'professional'};
+  const r=evaluatePurchase({subject:car,comparables:[ad]});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.ok(r.comparables[0].adjustedPrice>=750);
+  assert.ok(r.comparables[0].adjustedPrice<=1250);
+});
+
+test('zero samples without a known price report tier zero and zero confidence',()=>{
+  const r=evaluatePurchase({subject:{...subject,price:null},comparables:[]});
+  assert.equal(r.market.searchTier,0);
+  assert.equal(r.market.confidencePct,0);
+  assert.equal(r.market.hasIndependentMarket,false);
+});
+
+
+test('known manufacturer aliases share the same family identity',()=>{
+  const car={make:'VW',model:'Golf',fuel:'diesel',year:2020,mileage_km:80000};
+  const ad={...car,make:'Volkswagen',url:'https://stand.example/golf',price:18000};
+  assert.equal(evaluatePurchase({subject:car,comparables:[ad]}).market.comparablesUsed,1);
+});
+
+
+test('a same-variant Tesla with absurd power is still rejected',()=>{
+  const r=evaluatePurchase({subject,comparables:[professional(1,{power_cv:1500})]});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.ok(r.excluded.some(x=>/potência incompatível/.test(x.reason)));
+});
+
+test('duplicate ordering retains verified professional evidence',()=>{
+  const verified=professional(1);
+  const first={...verified,seller_type:'unknown',evidence:{verified:false}};
+  const r=evaluatePurchase({subject,comparables:[first,verified]});
+  assert.equal(r.market.comparablesUsed,1);
+  assert.equal(r.market.verifiedProfessionals,1);
+  assert.equal(r.comparables[0].seller_type,'professional');
+});
+
+test('contradictory drive metadata survives repeated normalization',()=>{
+  const raw={...subject,model:'Model Y Long Range RWD',drivetrain:'AWD',trim:null};
+  const once=globalThis.CommercialIdentity.normalizeVehicleIdentity(raw);
+  const twice=globalThis.CommercialIdentity.normalizeVehicleIdentity(once);
+  assert.equal(twice.commercial_identity.drivetrain_conflict,true);
+  const r=evaluatePurchase({subject:twice,comparables:[professional(1)]});
+  assert.equal(r.market.comparablesUsed,0);
+  assert.ok(r.excluded.some(x=>/tração contraditória/.test(x.reason)));
+});
+
+
+test('Volkswagen ID punctuation aliases preserve the model number',()=>{
+  const identity=globalThis.CommercialIdentity;
+  assert.equal(identity.sameModel({make:'VW',model:'ID.4'},{make:'Volkswagen',model:'ID 4'}),true);
+  assert.equal(identity.sameModel({make:'VW',model:'ID.4'},{make:'Volkswagen',model:'ID 5'}),false);
+  const car={make:'VW',model:'ID.4',fuel:'electric',year:2021,mileage_km:80000};
+  const ad={...car,make:'Volkswagen',model:'ID 4',url:'https://stand.example/id4',price:24000};
+  assert.equal(evaluatePurchase({subject:car,comparables:[ad]}).market.comparablesUsed,1);
 });

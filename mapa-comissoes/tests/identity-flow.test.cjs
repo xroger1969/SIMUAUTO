@@ -27,7 +27,7 @@ test('two-stage API preserves observed condition and PT location while enriching
   const first=await h.poll();
   assert.equal(first.status,202);assert.equal(h.job.context.previous_condition_report.findings.length,1);
   const researched={...observed,battery_soh_pct:99,findings:[{...observed.findings[0],status:'ok',cost:{parts_min_eur:0,parts_max_eur:0,labour_min_eur:150,labour_max_eur:150,price_basis:'net',source_url:'https://oficina.example/pintura',source_title:'Pintura desde 150 EUR + IVA',fitment_note:'Confirmar em oficina'}}]};
-  h.output.output_text=JSON.stringify({subject,comparables:[],condition_report:researched,auction_context:{vehicle_location:'foreign',origin_country:'DE'}});
+  h.output.output_text=JSON.stringify({subject,comparables:[{...subject,url:'https://stand.example/market-ad',price:32000}],condition_report:researched,auction_context:{vehicle_location:'foreign',origin_country:'DE'}});
   h.output.output=[{type:'web_search_call',action:{sources:[{url:'https://oficina.example/pintura'}]}}];
   const second=await h.poll();
   assert.equal(second.status,200);assert.equal(second.result.auction_context.vehicle_location,'PT');
@@ -53,13 +53,13 @@ test('unknown km requires confirmation; explicit zero is allowed',()=>{
 });
 test('registration cannot overwrite confirmed price mileage or trim',()=>{
   const r=mergeRegistration(subject,{make:'Tesla',model:'Model Y',trim:'RWD',price:1,mileage_km:0});
-  assert.equal(r.price,30000);assert.equal(r.mileage_km,50000);assert.equal(r.trim,'Long Range');
+  assert.equal(r.price,30000);assert.equal(r.mileage_km,50000);assert.equal(r.trim.toLowerCase(),'long range');
 });
 test('same vehicle produces the same 24h market cache key across input sources',()=>{
   const manual={input_mode:'manual',original_url:null};
   const listing={input_mode:'url',original_url:'https://www.standvirtual.com/carros/anuncio/abc'};
   const a=marketCacheKey(subject,manual),b=marketCacheKey({...subject},listing);
-  assert.equal(a,b);assert.match(a,/market-v5-model-fuel-20261021\|vehicle-v1/);
+  assert.equal(a,b);assert.match(a,/^market-v6-eligible-identity-20261022\|[a-f0-9]{64}$/);
   assert.notEqual(a,marketCacheKey({...subject,trim:'Performance'},manual));
 });
 test('identical uploaded photos generate the same exact-input signature',()=>{
@@ -67,7 +67,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
-  assert.match(a,/^input-v8-optional-mileage-20261022:/);
+  assert.match(a,/^input-v9-eligible-market-20261022:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{
@@ -82,7 +82,7 @@ test('um resultado sem comparáveis não fica preso na cache de 24 horas',async(
   h.job.result={subject,comparables:[]};
   const lookup=h.ctx.module.exports._test.findFreshInputCache;
   assert.equal(await lookup('test','nova-assinatura'),null);
-  h.job.result.comparables=[{url:'https://stand.example/vehicle/1',price:22000}];
+  h.job.result.comparables=[{...subject,url:'https://stand.example/vehicle/1',price:22000}];
   const cached=await lookup('test','nova-assinatura');
   assert.equal(cached.id,h.job.id);
 });
@@ -201,7 +201,7 @@ test('entered mileage survives photo recognition, plate enrichment and market re
   const first=await h.poll();
   assert.equal(first.status,202);
   assert.equal(h.job.context.previous_subject.mileage_km,123456);
-  h.output.output_text=JSON.stringify({subject:{...subject,mileage_km:999},comparables:[]});
+  h.output.output_text=JSON.stringify({subject:{...subject,mileage_km:999},comparables:[{...subject,url:'https://stand.example/market-ad',price:32000}]});
   const second=await h.poll();
   assert.equal(second.status,200);
   assert.equal(second.result.subject.mileage_km,123456);

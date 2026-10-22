@@ -1,3 +1,4 @@
+require('../comparador-auto-pro/commercial-identity.js');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -118,7 +119,7 @@ test('normalização preserva diferenças de motor, carroçaria e modelo',async(
 
 test('C4 Grand Picasso com ordem alternativa não conta a própria viatura outra vez',async()=>{
   const {evaluatePurchase}=await valuation;
-  const car={...cars[5],registration:null,trim:'1.6 BlueHDi'};
+  const car={...cars[5],registration:null,vin:'TEST-C4-IDENTITY-00001',trim:'1.6 BlueHDi'};
   const r=evaluatePurchase(quote(car,{comparables:[comparable(car,{model:'Grand C4 Picasso',price:car.price,mileage_km:car.mileage_km})]}));
   assert.equal(r.market.comparablesUsed,0);
   assert.ok(r.excluded.some(row=>row.reason==='própria viatura / anúncio replicado'));
