@@ -1,0 +1,37 @@
+/* Módulo fiscal autónomo: mantém o fundo principal e usa cartões frios de leitura clara. */
+.tax-simulator{max-width:1100px;margin:16px auto 22px;padding:0;border:1px solid #829bb7;border-radius:18px;background:#f4f8fe;color:#1b304a;box-shadow:0 12px 36px #041b3444;overflow:hidden}
+.tax-simulator>summary{list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:18px 20px;cursor:pointer;background:#eaf3ff}
+.tax-simulator>summary::-webkit-details-marker,.tax-sim-options>summary::-webkit-details-marker{display:none}
+.tax-simulator>summary strong{display:block;font-size:17px;color:#112f50}
+.tax-simulator>summary small{display:block;margin-top:4px;color:#465f80;font-size:12px}
+.tax-simulator-chevron{font-size:25px;color:#2b5c91;transition:transform .2s}
+.tax-simulator[open] .tax-simulator-chevron{transform:rotate(180deg)}
+.tax-simulator-body{padding:18px 20px 20px}
+.tax-sim-intro{font-size:13px;line-height:1.6;color:#304b6a;margin:0 0 15px}
+.tax-sim-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.tax-sim-fields label,.tax-sim-options label{display:block;color:#173653;font-size:13px;font-weight:700}
+.tax-sim-fields input,.tax-sim-fields select,.tax-sim-options input{display:block;width:100%;margin-top:7px;min-height:46px;border:1px solid #b1c5db;border-radius:11px;background:white;color:#172b45;padding:10px 12px;font:inherit;font-weight:600}
+.tax-sim-fields input:focus,.tax-sim-fields select:focus,.tax-sim-options input:focus{outline:3px solid #5e9bff77;border-color:#2462b3}
+.tax-sim-fields label small{display:block;font-size:11px;color:#4a6280;line-height:1.5;margin-top:6px;font-weight:500}
+.tax-sim-action{display:flex;align-items:center;gap:12px;margin:15px 0;flex-wrap:wrap}
+.tax-sim-action .btn{background:#edf4fd!important;color:#21446d!important;border:1px solid #a5bbd4!important;font-weight:700}
+#taxSimSource{font-size:12px;color:#506782}
+.tax-sim-result{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:13px 0 14px}
+.tax-sim-principal{background:#142e50;padding:15px 16px;border-radius:13px;color:#fff}
+.tax-sim-principal.secondary{background:#d9e9f9;color:#143b65}
+.tax-sim-principal span{display:block;font-size:12px;font-weight:600;opacity:.86}
+.tax-sim-principal strong{display:block;margin-top:5px;font-size:clamp(22px,3vw,29px);letter-spacing:-.6px;overflow-wrap:anywhere}
+.tax-sim-breakdown{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tax-sim-breakdown>div{display:flex;align-items:baseline;justify-content:space-between;gap:10px;border-bottom:1px solid #d3e0ee;padding:10px 0;font-size:12px;color:#36506e}
+.tax-sim-breakdown strong{white-space:nowrap;font-size:14px;color:#183554;font-variant-numeric:tabular-nums}
+.tax-sim-options{margin-top:16px;border:1px solid #c1d1e6;border-radius:12px;padding:12px 14px;background:#fff}
+.tax-sim-options>summary{cursor:pointer;list-style:none;font-size:13px;font-weight:700;color:#174b81}
+.tax-sim-options label{margin-top:14px;max-width:320px}
+.tax-sim-options p,.tax-sim-footnote{font-size:11px;line-height:1.7;color:#4b6380}
+.tax-sim-options a{color:#155796;text-decoration:underline}
+.tax-sim-warning{margin:12px 0 0;font-size:12px;font-weight:700;color:#9b4508;line-height:1.55}
+.tax-sim-warning:empty{display:none}
+.tax-sim-error{padding:12px;border:1px solid #d88f9a;border-radius:10px;color:#8c1e32;background:#fff0f3;margin-top:12px}
+.tax-sim-error[hidden]{display:none}
+@media(max-width:800px){.tax-sim-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.tax-sim-breakdown{grid-template-columns:1fr}}
+@media(max-width:520px){.tax-simulator{margin:13px 0 19px;border-radius:14px}.tax-simulator-body{padding:14px}.tax-sim-fields,.tax-sim-result{grid-template-columns:1fr}.tax-sim-principal strong{font-size:24px}.tax-sim-breakdown>div{font-size:11px}}
