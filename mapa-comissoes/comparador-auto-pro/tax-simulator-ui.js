@@ -26,7 +26,8 @@ function restoreState(){
 function parseMoney(text){
  const raw=String(text??"").replace(/[^\d,.\-]/g,"");
  if(!raw||raw==="—")return null;
- const normalized=raw.includes(",")?raw.replace(/\./g,"").replace(",","."):raw;
+ // O comparador apresenta preços como 22.990 € ou 22.990,00 €.
+ const normalized=raw.includes(",")?raw.replace(/\./g,"").replace(",","."):(/^\d{1,3}(?:\.\d{3})+$/.test(raw)?raw.replace(/\./g,""):raw);
  const num=Number(normalized);
  return Number.isFinite(num)&&num>0?num:null;
 }
