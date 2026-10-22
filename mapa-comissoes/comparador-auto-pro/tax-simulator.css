@@ -10,7 +10,10 @@
 .tax-sim-fields label,.tax-sim-irs-field{display:block;min-width:0;color:#183650;font-size:16px;font-weight:750;line-height:1.3}
 .tax-sim-fields input,.tax-sim-fields select,.tax-sim-irs-field input{display:block;appearance:auto;min-width:0;width:100%;min-height:54px;margin-top:8px;border:1px solid #b7c8db;border-radius:12px;background:#fff;color:#17304b;padding:10px 12px;font-size:18px;font-weight:750;font-family:inherit;box-shadow:0 2px 5px rgba(23,48,75,.025)}
 .tax-sim-fields input:focus,.tax-sim-fields select:focus,.tax-sim-irs-field input:focus{outline:3px solid #77a8d155;border-color:#396b99}
-.tax-sim-action{display:flex;justify-content:flex-end;margin:11px 0 14px}
+.tax-sim-action{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 14px;margin:11px 0 14px}
+.tax-sim-social-option{display:inline-flex;align-items:center;gap:9px;min-height:44px;color:#183650;font-size:14px;font-weight:750;cursor:pointer}
+.tax-sim-social-option input{width:22px;height:22px;flex:none;margin:0;accent-color:#225985;cursor:pointer}
+.tax-sim-social-option input:focus-visible{outline:3px solid #77a8d155;outline-offset:3px}
 .tax-sim-use-prices{border:0;background:transparent;color:#225985;font-size:14px;font-weight:750;padding:9px 2px;min-height:42px;cursor:pointer;text-align:right}
 .tax-sim-use-prices:hover,.tax-sim-use-prices:focus-visible{text-decoration:underline}
 .tax-sim-result{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
