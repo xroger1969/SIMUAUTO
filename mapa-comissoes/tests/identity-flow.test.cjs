@@ -67,7 +67,7 @@ test('identical uploaded photos generate the same exact-input signature',()=>{
   const a=inputSignature({mode:'manual',description:' Tesla Model Y ',image_data_urls:[image]});
   const b=inputSignature({mode:'manual',description:'tesla   model y',image_data_urls:[image]});
   assert.equal(a,b);
-  assert.match(a,/^input-v7-model-fuel-20261021:/);
+  assert.match(a,/^input-v8-optional-mileage-20261022:/);
   assert.notEqual(a,inputSignature({mode:'manual',description:'tesla model y',image_data_urls:['data:image/jpeg;base64,ZGVm']}));
 });
 test('force refresh is the only explicit bypass for stable cache',()=>{
@@ -119,9 +119,9 @@ test('photo identification has no web search tool',async()=>{
   const h=harness();let body;h.ctx.fetch=async(u,o)=>{body=JSON.parse(o.body);return {ok:true,json:async()=>({id:'resp_photo'})};};
   await h.ctx.module.exports._test.startResponse({},['data:image/jpeg;base64,YWJj'],{},true);assert.deepEqual(body.tools,[]);
 });
-test('UI requests null km and registration conflict confirmation',()=>{
+test('UI accepts unknown km while registration conflicts still require confirmation',()=>{
   const s=fs.readFileSync(base+'/comparador-auto-pro/app-v2.js','utf8');const ctx={};vm.createContext(ctx);vm.runInContext(s.slice(s.indexOf('const VALUATION_REQUIRED_FIELDS='),s.indexOf('function followupQuestion')),ctx);
-  assert.ok(ctx.missingVehicleFields({...subject,mileage_km:null}).some(f=>f.key==='mileage_km'));
+  assert.ok(!ctx.missingVehicleFields({...subject,mileage_km:null}).some(f=>f.key==='mileage_km'));
   assert.ok(ctx.missingVehicleFields(subject,{valuation_blocked:true}).some(f=>f.key==='registration'));
 });
 
@@ -171,13 +171,15 @@ test('registration-only identification may use web search when provider is unava
   assert.equal(body.tool_choice,'auto');
 });
 
-test('Standvirtual mileage mean is labelled estimated and ignores duplicates and other portals',()=>{
+test('mileage mean and range include compatible Portuguese portals and ignore duplicate URLs',()=>{
   const {estimateMileage}=require('../api/comparador-market')._test;
   const car={...subject,registration:'AA-00-AA',mileage_km:null};
   const ad=(id,km)=>({...subject,url:'https://www.standvirtual.com/carros/anuncio/'+id,mileage_km:km,seller_type:'professional',country:'PT',availability:'available',evidence:{source_url_verified:true}});
   const a=ad('one',80000),b=ad('two',120000);
-  const r=estimateMileage({subject:car,comparables:[a,b,a,{...ad('other',900000),url:'https://olx.pt/car/1'}]});
-  assert.equal(r.subject.mileage_km,100000);assert.equal(r.subject.mileage_estimated,true);assert.equal(r.subject.mileage_estimate.sample_size,2);
+  const r=estimateMileage({subject:car,comparables:[a,b,a,{...ad('other',190000),url:'https://olx.pt/car/1'}]});
+  assert.equal(r.subject.mileage_km,130000);assert.equal(r.subject.mileage_estimated,true);assert.equal(r.subject.mileage_estimate.sample_size,3);
+  assert.equal(r.subject.mileage_estimate.method,'mean');
+  assert.equal(r.subject.mileage_estimate.min_km,80000);assert.equal(r.subject.mileage_estimate.max_km,190000);
   assert.equal(estimateMileage({subject:{...car,mileage_km:90000},comparables:[a,b]}).subject.mileage_km,90000);
 });
 test('reported Standvirtual URLs can supply provisional km while incompatible adverts cannot',()=>{
@@ -191,6 +193,50 @@ test('estimated mileage is removed before asking AI to read later real mileage',
   const {boundedContext}=require('../api/comparador-market')._test;
   const ctx=boundedContext({previous_subject:{...subject,mileage_km:100000,mileage_estimated:true}},null);
   assert.equal(ctx.previous_subject.mileage_km,null);assert.equal(ctx.previous_subject.mileage_estimated,false);
+});
+
+test('entered mileage survives photo recognition, plate enrichment and market research',async()=>{
+  const h=harness({vehicle:{...subject,mileage_km:null}});
+  h.job.context.mileage_input_km=123456;
+  const first=await h.poll();
+  assert.equal(first.status,202);
+  assert.equal(h.job.context.previous_subject.mileage_km,123456);
+  h.output.output_text=JSON.stringify({subject:{...subject,mileage_km:999},comparables:[]});
+  const second=await h.poll();
+  assert.equal(second.status,200);
+  assert.equal(second.result.subject.mileage_km,123456);
+  assert.equal(second.result.subject.mileage_estimated,false);
+  assert.equal(second.result.subject.mileage_source,'user');
+});
+
+test('mileage input changes exact-input cache identity, including zero',()=>{
+  const base={mode:'manual',description:'14-ID-91'};
+  assert.notEqual(inputSignature(base),inputSignature({...base,mileage_input_km:0}));
+  assert.notEqual(inputSignature({...base,mileage_input_km:50000}),inputSignature({...base,mileage_input_km:150000}));
+  const {boundedContext}=require('../api/comparador-market')._test;
+  assert.equal(boundedContext({...base,mileage_input_km:0},null).mileage_input_km,0);
+  for(const km of [-1,1.5,'unknown',2000001])assert.throws(()=>boundedContext({...base,mileage_input_km:km},null));
+});
+
+test('market reuse never copies real mileage from a previous evaluation into an unknown vehicle',()=>{
+  const ad={...subject,url:'https://stand.example/1',mileage_km:110000,country:'PT',availability:'available',seller_type:'professional'};
+  const cached={id:'old',result:{subject:{...subject,mileage_km:70000},comparables:[ad]}};
+  const unknown=reuseMarketCache(cached,{...subject,mileage_km:null},null,'key');
+  assert.equal(unknown.subject.mileage_km,110000);assert.equal(unknown.subject.mileage_estimated,true);
+  const known=reuseMarketCache(cached,{...subject,mileage_km:0,mileage_source:'user'},null,'key');
+  assert.equal(known.subject.mileage_km,0);assert.equal(known.subject.mileage_estimated,false);
+});
+
+test('missing mileage works without a plate and prioritizes professionals',()=>{
+  const {estimateMileage}=require('../api/comparador-market')._test;
+  const ad=(url,km,seller='professional')=>({...subject,url,mileage_km:km,country:'PT',availability:'available',seller_type:seller});
+  const car={...subject,mileage_km:null};
+  const r=estimateMileage({subject:car,comparables:[ad('https://stand.example/1',100000),ad('https://olx.pt/1',900000,'private')]});
+  assert.equal(r.subject.mileage_km,100000);assert.equal(r.subject.mileage_estimate.sample_size,1);
+  const empty=estimateMileage({subject:car,comparables:[]});
+  assert.equal(empty.subject.mileage_km,null);assert.notEqual(empty.subject.mileage_estimated,true);
+  const blocked=estimateMileage({subject:car,valuation_blocked:true,comparables:[ad('https://stand.example/1',100000)]});
+  assert.equal(blocked.subject.mileage_km,null);
 });
 
 test('V2 market readiness allows missing trim fuel and mileage once plate identifies make model and year',()=>{

@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-21-commercial-insight-v7";
+export const ENGINE_VERSION="2026-10-22-optional-mileage-v1";
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -504,7 +504,9 @@ export function evaluatePurchase(input,custom={}){
     });
   }
 
-  const marketValue=Math.round(weightedMedian(valid.map(r=>({
+  const marketValue=s.mileage_estimated&&valid.length
+    ?Math.round(valid.reduce((sum,r)=>sum+r.adjustedPrice,0)/valid.length)
+    :Math.round(weightedMedian(valid.map(r=>({
     value:r.adjustedPrice,
     weight:Math.pow(r.similarity/100,2)*(sellerType(r.comp)==="professional"?1.25:.5)
   }))));
@@ -571,7 +573,7 @@ export function evaluatePurchase(input,custom={}){
   if(reconditioning.hasUnpriced)warnings.push("Há "+reconditioning.unpriced+" intervenção(ões) ou zona(s) por confirmar/orçamentar. O teto de compra é provisório e pode descer com os custos em falta.");
   if(reconditioning.hasCriticalUnpriced)warnings.push("Há um problema potencialmente crítico por confirmar. É necessário diagnóstico antes da compra.");
   warnings.push(...reconditioning.notes);
-  if(s.mileage_estimated)warnings.push("Quilómetros estimados pelo mercado do Standvirtual. Indica os quilómetros reais para aumentar a confiança da avaliação.");
+  if(s.mileage_estimated)warnings.push("Avaliação provisória pela média de quilómetros dos anúncios comparáveis. A quilometragem real da viatura é desconhecida; o preço é uma referência média de mercado.");
   if(valid.length)warnings.push("Confiança "+confidencePct+"%: índice estimado da qualidade dos comparáveis, não uma probabilidade comprovada de acerto no preço.");
   if(acquisition.needsLocationConfirmation)warnings.push("Localização do leilão por confirmar: reservados provisoriamente "+config.auctionImportCost+" € de importação, apenas para o cenário.");
   if(!eligible&&provisionalEligible)warnings.unshift(priceScenario

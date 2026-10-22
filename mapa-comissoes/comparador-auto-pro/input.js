@@ -15,6 +15,14 @@ export function formatVehiclePlate(raw){
   return cleaned.replace(/^(.{2})(.{2})(.{2})$/,"$1-$2-$3");
 }
 
+export function parseOptionalMileage(raw){
+  const value=String(raw??"").trim();
+  if(!value)return null;
+  const digits=value.replace(/[\s.]/g,"");
+  if(!/^\d+$/.test(digits)||Number(digits)>2000000)throw new Error("Indica quilómetros válidos, por exemplo 125 000, ou deixa o campo vazio.");
+  return Number(digits);
+}
+
 export function parseVehicleInput(raw){
   const value=String(raw||"").trim();
   if(value.length<3||value.length>4000)throw new Error("Cola um link ou descreve a viatura (até 4000 caracteres).");

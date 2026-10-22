@@ -16,9 +16,10 @@ function inputSignature(body={}){
     url:canonicalUrl(body.url||"")||clip(body.url,1200).trim()||null,
     registration:normalizeRegistration(body.registration||body.registration_data?.registration)||null,
     description:String(body.description||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," "),
+    mileage_input_km:mileageInput(body.mileage_input_km),
     images:images.map(image=>sha256(image))
   };
-  return "input-v7-model-fuel-20261021:"+sha256(JSON.stringify(signaturePayload));
+  return "input-v8-optional-mileage-20261022:"+sha256(JSON.stringify(signaturePayload));
 }
 
 function canonicalUrl(raw){
@@ -257,19 +258,37 @@ function mergeRegistration(subject,registration){
   return result;
 }
 
+function mileageInput(value){
+  if(value===null||value===undefined||String(value).trim()==="")return null;
+  const km=Number(value);
+  if(!["number","string"].includes(typeof value)||!Number.isInteger(km)||km<0||km>2000000)throw appError("Quilómetros inválidos. Deixa o campo vazio se não souberes.",400,"invalid_mileage");
+  return km;
+}
+function applyMileageInput(result,context={}){
+  const km=mileageInput(context.mileage_input_km);
+  if(km!==null)result.subject={...(result.subject||{}),mileage_km:km,mileage_estimated:false,mileage_estimate:null,mileage_source:"user"};
+  return result;
+}
 function estimateMileage(result){
   const subject=result.subject||{};
-  if(result.valuation_blocked||!normalizeRegistration(subject.registration)||subject.mileage_km!==null&&subject.mileage_km!==undefined)return result;
-  const seen=new Set();
+  if(result.valuation_blocked||subject.mileage_km!==null&&subject.mileage_km!==undefined&&String(subject.mileage_km).trim()!==""&&Number.isFinite(Number(subject.mileage_km))&&Number(subject.mileage_km)>=0)return result;
+  const seen=new Set(),fingerprints=new Set();
   const base=(result.comparables||[]).filter(c=>{
     const url=canonicalUrl(c.url);
     if(!url||seen.has(url))return false;
-    let host="";try{host=new URL(url).hostname}catch{return false}
-    if(!(host==="standvirtual.com"||host.endsWith(".standvirtual.com"))||c.country!=="PT"||c.availability!=="available")return false;
+    if(c.country!=="PT"||c.availability!=="available"||!(Number(c.price)>0))return false;
     if(!c.make||!c.model||!registrationCompatible(subject,c))return false;
     if(subject.fuel&&c.fuel&&canonicalFuel(c.fuel)!==canonicalFuel(subject.fuel))return false;
+    if(subject.generation&&c.generation&&normalizeIdentity(subject.generation)!==normalizeIdentity(c.generation))return false;
+    if(Number(subject.battery_kwh)>0&&Number(c.battery_kwh)>0&&Math.abs(Number(subject.battery_kwh)-Number(c.battery_kwh))>8)return false;
+    if(subject.drivetrain&&c.drivetrain&&normalizeIdentity(subject.drivetrain)!==normalizeIdentity(c.drivetrain))return false;
+    if(Number(subject.year)>0&&Number(c.year)>0&&Math.abs(Number(subject.year)-Number(c.year))>4)return false;
     if(c.mileage_km===null||c.mileage_km===undefined||c.mileage_km===""||!Number.isFinite(Number(c.mileage_km))||Number(c.mileage_km)<0)return false;
-    seen.add(url);return true;
+    const plate=normalizeRegistration(c.registration);
+    if(plate&&plate===normalizeRegistration(subject.registration))return false;
+    const fingerprint=plate||c.seller_name&&[canonicalMake(c.make),normalizeIdentity(c.model),c.year,c.mileage_km,c.price,normalizeIdentity(c.seller_name)].join("|");
+    if(fingerprint&&fingerprints.has(fingerprint))return false;
+    seen.add(url);if(fingerprint)fingerprints.add(fingerprint);return true;
   });
   if(!base.length)return result;
   const subjectYear=Number(subject.year);
@@ -279,24 +298,23 @@ function estimateMileage(result){
     const samePower=Number(subject.power_cv)>0&&Number(c.power_cv)>0&&Math.abs(Number(c.power_cv)-Number(subject.power_cv))<=5;
     return sameTrim||samePower;
   };
-  let candidates=yearBand(base,1).filter(variantMatch);
+  const professionals=base.filter(c=>c.seller_type==="professional");
+  const preferred=professionals.length?professionals:base;
+  let candidates=yearBand(preferred,1).filter(variantMatch);
   let level="mesma versão/motor e ano ±1";
-  if(!candidates.length){candidates=yearBand(base,1);level="mesmo modelo/motor e ano ±1"}
-  if(!candidates.length){candidates=yearBand(base,2);level="mesmo modelo/motor e ano ±2"}
-  if(!candidates.length){candidates=base;level="mesmo modelo/motor"}
-  const professionals=candidates.filter(c=>c.seller_type==="professional");
-  if(professionals.length)candidates=professionals;
+  if(!candidates.length){candidates=yearBand(preferred,1);level="mesmo modelo/motor e ano ±1"}
+  if(!candidates.length){candidates=yearBand(preferred,2);level="mesmo modelo/motor e ano ±2"}
+  if(!candidates.length){candidates=preferred;level="mesmo modelo/motor e ano até ±4"}
   const values=candidates.map(c=>Number(c.mileage_km)).filter(Number.isFinite).sort((a,b)=>a-b);
   if(!values.length)return result;
-  const mid=Math.floor(values.length/2);
-  const median=Math.round(values.length%2?values[mid]:(values[mid-1]+values[mid])/2);
+  const mean=Math.round(values.reduce((sum,value)=>sum+value,0)/values.length);
   const verifiedCount=candidates.filter(c=>c.evidence?.source_url_verified===true).length;
-  result.subject={...subject,mileage_km:median,mileage_estimated:true,mileage_estimate:{
-    method:"median",source:"Standvirtual",sample_size:candidates.length,verified_urls:verifiedCount,matching_level:level,
+  result.subject={...subject,mileage_km:mean,mileage_estimated:true,mileage_source:"comparables",mileage_estimate:{
+    method:"mean",source:"Anúncios comparáveis em Portugal",sample_size:candidates.length,verified_urls:verifiedCount,matching_level:level,
     min_km:values[0],max_km:values.at(-1),urls:candidates.map(c=>c.url)
   }};
   result.data_quality=result.data_quality||{};
-  result.data_quality.notes=[result.data_quality.notes,"Quilómetros estimados pela mediana de "+candidates.length+" anúncio(s) comparável(is) do Standvirtual ("+level+"). Não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
+  result.data_quality.notes=[result.data_quality.notes,"Referência de quilometragem pela média de "+candidates.length+" anúncio(s) comparável(is) em Portugal ("+level+"): "+mean+" km; intervalo "+values[0]+"–"+values.at(-1)+" km. Não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
   return result;
 }
 
@@ -466,9 +484,14 @@ async function findFreshInputCache(token,signature,excludeJobId=null){
 function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvidence={}){
   const base=JSON.parse(JSON.stringify(cached.result||{}));
   const snapshotAt=cached.snapshot_at||base?.market_cache?.snapshot_at||cached.updated_at||nowIso();
-  return {
+  const subject=mergeCurrentSubject(base.subject||{},currentSubject||{});
+  // A cache fornece anúncios, nunca os quilómetros de outra avaliação.
+  subject.mileage_km=currentSubject?.mileage_estimated?null:(currentSubject?.mileage_km??null);
+  subject.mileage_estimated=false;subject.mileage_estimate=null;
+  subject.mileage_source=currentSubject?.mileage_source||null;
+  return estimateMileage({
     ...base,
-    subject:mergeCurrentSubject(base.subject||{},currentSubject||{}),
+    subject,
     condition_report:currentEvidence.condition_report||normalizeConditionReport(),
     risk_flags:currentEvidence.risk_flags||[],
     auction_context:currentEvidence.auction_context||null,
@@ -481,7 +504,7 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
       source_job_id:cached.id,
       max_age_hours:MARKET_CACHE_HOURS
     }
-  };
+  });
 }
 
 function reuseInputCache(cached,signature){
@@ -519,6 +542,7 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
     registration_input:displayRegistration(body.registration||body.registration_data?.registration)||null,
     registration_lookup_warning:clip(registrationLookupWarning,500)||null,
     registration_data:registrationData,
+    mileage_input_km:mileageInput(body.mileage_input_km),
     previous_subject:body.previous_subject&&typeof body.previous_subject==="object"?{...body.previous_subject,...(body.previous_subject.mileage_estimated?{mileage_km:null,mileage_estimated:false,mileage_estimate:null}:{})}:null,
     previous_condition_report:body.previous_condition_report&&typeof body.previous_condition_report==="object"?normalizeConditionReport(body.previous_condition_report):null,
     previous_auction_context:body.previous_auction_context&&typeof body.previous_auction_context==="object"?body.previous_auction_context:null,
@@ -624,7 +648,7 @@ const instructions=[
   "Preenche color, doors, seats, engine_cc, range_km, warranty_months, seller_name e location apenas quando houver evidência no anúncio analisado. Caso contrário usa null.",
   "Se o contexto indicar text_truncated=true, reconhece que a leitura textual foi parcial; nunca afirmes que leste o anúncio completo.",
   "Pesquisa obrigatoriamente a web antes de devolver comparáveis.",
-  "Se existir matrícula identificada e faltarem apenas quilómetros, pesquisa anúncios ativos no Standvirtual da mesma marca, modelo, motorização e ano próximo (até 1 ano de diferença). Recolhe quilómetros e URLs reais. Mantém subject.mileage_km=null: o servidor calculará a média dos comparáveis elegíveis. Dá prioridade a profissionais.",
+  "Os quilómetros são opcionais. Se mileage_input_km não for null, são os quilómetros indicados pelo utilizador: preserva-os mesmo ao cruzar a matrícula/Spottd. Se faltarem quilómetros, pesquisa à mesma anúncios ativos em Portugal (Standvirtual, PiscaPisca, OLX e sites de stands) da mesma marca, modelo, combustível e ano próximo. Recolhe preços, quilómetros e URLs reais. Mantém subject.mileage_km=null se desconhecidos: o servidor calculará a média e o intervalo dos comparáveis elegíveis, com prioridade a profissionais. Nunca peças quilómetros como condição para pesquisar e nunca inventes uma média sem anúncios.",
   "A referência principal é retalho profissional em Portugal: Standvirtual, PiscaPisca, OLX Automóveis quando o vendedor for stand/comerciante, concessionários e sites próprios de stands.",
   "Abre páginas de anúncios sempre que possível. Cada comparável deve representar uma viatura disponível, ter URL real, preço observado e tipo de vendedor.",
   "Define seller_type=professional apenas com evidência de stand, comerciante ou concessionário; private para particular; unknown se não conseguires confirmar.",
@@ -740,7 +764,7 @@ module.exports=endpoint(async function handler(req,res){
       ?{...data,output_text:JSON.stringify({...structuredResult(data),subject:job.context.previous_subject,
         condition_report:mergeConditionReports(job.context.previous_condition_report,structuredResult(data).condition_report),
         auction_context:job.context.previous_auction_context||structuredResult(data).auction_context})}:data;
-    const result=await finalizeMarketResponse(resultData,registration,token);
+    const result=applyMileageInput(await finalizeMarketResponse(resultData,registration,token),job.context);
     const reference=job.context?.market_reference;
     if(job.context?.stage==="market"&&!result.valuation_blocked&&Array.isArray(reference?.comparables)&&reference.comparables.length){
       result.comparables=reference.comparables;
@@ -872,7 +896,7 @@ module.exports=endpoint(async function handler(req,res){
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,forced_refresh:true});
     }
 
-    const registrationSubject=registrationData?mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData):null;
+    const registrationSubject=registrationData?applyMileageInput({subject:mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData)},context).subject:null;
     const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
     if(registrationOnly){
       const subject=registrationSubject;
@@ -903,5 +927,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
 

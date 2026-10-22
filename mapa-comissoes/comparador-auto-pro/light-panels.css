@@ -1,0 +1,56 @@
+/* Light cards over the existing sunset photograph. */
+.analyze-bar{grid-template-columns:minmax(0,1fr);gap:12px}
+.mileage-input-group{display:grid;gap:7px;min-width:0;padding:14px 16px;background:#f6f8fc;border:1px solid #d3dce7;border-radius:16px;color:#182638;color-scheme:light}
+.mileage-input-group label{font-weight:750;font-size:14px}
+.mileage-input-group label span{font-size:12px;font-weight:500;color:#526276;margin-left:5px}
+.mileage-input-group input{min-height:48px;width:100%;border:1px solid #b6c4d4;background:#fff;color:#182638;border-radius:10px;padding:11px 12px;font-size:16px;outline:none}
+.mileage-input-group small{font-size:12px;line-height:1.5;color:#526276}
+.search-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+.search-actions .btn{min-height:52px}
+.search-actions #startNewAnalysisBtn{background:#f6f8fc;color:#19334e;border-color:#c4d1e0}
+.analyze-bar .vehicle-input-shell>input{background:#fff;color:#182638;border-color:#c4d1e0;color-scheme:light}
+.analyze-bar .vehicle-input-shell>input::placeholder{color:#58677a}
+.input-tool{color:#344d68}
+.input-tool:hover,.input-tool:focus-visible{background:#e8eef7;color:#183c66}
+.mileage-input-group input:focus{border-color:#2874d8;box-shadow:0 0 0 3px #2874d820}
+.hero:after{pointer-events:none}
+.result{--muted:#526276;--line:#ccd7e4}
+.result :is(.vehicle-readout,.decision-card,.commercial-panel,.kpis article,.panel,.condition-details,.vehicle-followup,.assumptions-details,.refine-bar,.valuation-share-bar,.mileage-reference),.empty-state,.progress-panel,.attachment-status{
+  background:#f6f8fc;color:#182638;border-color:#ccd7e4;color-scheme:light;
+}
+.result :is(.ad-summary-block,.vehicle-fact,.readout-columns>div,.commercial-numbers>div,.comp,.condition-item){background:#fff;border-color:#d6dfe9;color:#182638}
+.result :is(p,small,label,.copy,.commercial-note,.commercial-disclaimer,.condition-muted,.condition-item small,.condition-item label,.ad-summary-block p,.vehicle-data-quality,.readout-empty,.assumptions-help,.excluded-list,.refine-mark){color:#526276}
+.result :is(.readout-label,.eyebrow,.vehicle-fact span,.commercial-numbers span,.kpis span,.kpis small){color:#4b6179}
+.result :is(.vehicle-followup-copy>strong,.commercial-heading>strong,.commercial-risk-details summary,.condition-item-head span,.condition-details>summary span,.purchase-before strong,.decision-side strong){color:#182638}
+.result :is(.decision-card span,.decision-card small,.decision-card .purchase-before span,.decision-card .purchase-comparison-note){color:#445b73}
+.result .quality-note{color:#445b73!important}
+.result :is(input,select){background:#fff;color:#182638;border-color:#b6c4d4;color-scheme:light}
+.result input::placeholder{color:#64748b}
+.result .btn.ghost,.result .valuation-print-link{background:#fff;border-color:#bccbdb;color:#234363}
+.result .btn.primary{color:#fff}
+.result .read-status,.result .readout-tag,.result .vehicle-followup-missing span{background:#e8eff9;border-color:#bccde2;color:#284b73}
+.result .read-status.ok,.result .purchase-signal.green,.result .risk.low{background:#e5f5ec;border-color:#9acfb1;color:#17623d}
+.result .read-status.warn,.result .purchase-signal.amber,.result .risk{background:#fff4d9;border-color:#dfc17c;color:#725112}
+.result .purchase-signal.red,.result .risk.high{background:#ffebec;border-color:#dfabb1;color:#a02a36}
+.result .purchase-signal.neutral{background:#e9eff6;border-color:#c0cddd;color:#425972}
+.result .decision-side.signal-green #currentPrice,.result .commercial-green .commercial-heading>strong{color:#17623d}
+.result .decision-side.signal-amber #currentPrice,.result .commercial-amber .commercial-heading>strong{color:#725112}
+.result .decision-side.signal-red #currentPrice,.result .commercial-red .commercial-heading>strong{color:#a02a36}
+.result :is(.comp a,.condition-item a,.comp em){color:#215daa}
+.result .commercial-risk-details ul{color:#725112}
+.result .vehicle-head{--muted:#e0e8f3;color:#fff}
+.result .vehicle-head .eyebrow{color:#d4e2f6}
+.result .vehicle-head p{color:#e0e8f3;text-shadow:0 1px 8px #071323}
+.result .confidence{background:#edf3fc;border-color:#bdcde2;color:#294b76}
+.result .new-search-btn{background:#f6f8fc;color:#234363}
+.mileage-reference{padding:17px 19px;margin:0 0 14px;border:1px solid;border-radius:17px}
+.mileage-reference strong{display:block;font-size:15px}
+.mileage-reference p{font-size:12px;line-height:1.65;margin:7px 0 0}
+.progress-panel small,.attachment-status button{color:#425b79}
+.attachment-status{color:#284b73}
+@media(max-width:560px){
+  .search-actions{grid-template-columns:minmax(0,1fr)}
+  .search-actions .btn{width:100%;min-height:50px}
+  .analyze-bar .vehicle-input-shell>input{background:#fff;border-color:#c4d1e0;color:#182638}
+  .mileage-input-group{padding:13px 14px}
+}

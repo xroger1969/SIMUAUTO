@@ -166,3 +166,34 @@ não é somada em duplicado quando estiver incorporada na licitação.
 O programa não inventa a taxa de leilão nem IVA adicionais se o relatório
 não fornecer essa informação. O módulo é determinístico, auditável e
 recalculado quando o comerciante muda as premissas.
+
+## Nova avaliação e quilometragem opcional (22/10/2026)
+
+O formulário inclui quilómetros opcionais e um botão «Nova avaliação»,
+disponível após resultados e erros. O reinício limpa fotografias, quilómetros,
+resultado e contexto da viatura sem terminar a sessão nem apagar o histórico.
+Os cartões e campos usam superfícies claras com texto escuro; a fotografia
+de fundo e a sua camada de apresentação permanecem inalteradas.
+
+Os quilómetros introduzidos seguem num campo estruturado, prevalecem sobre
+a leitura automática e não são apagados pela consulta da matrícula/Spottd.
+O valor faz parte da assinatura da pesquisa: fotografias iguais com
+quilometragens diferentes não reutilizam o mesmo resultado integral.
+
+Sem quilómetros conhecidos, a pesquisa continua. O servidor calcula média,
+mínimo, máximo, tamanho da amostra e URLs dos anúncios portugueses compatíveis,
+com preferência por profissionais e sem duplicar a mesma referência.
+Não se limita ao Standvirtual. A referência fica explicitamente identificada
+como quilometragem média dos anúncios, nunca como quilometragem real da viatura.
+Uma cache de mercado reutiliza anúncios, sem copiar os quilómetros reais de
+uma avaliação anterior para uma nova consulta com quilometragem desconhecida.
+
+Neste cenário, o preço de referência é a média dos preços ajustados dos
+comparáveis aceites pelo motor; a revenda continua sujeita ao desconto de
+negociação, e a compra subtrai custos, reservas e margem objetivo. A cotação
+é provisória e a confiança fica limitada a 45%. Sem anúncios, não são
+inventadas médias nem exigidos quilómetros para prosseguir.
+
+Validação: regressões do motor/API e quatro fluxos de integração DOM com
+serviços simulados (foto + km, reinício após sucesso/erro, média e intervalo,
+sem comparáveis). Não foram feitas consultas reais à Spottd nesta alteração.
