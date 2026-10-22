@@ -64,7 +64,7 @@ test("importa os preços exibidos 19.600,00 € e 22.990 € sem perder os milha
  app.trigger("taxSimUseAssessment","click");
  assert.equal(app.elements.taxSimPurchase.value,"19600");
  assert.equal(app.elements.taxSimSale.value,"22990");
- assert.match(app.elements.taxSimMargin.textContent,/3\\s?390,00\\s?€/u);
+ assert.match(app.elements.taxSimMargin.textContent,/3\s?390,00\s?€/u);
  // A formatação pode usar espaços normais ou não separáveis: verificar moeda e ordem de grandeza.
  assert.ok(app.elements.taxSimBeforeIRS.textContent.includes("€"));
 });
