@@ -35,3 +35,5 @@
 .tax-sim-error[hidden]{display:none}
 @media(max-width:800px){.tax-sim-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.tax-sim-breakdown{grid-template-columns:1fr}}
 @media(max-width:520px){.tax-simulator{margin:13px 0 19px;border-radius:14px}.tax-simulator-body{padding:14px}.tax-sim-fields,.tax-sim-result{grid-template-columns:1fr}.tax-sim-principal strong{font-size:24px}.tax-sim-breakdown>div{font-size:11px}}
+
+@media(max-width:640px){.topbar{flex-wrap:wrap}.top-actions{flex-wrap:wrap;justify-content:flex-start}}
