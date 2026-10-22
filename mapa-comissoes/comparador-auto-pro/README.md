@@ -73,6 +73,21 @@ Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSigna
 
 O workflow `.github/workflows/comparador-auto-pro-check.yml` testa exclusivamente esta árvore ativa, incluindo sintaxe, motor de valorização, memória, inputs, segurança, voz e hooks críticos da interface.
 
+## Correções da auditoria de 22/10/2026
+
+- `commercial-identity.js` conserva a identidade bruta e normaliza a identidade comercial usada pelo servidor e pelo cálculo. Modelo e versão Tesla são separados; códigos técnicos numéricos não substituem versões comerciais. Combustível, tração, geração e bateria incompatíveis continuam excluídos.
+- Uma única seleção determina a amostra de preço e a referência de quilometragem. Quilómetros inferidos não alteram a seleção ou os pesos da própria amostra. O valor central usa sempre mediana ponderada, com ajustamentos limitados para não ultrapassarem 25% do preço anunciado.
+- Vendidos, referências estrangeiras e preços condicionados sem preço a pronto são excluídos. A deduplicação usa URL, matrícula/VIN ou identidade do vendedor e dados exatos, sem colapsar carros de vendedores diferentes apenas por semelhança.
+- Divergências de potência em Tesla da mesma variante AWD são assinaladas e mantêm a avaliação provisória; não constituem confirmação da especificação técnica.
+- A cache exige uma amostra utilizável, tem versão própria e inclui a identidade técnica. Zero anúncios aceites permite renovar a pesquisa. A recuperação procura a família normalizada por etapas limitadas e guarda tentativas e exclusões.
+- Pesquisas interrompidas podem ser retomadas, incluindo a partir do histórico. O arranque da etapa seguinte tem posse temporária para evitar duplicação concorrente. Fotografias não são guardadas no contexto de recuperação e têm de ser reenviadas se o arranque inicial for interrompido.
+- Alertas e ausência de evidência aparecem no ecrã. Uma falha ao guardar o histórico mantém o resultado calculado e disponibiliza nova tentativa de gravação. A migração `20261022_comparador_idempotent_save.sql` faz uma repetição do mesmo snapshot devolver a revisão já guardada, sem duplicar anúncios nem repor uma revisão antiga sobre uma mais recente.
+- A importação explícita para o simulador fiscal usa preços estruturados, o teto quando falta preço atual, custos e reserva uma única vez. Uma nova avaliação não altera os campos fiscais antes dessa importação. O simulador de IVA da margem recusa importar uma avaliação configurada para IVA dedutível.
+
+O snapshot anonimizado `tests/fixtures/al47ic-market.json` reproduz os oito anúncios da auditoria e permite verificar a correção sem nova consulta paga ou afirmar que os anúncios continuam ativos. As regressões cobrem a coerência entre API, seleção e motor, incluindo exclusão de anúncios incompatíveis.
+
+Esta correção não mede precisão comercial. Continua pendente uma validação independente de 30–50 viaturas reais, com referências manuais e negócios documentados, antes de publicar uma margem de erro. A confiança apresentada continua a ser um índice de evidência e não uma probabilidade calibrada.
+
 ## Estado da viatura e custos de preparação (17/10/2026)
 
 A primeira fase lê as fotografias/relatórios e conserva `condition_report` com

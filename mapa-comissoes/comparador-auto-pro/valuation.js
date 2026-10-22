@@ -1,4 +1,11 @@
-export const ENGINE_VERSION="2026-10-22-optional-mileage-v1";
+export const ENGINE_VERSION="2026-10-22-commercial-cohort-v2";
+const identity=globalThis.CommercialIdentity;
+if(!identity)throw new Error("CommercialIdentity must load before the valuation engine");
+export const normalizeVehicleIdentity=identity.normalizeVehicleIdentity;
+export const selectEligibleComparables=identity.selectEligibleComparables;
+export const canonicalUrl=identity.canonicalUrl;
+export const similarity=identity.similarity;
+
 
 export const DEFAULT_CONFIG=Object.freeze({
   minSimilarity:52,
@@ -104,163 +111,6 @@ export function estimateReconditioning(report={},settings={},subject={},minimum=
     assessed:report?.assessed===true,minimumGross:grossFloor,appliedGross,appliedEconomic,
     hasCriticalUnpriced:items.some(x=>x.safetyCritical&&(x.high===null||x.partial||x.status!=="confirmed")),
     paintMin,paintMax,paintMode:mode,notes:[...new Set(notes)]};
-}
-
-function modelKey(make,model){
-  const m=norm(make);
-  let v=norm(model);
-  if(!v)return "";
-  // Só normalizar grafias conhecidas; manter códigos de motor e carroçarias.
-  if(m==="bmw")v=v.replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
-  if(m==="citroen")v=v.replace(/\bgrand c4 picasso\b/g,"c4 grand picasso");
-  if(m==="smart"&&/^(?:fortwo|for two)(?:\s|$)/.test(v))return /\bcabrio\b|\bconvertible\b/.test(v)?"fortwo cabrio":"fortwo";
-  if(m==="bmw"){
-    const is4=/\bserie 4\b|\bseries 4\b|\b4\d{2}[a-z]{0,2}\b/.test(v);
-    if(is4&&/\bgran coupe\b/.test(v))return "serie 4 gran coupe";
-    if(is4&&/\bcabrio\b|\bconvertible\b/.test(v))return "serie 4 cabrio";
-    if(is4&&/\bcoupe\b/.test(v))return "serie 4 coupe";
-  }
-  return v;
-}
-// Os portais por vezes colocam a cilindrada/versão no campo «modelo».
-// Aceitar essa extensão sem confundir famílias comerciais distintas.
-const sameModel=(s,c)=>{
-  if(!known(s?.model)||!known(c?.model))return false;
-  const a=modelKey(s.make,s.model),b=modelKey(c.make,c.model);
-  if(a===b)return true;
-  const addedVersion=(short,long)=>short.length>=3&&long.startsWith(short+" ")
-    &&/^(?:\d|hybrid\b|hibrid\b|phev\b|crdi\b|tdi\b|bluehdi\b|puretech\b|prime\b|premium\b|style\b|comfort\b|edition\b|pack\b|trend\b|executive\b|n line\b|gt line\b|automatic\b|2wd\b|awd\b)/.test(long.slice(short.length+1));
-  return addedVersion(a,b)||addedVersion(b,a);
-};
-
-export function canonicalUrl(raw){
-  try{
-    const u=new URL(raw);
-    if(!["http:","https:"].includes(u.protocol)||u.username||u.password)return null;
-    u.hash="";
-    u.hostname=u.hostname.replace(/^www\./i,"").toLowerCase();
-    for(const key of [...u.searchParams.keys()]){
-      if(/^(utm_.+|fbclid|gclid|ref|referrer|source)$/i.test(key))u.searchParams.delete(key);
-    }
-    u.searchParams.sort();
-    u.pathname=(u.pathname.replace(/\/+$/,"")||"/");
-    return u.toString();
-  }catch{return null}
-}
-
-function vehicleFingerprint(c){
-  if(known(c?.vin))return "vin:"+norm(c.vin);
-  if(known(c?.registration))return "plate:"+norm(c.registration).replace(/[^a-z0-9]/g,"");
-  const keys=["make","model","trim","year","mileage_km","price"];
-  if(!keys.every(k=>known(c?.[k])))return null;
-  return keys.map(k=>k==="model"?modelKey(c.make,c.model):norm(c[k])).join("|");
-}
-
-function monthIndex(v){
-  if(!v)return null;
-  const d=new Date(v);
-  return Number.isNaN(d.getTime())?null:d.getUTCFullYear()*12+d.getUTCMonth();
-}
-
-function ageDelta(subject,comp){
-  // A primeira matrícula portuguesa pode ser vários anos posterior ao fabrico,
-  // especialmente num importado. Não serve como idade real da viatura.
-  const ageMonth=vehicle=>{
-    const month=monthIndex(vehicle.first_registration);
-    if(month===null)return null;
-    if(known(vehicle.year)&&Math.abs(Math.floor(month/12)-num(vehicle.year))>1)return null;
-    return month;
-  };
-  const a=ageMonth(subject),b=ageMonth(comp);
-  if(a!==null&&b!==null)return a-b;
-  return known(subject.year)&&known(comp.year)?(num(subject.year)-num(comp.year))*12:0;
-}
-
-function equipmentSimilarity(a,b){
-  const A=new Set(Array.isArray(a)?a.map(norm).filter(Boolean):[]);
-  const B=new Set(Array.isArray(b)?b.map(norm).filter(Boolean):[]);
-  if(!A.size||!B.size)return 0;
-  const intersection=[...A].filter(x=>B.has(x)).length;
-  return intersection/new Set([...A,...B]).size;
-}
-
-function trimSimilarity(a,b){
-  if(!known(a)||!known(b))return 0;
-  const A=norm(a),B=norm(b);
-  if(A===B)return 1;
-  if(A.length>=3&&B.length>=3&&(A.includes(B)||B.includes(A)))return 1;
-
-  const tokens=v=>new Set(v.split(/[^a-z0-9]+/).filter(x=>x.length>=2));
-  const ta=tokens(A),tb=tokens(B);
-  if(!ta.size||!tb.size)return 0;
-  const common=[...ta].filter(x=>tb.has(x)).length;
-  const union=new Set([...ta,...tb]).size;
-  const overlap=common/union;
-
-  const code=v=>v.match(/\b\d{3}[a-z]{0,2}\b/i)?.[0]||null;
-  const ca=code(A),cb=code(B);
-  if(ca&&cb&&ca===cb)return Math.max(.9,overlap);
-  return overlap;
-}
-
-function derivativeCode(v){
-  const model=norm(v?.model),trim=norm(v?.trim);
-  const joined=(model+" "+trim).trim().replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
-  const direct=joined.match(/\b([1-8]\d{2})([a-z]{1,2})\b/);
-  if(direct)return direct[1]+direct[2];
-  const base=model.match(/\b([1-8]\d{2})\b/);
-  const suffix=trim.match(/^([die])\b/);
-  if(base&&suffix)return base[1]+suffix[1];
-  return null;
-}
-
-function variantSimilarity(s,c){
-  const a=derivativeCode(s),b=derivativeCode(c);
-  if(a&&b&&a===b)return 1;
-  return trimSimilarity(s?.trim,c?.trim);
-}
-
-function hardExclusion(s,c){
-  if(!same(s.make,c.make))return "marca diferente ou desconhecida";
-  if(!sameModel(s,c))return "modelo diferente ou desconhecido";
-  if(known(s.fuel)&&known(c.fuel)&&fuel(s.fuel)!==fuel(c.fuel))return "combustível diferente";
-  // Geração, tração e caixa diferentes penalizam a semelhança;
-  // não obrigam a descartar uma referência usada por aproximação.
-  if(known(s.year)&&known(c.year)&&Math.abs(num(s.year)-num(c.year))>5)return "ano demasiado distante";
-  if(known(s.mileage_km)&&known(c.mileage_km)&&Math.abs(num(s.mileage_km)-num(c.mileage_km))>150000)return "quilometragem demasiado distante";
-  if(known(s.battery_kwh)&&known(c.battery_kwh)&&Math.abs(num(s.battery_kwh)-num(c.battery_kwh))>=12)return "bateria incompatível";
-  if(known(s.power_cv)&&known(c.power_cv)&&Math.abs(num(s.power_cv)-num(c.power_cv))>Math.max(45,num(s.power_cv)*.25))return "potência incompatível";
-  return null;
-}
-
-export function similarity(s,c){
-  let score=0,total=0;
-  const add=(weight,value)=>{total+=weight;score+=weight*clamp(value,0,1)};
-
-  add(25,same(s.make,c.make)&&sameModel(s,c)?1:0);
-  if(known(s.trim)&&known(c.trim))add(18,variantSimilarity(s,c));
-  if(known(s.generation)&&known(c.generation))add(7,same(s.generation,c.generation)?1:0);
-  if(known(s.fuel)&&known(c.fuel))add(10,fuel(s.fuel)===fuel(c.fuel)?1:0);
-  if(known(s.year)&&known(c.year))add(14,1-Math.abs(num(s.year)-num(c.year))/4);
-  if(known(s.mileage_km)&&known(c.mileage_km))add(14,1-Math.abs(num(s.mileage_km)-num(c.mileage_km))/90000);
-  if(known(s.power_cv)&&known(c.power_cv))add(5,1-Math.abs(num(s.power_cv)-num(c.power_cv))/120);
-  if(known(s.drivetrain)&&known(c.drivetrain))add(4,same(s.drivetrain,c.drivetrain)?1:0);
-  if(known(s.transmission)&&known(c.transmission))add(6,same(s.transmission,c.transmission)?1:0);
-  if(known(s.vat_deductible)&&known(c.vat_deductible))add(2,s.vat_deductible===c.vat_deductible?1:0);
-  const equip=equipmentSimilarity(s.equipment,c.equipment);
-  if(equip>0)add(1,equip);
-
-  if(!total)return 0;
-  const completeness=total/100;
-  const normalized=score/total;
-  return Math.round(clamp(normalized*(.45+.55*completeness),0,1)*1000)/10;
-}
-
-function adjustedPrice(s,c,config){
-  let p=num(c.price);
-  if(known(c.mileage_km)&&known(s.mileage_km))p+=(num(c.mileage_km)-num(s.mileage_km))/1000*config.kmAdjustmentPer1000;
-  p+=ageDelta(s,c)*config.ageAdjustmentPerMonth;
-  return Math.round(p);
 }
 
 function quantile(values,p){
@@ -405,108 +255,10 @@ export function commercialDiagnosis(result){
 
 export function evaluatePurchase(input,custom={}){
   const config={...DEFAULT_CONFIG,...custom};
-  const s=input.subject||{},rows=[],excluded=[],nearMatches=[],wideMatches=[],seenUrls=new Set(),seenFingerprints=new Set();
-  const sourceUrl=canonicalUrl(input.source_url);
-  const subjectFp=vehicleFingerprint(s);
-
-  for(const c of input.comparables||[]){
-    let reason=null;
-    const url=canonicalUrl(c.url);
-    const fp=vehicleFingerprint(c);
-
-    if(!(num(c.price)>0))reason="preço inválido";
-    else if(!url)reason="URL inválido";
-    else if(sourceUrl&&url===sourceUrl)reason="própria viatura";
-    else if(subjectFp&&fp===subjectFp)reason="própria viatura / anúncio replicado";
-    else if(seenUrls.has(url)||(fp&&seenFingerprints.has(fp)))reason="mesma viatura / anúncio duplicado";
-    else reason=hardExclusion(s,c);
-
-    const sim=reason?0:similarity(s,c);
-    const closeVariant=!reason
-      &&same(s.make,c.make)
-      &&sameModel(s,c)
-      &&(!known(s.fuel)||!known(c.fuel)||fuel(s.fuel)===fuel(c.fuel))
-      &&(!known(s.trim)||!known(c.trim)||variantSimilarity(s,c)>=.9)
-      &&(!known(s.year)||!known(c.year)||Math.abs(num(s.year)-num(c.year))<=1);
-    const similarityFloor=closeVariant?50:config.minSimilarity;
-    if(!reason&&sim<similarityFloor)reason="dados insuficientes ou semelhança insuficiente ("+sim+"%)";
-
-    // Escalões progressivos: modelo e combustível compatíveis, anúncio real em PT.
-    if(reason?.startsWith("dados insuficientes ou semelhança insuficiente")
-      &&c.country==="PT"&&c.price_basis==="gross"
-      &&known(s.year)&&known(c.year)&&known(s.fuel)&&known(c.fuel)
-      &&fuel(s.fuel)===fuel(c.fuel)){
-      const yearDelta=Math.abs(num(s.year)-num(c.year));
-      const match={comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp};
-      if(sim>=40&&yearDelta<=3)nearMatches.push(match);
-      else if(sim>=20&&yearDelta<=5)wideMatches.push(match);
-    }
-    if(reason){
-      excluded.push({label:c.label||c.trim||"Comparável",url:c.url||null,reason,comp:c});
-      continue;
-    }
-
-    seenUrls.add(url);
-    if(fp)seenFingerprints.add(fp);
-    rows.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
-  }
-
-  let broadenedMarket=false,searchTier=1;
-  if(!rows.length&&(nearMatches.length||wideMatches.length)){
-    const candidatePool=nearMatches.length?nearMatches:wideMatches;
-    searchTier=nearMatches.length?2:3;
-    const fallbackUrls=new Set(),fallbackFingerprints=new Set();
-    for(const match of [...candidatePool].sort((a,b)=>b.similarity-a.similarity)){
-      const url=match.comp.url,fp=match.fingerprint;
-      if(fallbackUrls.has(url)||(fp&&fallbackFingerprints.has(fp)))continue;
-      fallbackUrls.add(url);if(fp)fallbackFingerprints.add(fp);
-      rows.push({comp:match.comp,similarity:match.similarity,adjustedPrice:match.adjustedPrice});
-    }
-    broadenedMarket=rows.length>0;
-    if(broadenedMarket){
-      for(let i=excluded.length-1;i>=0;i--){
-        if(excluded[i].reason?.startsWith("dados insuficientes ou semelhança insuficiente")
-          &&fallbackUrls.has(canonicalUrl(excluded[i].url)))excluded.splice(i,1);
-      }
-    }
-  }
-
-  const professionalRows=rows.filter(r=>sellerType(r.comp)==="professional");
-  const nonPrivateRows=rows.filter(r=>sellerType(r.comp)!=="private");
-  let marketBasis="private_reference",basisRows=rows;
-  if(professionalRows.length){
-    marketBasis="professional";
-    basisRows=professionalRows;
-    for(const r of rows){
-      if(sellerType(r.comp)!=="professional")excluded.push({
-        label:r.comp.label||r.comp.trim||"Comparável",
-        url:r.comp.url||null,
-        reason:sellerType(r.comp)==="private"?"anúncio particular — fora da referência profissional":"vendedor não confirmado — fora da referência profissional",
-        comp:r.comp
-      });
-    }
-  }else if(nonPrivateRows.length){
-    marketBasis="seller_unconfirmed";
-    basisRows=nonPrivateRows;
-    for(const r of rows){
-      if(sellerType(r.comp)==="private")excluded.push({label:r.comp.label||"Comparável",url:r.comp.url||null,reason:"anúncio particular — referência secundária",comp:r.comp});
-    }
-  }
-
-  let valid=basisRows;
-  if(valid.length>=5){
-    const q1=quantile(valid.map(r=>r.adjustedPrice),.25),q3=quantile(valid.map(r=>r.adjustedPrice),.75),iqr=q3-q1;
-    const lo=q1-1.5*iqr,hi=q3+1.5*iqr;
-    valid=valid.filter(r=>{
-      const ok=r.adjustedPrice>=lo&&r.adjustedPrice<=hi;
-      if(!ok)excluded.push({label:r.comp.label||"Comparável",url:r.comp.url||null,reason:"outlier de preço",comp:r.comp});
-      return ok;
-    });
-  }
-
-  const marketValue=s.mileage_estimated&&valid.length
-    ?Math.round(valid.reduce((sum,r)=>sum+r.adjustedPrice,0)/valid.length)
-    :Math.round(weightedMedian(valid.map(r=>({
+  const selection=selectEligibleComparables(input.subject,input.comparables||[],{...config,source_url:input.source_url});
+  const s=selection.subject,valid=selection.rows,excluded=selection.excluded;
+  const {broadenedMarket,searchTier,marketBasis}=selection;
+  const marketValue=Math.round(weightedMedian(valid.map(r=>({
     value:r.adjustedPrice,
     weight:Math.pow(r.similarity/100,2)*(sellerType(r.comp)==="professional"?1.25:.5)
   }))));
@@ -520,6 +272,8 @@ export function evaluatePurchase(input,custom={}){
     :1;
   const acquisition=resolveAcquisitionContext(input,config);
   const warnings=[];
+  const powerConflicts=valid.filter(r=>r.powerDiscrepancy);
+  if(powerConflicts.length)warnings.push("Potência divergente entre fontes em "+powerConflicts.length+" anúncio(s) da mesma versão elétrica. Confirmar a especificação; referência provisória.");
   if(missing.length)warnings.push("Falta confirmar: "+missing.join(", ")+".");
   if(valid.length===1)warnings.push("A estimativa baseia-se num único anúncio; a dispersão do mercado não pode ser medida.");
   if(broadenedMarket)warnings.push(searchTier===3
@@ -557,10 +311,10 @@ export function evaluatePurchase(input,custom={}){
     :verified.length===0?47:92;
   const completenessCap=s.mileage_estimated||!known(s.mileage_km)?45:missing.length?58:95;
   const confidencePct=valid.length
-    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,searchTier===3?25:(dispersion>.45||broadenedMarket)?35:95),0,95))
+    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,powerConflicts.length?45:95,searchTier===3?25:(dispersion>.45||broadenedMarket)?35:95),0,95))
     :0;
   const reconditioning=estimateReconditioning(input.condition_report,input.reconditioning_settings,s,input.costs?.reconditioning,input.tax?.mode,num(input.tax?.vat_rate,.23));
-  const evidenceEligible=!broadenedMarket&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
+  const evidenceEligible=!broadenedMarket&&!powerConflicts.length&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
     &&verified.length>=config.minVerifiedProfessionals&&marketBasis==="professional"
     &&dispersion<=.25&&confidencePct>=62;
   // Price dispersion must lower confidence, not hide a calculable scenario.
@@ -647,7 +401,7 @@ export function evaluatePurchase(input,custom={}){
       unknownSellerComparables:valid.filter(r=>sellerType(r.comp)==="unknown").length,
       marketBasis:valid.length?marketBasis:"none",marketValue,saleLikely,saleFast,confidencePct,dispersion,broadenedMarket,
       searchTier:priceScenario?4:valid.length?searchTier:0,hasIndependentMarket:valid.length>0,
-      confidenceMethod:"heuristic-evidence-v2",sampleSize:valid.length
+      confidenceMethod:"heuristic-evidence-v3",sampleSize:valid.length
     },
     purchase:{
       currentPrice,
@@ -678,7 +432,7 @@ export function evaluatePurchase(input,custom={}){
     condition_report:input.condition_report||null,
     tax:{mode:taxMode,vatRate},
     parameters:{...config,costs:{...costs},reconditioning_settings:input.reconditioning_settings||{},source_context:{...(input.source_context||{})},acquisition},
-    comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(r=>({...r.comp,similarity:r.similarity,adjustedPrice:r.adjustedPrice,seller_type:sellerType(r.comp)})),
+    comparables:valid.sort((a,b)=>b.similarity-a.similarity).map(r=>({...r.comp,similarity:r.similarity,adjustedPrice:r.adjustedPrice,seller_type:sellerType(r.comp),power_discrepancy:r.powerDiscrepancy})),
     excluded,
     warnings
   };

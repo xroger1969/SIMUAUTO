@@ -144,7 +144,7 @@
         <div class="tax-sim-fields">
           <label for="taxSimPurchase">Compra (€)<input id="taxSimPurchase" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" value="19600"></label>
           <label for="taxSimSale">Venda (€)<input id="taxSimSale" type="number" inputmode="decimal" min="0.01" max="10000000" step="0.01" value="22990"></label>
-          <label for="taxSimCosts">Despesas (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" step="0.01" value="500"></label>
+          <label for="taxSimCosts">Custos e reserva (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" step="0.01" value="500"></label>
           <label for="taxSimQuarterly">Vendas/trimestre
             <select id="taxSimQuarterly">
               <option value="1">1 carro</option><option value="2">2 carros</option>
@@ -154,7 +154,7 @@
           </label>
         </div>
         <div class="tax-sim-action">
-          <button class="tax-sim-use-prices" id="taxSimUseAssessment" type="button">Usar preços da avaliação <span aria-hidden="true">↗</span></button>
+          <button class="tax-sim-use-prices" id="taxSimUseAssessment" type="button">Usar avaliação <span aria-hidden="true">↗</span></button>
         </div>
         <div class="tax-sim-result" aria-live="polite">
           <div class="tax-sim-principal">
@@ -193,6 +193,15 @@
       </div>
     </section>
 
+    <section class="progress-panel hidden" id="pendingResearch" role="status">
+      <strong id="pendingResearchText">Pesquisa guardada.</strong>
+      <button class="btn ghost small" type="button" id="resumeResearchBtn">Retomar pesquisa</button>
+    </section>
+    <section class="progress-panel hidden" id="analysisSaveNotice" role="status">
+      <strong>Avaliação calculada · histórico por guardar</strong>
+      <button class="btn ghost small" type="button" id="retryAnalysisSaveBtn">Guardar novamente</button>
+    </section>
+
     <section class="result hidden" id="result">
       <div class="vehicle-head">
         <div>
@@ -209,14 +218,14 @@
       <details class="vehicle-readout" id="vehicleReadout">
         <summary>
           <span>
-            <strong>Ficha do anúncio lida pela IA</strong>
+            <strong>Ficha da viatura</strong>
             <small>Confirma aqui o que o sistema identificou antes de usar o cálculo.</small>
           </span>
           <span class="read-status" id="adReadStatus">A validar leitura…</span>
         </summary>
         <div class="vehicle-readout-body">
           <div class="ad-summary-block">
-            <span class="readout-label">Descrição do anúncio</span>
+            <span class="readout-label">Descrição</span>
             <p id="adSummary">—</p>
           </div>
           <div class="vehicle-facts" id="vehicleFacts"></div>
@@ -297,6 +306,11 @@
         <p class="commercial-disclaimer">Os custos dependem das premissas e dos orçamentos existentes. Confirma taxas de leilão, IVA, transporte, garantia, histórico e estado técnico. Podes alterá-los em “Premissas da compra”.</p>
         <button class="btn ghost small" type="button" id="taxSimFromResult">Simular lucro líquido desta avaliação</button>
       </section>
+
+      <details class="panel" open>
+        <summary>Alertas da avaliação</summary>
+        <div class="risk-list" id="riskList" aria-live="polite"></div>
+      </details>
 
       <div class="valuation-share-bar hidden" id="valuationShareBar">
         <button class="valuation-share-main" type="button" id="shareValuationBtn">
@@ -421,6 +435,7 @@
         </div>
         <button class="history-dialog-close" type="button" id="historyDialogClose" aria-label="Fechar">×</button>
       </div>
+      <div class="history-list" id="historyPendingList"></div>
       <div class="history-status" id="historyStatus">A carregar histórico…</div>
       <div class="history-list" id="historyList"></div>
       <button class="btn ghost small history-more hidden" type="button" id="historyLoadMoreBtn">Carregar mais</button>
@@ -445,8 +460,9 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script type="module" src="./app-v2.js?v=20261022-optional-mileage-v1"></script>
-  <script type="module" src="./tax-simulator-ui.js?v=20261022-compact-v2"></script>
+  <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
+  <script type="module" src="./app-v2.js?v=20261022-audit-corrections-v1"></script>
+  <script type="module" src="./tax-simulator-ui.js?v=20261022-compact-audit-v3"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->

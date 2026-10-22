@@ -1,4 +1,4 @@
-import { evaluatePurchase } from "./valuation.js?v=20261022-optional-mileage-v1";
+import { evaluatePurchase } from "./valuation.js?v=20261022-commercial-cohort-v2";
 import { relevantMemories } from "./memory.js";
 import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
 
@@ -23,6 +23,10 @@ let member=null;
 let currentAnalysisId=null;
 let currentVehicle=null;
 let currentResult=null;
+globalThis.AutoProAssessment=null;
+let pendingResearch=null;
+let pendingAnalysisSaves=[];
+let pendingSavesAttempt=null;
 let lastAnalysisContext=null;
 let conversation=[];
 let selectedImageData=null;
@@ -109,6 +113,21 @@ function calculationKindLabel(kind){
     condition_costs:"Custos de preparação corrigidos"
   })[kind]||"Cálculo";
 }
+function hasMarketReference(result){
+  return Number(result?.market?.comparablesUsed)>0&&result.market.marketValue!=null&&Number.isFinite(Number(result.market.marketValue));
+}
+function assessmentConfidenceLabel(result){
+  if(result?.purchase?.priceScenario)return "Nível 4 · cenário sem mercado verificado";
+  if(!(Number(result?.market?.comparablesUsed)>0))return "Sem referência de mercado · evidência 0%";
+  const tier=Number(result.market.searchTier);
+  return (tier>0?"Nível "+tier+" · ":"")+"índice de evidência "+(result.market.confidencePct??0)+"%"+(result.purchase?.provisionalEligible&&!result.purchase?.eligible?" · provisória":"");
+}
+function marketSnapshotNote(result,cache){
+  if(!(Number(result?.market?.comparablesUsed)>0)||!cache?.snapshot_at)return "";
+  const when=new Date(cache.snapshot_at);
+  if(!Number.isFinite(when.getTime()))return "";
+  return " Anúncios consultados em "+historyDate.format(when)+(cache.hit?" · amostra reutilizada.":".");
+}
 function historyItem(row){
   const when=row.created_at?historyDate.format(new Date(row.created_at)):"—";
   const title=esc(row.vehicle_title||"Viatura");
@@ -128,7 +147,7 @@ function historyItem(row){
 async function loadHistory(reset=false){
   if(!session)return;
   const list=q("historyList"),status=q("historyStatus"),more=q("historyLoadMoreBtn");
-  if(reset){historyOffset=0;list.innerHTML="";}
+  if(reset){historyOffset=0;list.innerHTML="";await loadRecoverableJobs();}
   status.textContent=historyOffset?"A carregar mais cálculos…":"A carregar histórico…";
   more.disabled=true;
   const from=historyOffset,to=historyOffset+HISTORY_PAGE_SIZE-1;
@@ -149,6 +168,24 @@ async function loadHistory(reset=false){
   status.textContent=historyOffset+" cálculo(s) guardado(s)";
   more.classList.toggle("hidden",rows.length<HISTORY_PAGE_SIZE);
   more.disabled=false;
+}
+async function loadRecoverableJobs(){
+  const list=q("historyPendingList");if(!list||!session)return;
+  const {data,error}=await db.from("cap_jobs").select("id,analysis_id,status,context,created_at")
+    .eq("user_id",session.user.id).in("status",["starting","queued","in_progress"])
+    .order("created_at",{ascending:false}).limit(40);
+  list.innerHTML="";
+  if(error){list.textContent="Pesquisas pendentes indisponíveis.";return}
+  for(const job of data||[]){
+    const item=document.createElement("article");item.className="history-item";
+    const label=document.createElement("strong");
+    const v=job.context?.previous_subject||{};
+    label.textContent=[v.make,v.model,v.trim].filter(Boolean).join(" ")||"Pesquisa pendente";
+    const when=document.createElement("small");when.textContent=job.created_at?historyDate.format(new Date(job.created_at)):"";
+    const button=document.createElement("button");button.type="button";button.className="btn ghost small";button.textContent="Retomar pesquisa";
+    button.addEventListener("click",()=>{closeHistory();resumePendingAnalysis(job.id)});
+    item.append(label,when,button);list.appendChild(item);
+  }
 }
 function openHistory(){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
@@ -248,8 +285,10 @@ function addMsg(role,text){
 }
 async function storeMessage(role,content,rules=[]){
   if(!session)return;
-  const {error}=await db.from("cap_messages").insert({analysis_id:currentAnalysisId,user_id:session.user.id,role,content,extracted_rules:rules});
-  if(error)toast("Não foi possível guardar esta mensagem no histórico.");
+  try{
+    const {error}=await db.from("cap_messages").insert({analysis_id:currentAnalysisId,user_id:session.user.id,role,content,extracted_rules:rules});
+    if(error)throw error;
+  }catch{toast("Não foi possível guardar esta mensagem no histórico.")}
 }
 async function refreshMemoryCount(){
   if(!session)return;
@@ -359,7 +398,13 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     let label="Leitura do anúncio por confirmar",tone="warn";
     const length=Number(page.text_length)||String(page.text_sample||"").length||0;
     const chars=length?Number(length).toLocaleString("pt-PT")+" carateres":"";
-    if(kind==="auto1_link_only"){
+    if(context?.entry?.registration||String(context?.entry?.sourceUrl||"").startsWith("plate:")){
+      label="Identificação pela matrícula";tone="ok";
+    }else if(context?.entry?.mode==="manual"&&kind!=="photo"&&!/photo|screenshot/.test(kind)){
+      label="Descrição fornecida manualmente";tone="ok";
+    }else if(kind==="photo"){
+      label="Leitura pelas fotografias fornecidas";tone="ok";
+    }else if(kind==="auto1_link_only"){
       label="AUTO1 privada · o link sozinho não expõe a ficha";
     }else if(kind==="link_only"){
       label="Leitura direta bloqueada · dados pelo link + pesquisa web";
@@ -377,7 +422,7 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
 
   const summary=q("adSummary");
   if(summary){
-    summary.textContent=String(v.ad_summary||page.description||"O anúncio foi identificado, mas não devolveu uma descrição adicional estruturada.").trim();
+    summary.textContent=String(v.ad_summary||(context?.entry?.registration?"Identificação obtida pela matrícula.":page.description)||"Sem descrição adicional.").trim();
   }
 
   const facts=[
@@ -499,7 +544,7 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
   if(scroll)setTimeout(()=>panel.scrollIntoView({behavior:"smooth",block:"center"}),120);
 }
 function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
-  currentResult=null;
+  currentResult=null;globalThis.AutoProAssessment=null;
   currentVehicle=subject||{};
   q("valuationShareBar")?.classList.add("hidden");
   q("auctionLocationQuestion")?.classList.add("hidden");
@@ -588,7 +633,8 @@ function applyPurchaseSignal(result){
 
 function renderRisks(flags,warnings){
   const list=q("riskList");if(!list)return;list.innerHTML="";
-  const all=[...(flags||[]).map(x=>({text:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))];
+  const all=[...(flags||[]).map(x=>({text:typeof x==="string"?x:x.label,severity:x.severity||"medium"})),...(warnings||[]).map(x=>({text:x,severity:"medium"}))]
+    .filter((item,index,rows)=>item.text&&rows.findIndex(other=>other.text===item.text)===index);
   if(!all.length)all.push({text:"Sem alertas relevantes registados nesta análise.",severity:"low"});
   all.forEach(x=>{
     const el=document.createElement("div");el.className="risk "+(x.severity==="high"?"high":x.severity==="low"?"low":"");el.textContent=x.text;list.appendChild(el);
@@ -677,6 +723,7 @@ function renderMileageReference(result){
 function renderResult(result,sourceHost,riskFlags=[]){
   hideVehicleFollowup();
   currentResult=result||null;
+  globalThis.AutoProAssessment=currentResult;
   currentVehicle=result.subject||{};
   const shareBar=q("valuationShareBar");
   if(shareBar)shareBar.classList.add("hidden");
@@ -687,9 +734,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   renderVehicleReadout(currentVehicle,currentMarketData);
   renderMileageReference(result);
-  q("confidencePill").textContent=result.purchase?.priceScenario
-    ?"Nível 4 · cenário sem mercado verificado"
-    :"Nível "+(result.market?.searchTier||1)+" · confiança estimada "+(result.market?.confidencePct??0)+"%"+(result.purchase?.provisionalEligible&&!result.purchase?.eligible?" · provisória":"");
+  q("confidencePill").textContent=assessmentConfidenceLabel(result);
   const rawCeiling=result.purchase?.effectiveCeiling;
   const displayedCeiling=rawCeiling!==null&&rawCeiling!==undefined&&Number.isFinite(Number(rawCeiling))?Number(rawCeiling):NaN;
   const acquisition=result.purchase?.acquisition||{};
@@ -709,7 +754,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   renderCommercialDiagnosis(result);
   q("saleLikely").textContent=fmt(result.market?.saleLikely);
   q("saleFast").textContent=fmt(result.market?.saleFast);
-  const hasCurrent=Number.isFinite(Number(result.purchase?.currentPrice));
+  const hasCurrent=result.purchase?.currentPrice!=null&&Number.isFinite(Number(result.purchase.currentPrice));
   const marginLabel=q("expectedMargin")?.previousElementSibling;
   if(marginLabel)marginLabel.textContent=hasCurrent?"Margem no preço atual":"Margem no teto estimado";
   q("expectedMargin").textContent=fmt(hasCurrent?result.purchase?.expectedMargin:result.purchase?.marginAtCeiling);
@@ -719,7 +764,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
     :"comprando ao teto comercial";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=Number.isFinite(displayedCeiling)
-    ?(result.purchase?.priceScenario?"SIMULAÇÃO FINANCEIRA · mercado não confirmado":result.purchase?.needsLocationConfirmation?"Cenário provisório · confirmar localização":result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · confiança "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · confiança "+(result.market?.confidencePct??0)+"%")
+    ?(result.purchase?.priceScenario?"SIMULAÇÃO FINANCEIRA · mercado não confirmado":result.purchase?.needsLocationConfirmation?"Cenário provisório · confirmar localização":result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · evidência "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · evidência "+(result.market?.confidencePct??0)+"%")
     :(result.purchase?.decision||"—");
   const auctionQuestion=q("auctionLocationQuestion");
   if(auctionQuestion){
@@ -743,15 +788,13 @@ function renderResult(result,sourceHost,riskFlags=[]){
     ?"NÍVEL 4: dois resultados financeiros com base apenas no "+result.purchase.referenceSource+" ("+fmt(result.purchase.referencePrice)+"). Não existe mercado independente nem revenda verificada. Os valores NÃO são recomendação de compra."
     :result.purchase?.eligible
       ?"Teto de compra suportado por "+verified+" comparáveis profissionais verificados e pela margem comercial definida."
-      :Number.isFinite(Number(result.market?.marketValue))
+      :hasMarketReference(result)
         ?"Cenários calculados por aproximação ponderada a partir de "+(result.market?.comparablesUsed??0)+" anúncio(s). A confiança é um índice heurístico, não uma probabilidade comprovada de acerto."
         :(result.warnings?.find(w=>/Sem comparáveis e sem preço conhecido/i.test(w))||"Não existe preço independente utilizável. Introduz um preço ou atualiza a pesquisa.");
   const marketCache=currentMarketData?.market?.market_cache;
-  const snapshotNote=marketCache?.snapshot_at
-    ?" Mercado fixado em "+historyDate.format(new Date(marketCache.snapshot_at))+" por 24 h"+(marketCache.hit?" e reutilizado para manter a mesma cotação.":".")
-    :"";
+  const snapshotNote=marketSnapshotNote(result,marketCache);
   if(q("qualityNote"))q("qualityNote").textContent=quality+snapshotNote;
-  q("marketSummary").textContent=Number.isFinite(Number(result.market?.marketValue))
+  q("marketSummary").textContent=hasMarketReference(result)
     ?"Valor de mercado de referência: "+fmt(result.market.marketValue)+". "+(result.purchase?.eligible
       ?"A evidência mínima para o teto recomendado foi atingida."
       :result.purchase?.provisionalEligible
@@ -779,7 +822,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
     ))+"</strong><br>"+
     (result.purchase?.priceScenario?"Base exclusivamente hipotética: <strong>"+esc(fmt(result.purchase.referencePrice))+"</strong> · não é uma cotação de mercado<br>":"")+
     "Versão do motor: <strong>"+esc(result.engine_version||"—")+"</strong>";
-  const shareReady=Number.isFinite(Number(result.purchase?.effectiveCeiling))&&Number.isFinite(Number(result.market?.saleFast));
+  const shareReady=result.purchase?.effectiveCeiling!=null&&result.market?.saleFast!=null&&Number.isFinite(Number(result.purchase.effectiveCeiling))&&Number.isFinite(Number(result.market.saleFast));
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
 }
@@ -1090,7 +1133,7 @@ function printValuationSummary(){
   popup.document.close();
 }
 function renderAuto1NeedsPhotos(reader,url){
-  currentResult=null;
+  currentResult=null;globalThis.AutoProAssessment=null;
   currentVehicle=null;
   q("result").classList.add("hidden");
   const empty=q("emptyState");
@@ -1107,7 +1150,7 @@ function renderAuto1NeedsPhotos(reader,url){
 }
 function renderReaderOnly(reader,url){
   hideVehicleFollowup();
-  currentResult=null;
+  currentResult=null;globalThis.AutoProAssessment=null;
   const shareBar=q("valuationShareBar");if(shareBar)shareBar.classList.add("hidden");
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
   const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
@@ -1143,7 +1186,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
+  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -1152,7 +1195,7 @@ function setOperationBusy(busy){
 function beginOperation(kind,analysisId=null){
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
   const op={id:++operationSequence,kind,analysisId,requestKey:crypto.randomUUID(),jobId:null};
-  activeOperation=op;setOperationBusy(true);return op;
+  activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);return op;
 }
 function assertOperation(op){
   if(activeOperation!==op)throw new Error("Esta operação já não é a análise ativa.");
@@ -1233,12 +1276,41 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
     memory_rules:result?.market?.dealer_memories||[]
   };
 }
-async function persistCompletedAnalysis(analysisId,result,market,reader,entry,marketPayload,calculationKind="analysis"){
-  await updateAnalysis({risks:market?.risk_flags||[],reader},analysisId);
-  await saveAnalysisSnapshot(analysisId,makeSnapshot(result,market,reader,entry,marketPayload,calculationKind));
+function pendingSavesKey(){return "cap:pending-analysis-saves:"+(session?.user?.id||"")}
+function syncPendingSaves(){
+  q("analysisSaveNotice")?.classList.toggle("hidden",!pendingAnalysisSaves.length);
+  try{
+    if(pendingAnalysisSaves.length)sessionStorage.setItem(pendingSavesKey(),JSON.stringify(pendingAnalysisSaves));
+    else sessionStorage.removeItem(pendingSavesKey());
+  }catch{}
 }
+async function retryPendingSaves(){
+  if(pendingSavesAttempt)return pendingSavesAttempt;
+  pendingSavesAttempt=(async()=>{
+    while(pendingAnalysisSaves.length){
+      const item=pendingAnalysisSaves[0];
+      try{await saveAnalysisSnapshot(item.analysisId,item.snapshot)}catch{syncPendingSaves();return false}
+      pendingAnalysisSaves.shift();syncPendingSaves();
+    }
+    return true;
+  })();
+  try{return await pendingSavesAttempt}finally{pendingSavesAttempt=null}
+}
+async function persistCompletedAnalysis(analysisId,result,market,reader,entry,marketPayload,calculationKind="analysis"){
+  const item={analysisId,snapshot:JSON.parse(JSON.stringify(makeSnapshot(result,market,reader,entry,marketPayload,calculationKind)))};
+  pendingAnalysisSaves.push(item);syncPendingSaves();
+  return retryPendingSaves();
+}
+q("retryAnalysisSaveBtn")?.addEventListener("click",async()=>{
+  if(activeOperation)return;
+  const button=q("retryAnalysisSaveBtn");button.disabled=true;
+  try{toast(await retryPendingSaves()?"Histórico guardado.":"Avaliação disponível. O histórico continua por guardar.")}
+  finally{button.disabled=false}
+});
 async function initializeAppData(){
   await Promise.allSettled([refreshMemoryCount(),loadDealPreferences()]);
+  try{pendingAnalysisSaves=JSON.parse(sessionStorage.getItem(pendingSavesKey())||"[]").filter(item=>item.analysisId&&item.snapshot?.result)}catch{pendingAnalysisSaves=[]}
+  if(pendingAnalysisSaves.length)await retryPendingSaves();
   await resumePendingAnalysis();
 }
 
@@ -1401,10 +1473,11 @@ function resetAnalysisView(){
 
   resetSearchInput({announce:false,focus:false});
   stopProgress();
+  q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
 
   currentAnalysisId=null;
   currentVehicle=null;
-  currentResult=null;
+  currentResult=null;globalThis.AutoProAssessment=null;
   currentMarketData=null;
   lastAnalysisContext=null;
   auctionLocationOverride=null;
@@ -1650,6 +1723,13 @@ async function fetchJson(url,options={},timeout=25000){
     return {response,data};
   }finally{clearTimeout(timer)}
 }
+function pendingResearchError(message){return Object.assign(new Error(message),{recoverable:true})}
+function showPendingResearch(operation,message){
+  pendingResearch={jobId:operation.jobId||null,analysisId:operation.analysisId||null};
+  const panel=q("pendingResearch");if(!panel)return;
+  panel.classList.remove("hidden");q("pendingResearchText").textContent=message;
+}
+q("resumeResearchBtn")?.addEventListener("click",()=>resumePendingAnalysis(pendingResearch?.jobId,pendingResearch?.analysisId));
 async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
   const startedAt=Date.now();let consecutiveNetworkFailures=0;
   while(Date.now()-startedAt<timeoutMs){
@@ -1661,17 +1741,25 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
       poll=await fetchJson("/api/comparador-market?job_id="+encodeURIComponent(jobId),{
         method:"GET",headers:{authorization:"Bearer "+session.access_token}
       },20000);
-      consecutiveNetworkFailures=0;
+      if(poll.response.ok)consecutiveNetworkFailures=0;
     }catch(error){
       consecutiveNetworkFailures++;
       if(consecutiveNetworkFailures<4)continue;
-      throw new Error("A ligação à internet oscilou várias vezes. A pesquisa fica guardada e pode ser retomada.");
+      throw pendingResearchError("A ligação oscilou. Podes retomar a pesquisa guardada.");
     }
     if(poll.response.status===202||["starting","queued","in_progress"].includes(poll.data.status))continue;
-    if(!poll.response.ok)throw new Error(poll.data.message||poll.data.error||"Falha no radar de mercado.");
+    if(!poll.response.ok){
+      const message=poll.data.message||poll.data.error||"Falha no radar de mercado.";
+      const terminal=["market_job_failed","openai_market_failed"].includes(poll.data.error);
+      if(!terminal&&(poll.response.status>=500||[408,429].includes(poll.response.status))){
+        if(++consecutiveNetworkFailures<4)continue;
+        throw pendingResearchError("Não foi possível consultar o serviço. A pesquisa pode ser retomada.");
+      }
+      throw new Error(message);
+    }
     return poll.data;
   }
-  throw new Error("A pesquisa continua pendente. Fica guardada e será retomada quando voltares ao Comparador.");
+  throw pendingResearchError("A pesquisa continua pendente. Podes retomá-la aqui ou no histórico.");
 }
 async function runMarketAnalysis(payload,operation){
   assertOperation(operation);
@@ -1686,25 +1774,33 @@ async function runMarketAnalysis(payload,operation){
       },40000);
       break;
     }catch(error){
-      if(attempt===1)throw new Error("A ligação caiu ao iniciar a pesquisa. O pedido mantém o mesmo identificador para evitar duplicações.");
+      if(attempt===1)throw pendingResearchError("A ligação caiu ao iniciar. Vou procurar o pedido guardado ao retomar.");
       await wait(700);
     }
   }
   assertOperation(operation);
-  if(!start.response.ok)throw new Error(start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.");
+  if(!start.response.ok){
+    const message=start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.";
+    if(start.response.status>=500||[408,429].includes(start.response.status))throw pendingResearchError(message+" Podes procurar o pedido guardado ao retomar.");
+    throw new Error(message);
+  }
   if(start.data.subject)return start.data;
   const jobId=start.data.job_id;
   if(!jobId)throw new Error("O radar iniciou sem identificador persistente.");
   operation.jobId=jobId;
   const result=await pollMarketJob(jobId,operation);
+  q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
   if(start.data.registration_data&&!result.registration_data)result.registration_data=start.data.registration_data;
   return result;
 }
-async function resumePendingAnalysis(){
+async function resumePendingAnalysis(jobId=null,analysisId=null){
   if(!session||activeOperation)return;
-  const since=new Date(Date.now()-10*60*1000).toISOString();
-  const {data:jobs,error}=await db.from("cap_jobs").select("id,analysis_id,status,context,created_at").in("status",["starting","queued","in_progress"]).gte("created_at",since).order("created_at",{ascending:false}).limit(1);
-  if(error||!jobs?.length)return;
+  let query=db.from("cap_jobs").select("id,analysis_id,status,context,created_at").eq("user_id",session.user.id);
+  if(jobId)query=query.eq("id",jobId);
+  else if(analysisId)query=query.eq("analysis_id",analysisId);
+  else query=query.in("status",["starting","queued","in_progress"]);
+  const {data:jobs,error}=await query.order("created_at",{ascending:false}).limit(1);
+  if(error||!jobs?.length){if(jobId||analysisId)toast("Não foi possível recuperar o pedido. Consulta o histórico ou inicia uma nova avaliação.");return;}
   const job=jobs[0];
   const {data:analysis}=await db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle();
   if(!analysis)return;
@@ -1727,7 +1823,7 @@ async function resumePendingAnalysis(){
     });
     result.market.comment=market.market_comment||"";result.market.dealer_memories=memories;
     for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
-    const entry={sourceUrl:analysis.source_url,sourceDomain:analysis.source_domain,mode:job.context?.input_mode||"url"};
+    const entry={sourceUrl:analysis.source_url,sourceDomain:analysis.source_domain,registration:market.subject?.registration||job.context?.registration_data?.registration||null,mode:job.context?.input_mode||"url"};
     const reader=analysis.reader||{};
     const marketPayload={url:analysis.source_url,dealer_memories:allRules.slice(0,12),registration_data:market.registration_data||job.context?.registration_data||null,refinement_history:job.context?.refinement_history||[]};
     currentMarketData={market,reader,entry,sourceHost:analysis.source_domain||"manual",marketPayload,allRules};
@@ -1740,10 +1836,15 @@ async function resumePendingAnalysis(){
       return;
     }
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
+    q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
     if(missing.length)showVehicleFollowup(subject,missing,{scroll:false});
     await persistCompletedAnalysis(job.analysis_id,result,market,reader,entry,marketPayload,"resume");
     addMsg("assistant","Retomei e concluí a pesquisa que tinha ficado pendente.");
-  }catch(error){console.warn("Retoma CAP:",error);toast(error.message)}
+  }catch(error){
+    console.warn("Retoma CAP:",error);
+    if(error.recoverable)showPendingResearch(operation,error.message);
+    toast(error.message);
+  }
   finally{stopProgress();finishOperation(operation)}
 }
 
@@ -1767,7 +1868,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   q("auto1Connection").classList.add("hidden");
   q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
   q("mileageReference").classList.add("hidden");hideVehicleFollowup();
-  currentAnalysisId=null;currentVehicle=null;currentResult=null;currentMarketData=null;lastAnalysisContext=null;auctionLocationOverride=null;q("chat").innerHTML="";conversation=[];
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;globalThis.AutoProAssessment=null;currentMarketData=null;lastAnalysisContext=null;auctionLocationOverride=null;q("chat").innerHTML="";conversation=[];
 
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
@@ -1900,6 +2001,8 @@ q("analyzeForm").addEventListener("submit",async ev=>{
           :"Falta um preço conhecido ou anúncio verificável para apresentar valores monetários.";
     addMsg("assistant",completion);await storeMessage("assistant",completion);
   }catch(err){
+    if(err.recoverable){showPendingResearch(operation,err.message);return}
+    if(currentResult){toast("A avaliação está disponível. "+String(err?.message||err));return}
     q("emptyState").classList.remove("hidden");
     q("emptyState").querySelector("h2").textContent="Não consegui concluir esta leitura";
     const raw=String(err?.message||err);
@@ -2048,7 +2151,7 @@ q("refineForm").addEventListener("submit",async ev=>{
         ?"Análise refeita com teto provisório; confirma a evidência antes de fechar a compra."
         :"Análise refeita; ainda não existe base suficiente para calcular um valor de compra.")
       +(refinementAI.learned?" A orientação ficou guardada como hipótese para pesquisas futuras.":"");
-    const priceSummary=Number.isFinite(Number(result.purchase?.effectiveCeiling))?"\n\nValor-alvo de compra: "+fmt(result.purchase.effectiveCeiling)+".":"";
+    const priceSummary=result.purchase?.effectiveCeiling!=null&&Number.isFinite(Number(result.purchase.effectiveCeiling))?"\n\nValor-alvo de compra: "+fmt(result.purchase.effectiveCeiling)+".":"";
     const visibleReply=(refinementAI.reply?refinementAI.reply+"\n\n":"")+reply+priceSummary;
     addMsg("assistant",reply);await storeMessage("assistant",reply);
     q("saveStatus").textContent="IA ativa";q("refineInlineStatus").textContent="Análise atualizada pela IA.";
@@ -2056,6 +2159,7 @@ q("refineForm").addEventListener("submit",async ev=>{
     toast(refinementAI.learned?"Análise refeita e orientação guardada.":"Análise refeita.");
   }catch(err){
     const message=String(err?.message||err);
+    if(err.recoverable){showPendingResearch(operation,message);showRefineDialog("Pesquisa guardada",message,"loading");return}
     addMsg("assistant","Não consegui refazer a análise: "+message);await storeMessage("assistant","Não consegui refazer a análise: "+message);
     q("refineInlineStatus").textContent="Não foi possível refazer a análise.";showRefineDialog("Não foi possível concluir",message,"error");
   }finally{
@@ -2208,8 +2312,9 @@ async function refreshMarketSnapshot(){
     lastAnalysisContext=currentMarketData;
     renderResult(result,currentMarketData.sourceHost,market.risk_flags||[]);
     await persistCompletedAnalysis(currentAnalysisId,result,market,currentMarketData.reader,currentMarketData.entry,nextPayload,"market_refresh");
-    toast("Mercado atualizado. Esta nova fotografia do mercado fica estável por 24 horas.");
+    toast(Number(result.market?.comparablesUsed)>0?"Amostra de mercado atualizada.":"Pesquisa concluída sem anúncios utilizáveis.");
   }catch(error){
+    if(error.recoverable)showPendingResearch(operation,error.message);
     toast(error.message||"Não foi possível atualizar o mercado.");
   }finally{
     stopProgress();

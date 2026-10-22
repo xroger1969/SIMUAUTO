@@ -23,13 +23,10 @@ function restoreState(){
   });
  }catch{ /* sem dados válidos */ }
 }
-function parseMoney(text){
- const raw=String(text??"").replace(/[^\d,.\-]/g,"");
- if(!raw||raw==="—")return null;
- // O comparador apresenta preços como 22.990 € ou 22.990,00 €.
- const normalized=raw.includes(",")?raw.replace(/\./g,"").replace(",","."):(/^\d{1,3}(?:\.\d{3})+$/.test(raw)?raw.replace(/\./g,""):raw);
- const num=Number(normalized);
- return Number.isFinite(num)&&num>0?num:null;
+function assessmentAmount(value){
+ if(value===null||value===undefined||value==="")return null;
+ const amount=Number(value);
+ return Number.isFinite(amount)&&amount>=0?amount:null;
 }
 function numberFrom(id){
  const el=byId(id),raw=String(el?.value??"").trim();
@@ -79,11 +76,26 @@ function showUseError(message){
 }
 function useAssessmentPrices(){
  const result=byId("result");
- if(!result||result.classList.contains("hidden")){showUseError("Conclui uma avaliação primeiro.");return false;}
- const purchase=parseMoney(byId("currentPrice")?.textContent),sale=parseMoney(byId("commercialSale")?.textContent);
- if(purchase===null||sale===null){showUseError("Faltam preços confirmados nesta avaliação.");return false;}
+ const assessment=globalThis.AutoProAssessment;
+ if(!result||result.classList.contains("hidden")||!assessment){showUseError("Conclui uma avaliação primeiro.");return false;}
+ if(assessment.tax?.mode==="deductible"){
+  showUseError("Esta avaliação usa IVA dedutível. O simulador ENI usa IVA da margem.");return false;
+ }
+ const purchase=assessmentAmount(assessment.purchase?.currentPrice)??assessmentAmount(assessment.purchase?.effectiveCeiling);
+ const sale=assessmentAmount(assessment.market?.saleLikely);
+ const fixedCosts=assessmentAmount(assessment.purchase?.fixedCosts),reserve=assessmentAmount(assessment.purchase?.riskReserve);
+ if(purchase===null||sale===null||sale<=0||fixedCosts===null||reserve===null){showUseError("Faltam preços ou custos nesta avaliação.");return false;}
+ const costs=Math.round((fixedCosts+reserve)*100)/100;
+ if([purchase,sale,costs].some(value=>value>10000000)){showUseError("Os valores da avaliação são inválidos.");return false;}
  byId("taxSimPurchase").value=String(purchase);
  byId("taxSimSale").value=String(sale);
+ const costField=byId("taxSimCosts");
+ costField.value=String(costs);
+ costField.title="Custos: "+eur(fixedCosts)+" · Reserva de risco: "+eur(reserve);
+ if(costField.dataset){
+  costField.dataset.assessmentFixedCosts=String(fixedCosts);
+  costField.dataset.assessmentRiskReserve=String(reserve);
+ }
  render();
  return true;
 }
@@ -95,8 +107,15 @@ function openSimulator(useAssessment=false){
 restoreState();
 FIELD_IDS.forEach(id=>{
  const field=byId(id);
- field?.addEventListener("input",render);
- field?.addEventListener("change",render);
+ const update=()=>{
+  if(id==="taxSimCosts"){
+   field.title="";
+   if(field.dataset){delete field.dataset.assessmentFixedCosts;delete field.dataset.assessmentRiskReserve;}
+  }
+  render();
+ };
+ field?.addEventListener("input",update);
+ field?.addEventListener("change",update);
 });
 byId("taxSimUseAssessment")?.addEventListener("click",useAssessmentPrices);
 byId("taxSimOpenBtn")?.addEventListener("click",()=>openSimulator(false));

@@ -3,6 +3,7 @@ const {lookupRegistration,normalizeRegistration,displayRegistration}=require("..
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
+const {normalizeVehicleIdentity,selectEligibleComparables,sameModel}=require("../comparador-auto-pro/commercial-identity.js");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clip=(v,n)=>String(v??"").slice(0,n);
@@ -17,9 +18,10 @@ function inputSignature(body={}){
     registration:normalizeRegistration(body.registration||body.registration_data?.registration)||null,
     description:String(body.description||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," "),
     mileage_input_km:mileageInput(body.mileage_input_km),
-    images:images.map(image=>sha256(image))
+    images:images.map(image=>sha256(image)),
+    corrected_identity:body.previous_subject?identityCacheFields(body.previous_subject):null
   };
-  return "input-v8-optional-mileage-20261022:"+sha256(JSON.stringify(signaturePayload));
+  return "input-v9-eligible-market-20261022:"+sha256(JSON.stringify(signaturePayload));
 }
 
 function canonicalUrl(raw){
@@ -159,18 +161,8 @@ function canonicalFuel(value){
     "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev"})[fuel]||fuel;
 }
 function modelCompatible(a,b,make){
-  const modelKey=value=>{
-    let model=normalizeIdentity(value);
-    if(canonicalMake(make)==="bmw")model=model.replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
-    if(canonicalMake(make)==="citroen")model=model.replace(/\bgrand c4 picasso\b/g,"c4 grand picasso");
-    return model;
-  };
-  const A=modelKey(a),B=modelKey(b);
-  if(!A||!B||A===B)return true;
-  // A ficha pode dizer «Kona 1.6 Hybrid» enquanto a matrícula devolve «Kona».
-  const extended=(short,long)=>short.length>=3&&long.startsWith(short+" ")
-    &&/^(?:\d|hybrid\b|hibrid\b|phev\b|prime\b|premium\b|pack\b|style\b|comfort\b|edition\b)/.test(long.slice(short.length+1));
-  return extended(A,B)||extended(B,A);
+  if(!normalizeIdentity(a)||!normalizeIdentity(b))return true;
+  return sameModel(normalizeVehicleIdentity({make,model:a}),normalizeVehicleIdentity({make,model:b}));
 }
 function registrationCompatible(subject,registration){
   const a=canonicalMake(subject?.make),b=canonicalMake(registration?.make);
@@ -192,27 +184,34 @@ function marketReady(subject={}){
 }
 
 const MARKET_CACHE_HOURS=24;
+const TRANSITION_LEASE_MS=90000;
+const MAX_MARKET_RECOVERY_STEPS=2;
+function identityCacheFields(subject={}){
+  const s=normalizeVehicleIdentity(subject);
+  const number=(value)=>value!==null&&value!==undefined&&value!==""&&Number.isFinite(Number(value))?Number(value):null;
+  return {
+    registration:normalizeRegistration(s.registration)||null,
+    make:canonicalMake(s.make),model:normalizeIdentity(s.model),trim:normalizeIdentity(s.trim),
+    generation:normalizeIdentity(s.generation),fuel:canonicalFuel(s.fuel),
+    year:number(s.year),mileage_km:s.mileage_estimated?null:number(s.mileage_km),
+    power_cv:number(s.power_cv),battery_kwh:number(s.battery_kwh),
+    drivetrain:normalizeIdentity(s.drivetrain),transmission:normalizeIdentity(s.transmission),
+    body_type:normalizeIdentity(s.body_type)
+  };
+}
 function marketCacheKey(subject={},context={}){
-  const plate=normalizeRegistration(subject.registration);
-  let identity="";
-  if(plate){
-    identity="plate:"+plate+"|year:"+(Number.isInteger(Number(subject.year))?Number(subject.year):"unknown");
-  }else{
-    const make=canonicalMake(subject.make),model=normalizeIdentity(subject.model);
-    if(!make||!model)return null;
-    const year=Number(subject.year);
-    const mileage=Number(subject.mileage_km);
-    const power=Number(subject.power_cv);
-    identity=[
-      "vehicle-v1",make,model,normalizeIdentity(subject.trim),
-      Number.isInteger(year)?year:"",
-      normalizeIdentity(subject.fuel),
-      Number.isFinite(mileage)&&mileage>=0?Math.round(mileage/5000)*5000:"",
-      Number.isFinite(power)&&power>0?Math.round(power/10)*10:"",
-      normalizeIdentity(subject.drivetrain)
-    ].join("|");
-  }
-  return "market-v5-model-fuel-20261021|"+identity;
+  const identity=identityCacheFields(subject);
+  if(!identity.make||!identity.model)return null;
+  // A matrícula identifica o carro, mas não anula correções da versão ou dos km.
+  return "market-v6-eligible-identity-20261022|"+sha256(JSON.stringify(identity));
+}
+function marketSelection(result={},currentSubject=null){
+  if(result.valuation_blocked===true)return {rows:[],excluded:[],searchTier:0};
+  return selectEligibleComparables(currentSubject||result.subject||{},result.comparables||[],{source_url:result.source_url});
+}
+function hasUsefulMarket(result={},currentSubject=null){
+  const selected=marketSelection(result,currentSubject);
+  return selected.rows.some(row=>Number.isFinite(Number(row.adjustedPrice))&&Number(row.adjustedPrice)>0);
 }
 function cacheAllowed(context={}){
   return context.force_market_refresh!==true && !(Array.isArray(context.refinement_history)&&context.refinement_history.length);
@@ -226,13 +225,14 @@ function mergeCurrentSubject(cached={},current={}){
 }
 function mergeRegistration(subject,registration){
   if(!registration)return subject;
-  const result={...subject};
+  const commercial=normalizeVehicleIdentity(registration);
+  const result=normalizeVehicleIdentity(subject);
   if(registration.registration)result.registration=registration.registration;
   for(const key of ["make","model"]){
-    if(registration[key])result[key]=registration[key];
+    if(commercial[key])result[key]=commercial[key];
   }
   for(const key of ["trim","year","first_registration","fuel","body_type","engine_cc","power_cv","transmission","doors","seats","color"]){
-    if((result[key]===null||result[key]===undefined||result[key]==="")&&registration[key]!==null&&registration[key]!==undefined&&registration[key]!=="")result[key]=registration[key];
+    if((result[key]===null||result[key]===undefined||result[key]==="")&&commercial[key]!==null&&commercial[key]!==undefined&&commercial[key]!=="")result[key]=commercial[key];
   }
   if((!result.origin||result.origin==="unknown")&&registration.origin)result.origin=registration.origin;
   if(registration.provider==="spottd"){
@@ -255,7 +255,7 @@ function mergeRegistration(subject,registration){
     }
     result.registration_provider="spottd";
   }
-  return result;
+  return normalizeVehicleIdentity(result);
 }
 
 function mileageInput(value){
@@ -270,51 +270,24 @@ function applyMileageInput(result,context={}){
   return result;
 }
 function estimateMileage(result){
-  const subject=result.subject||{};
-  if(result.valuation_blocked||subject.mileage_km!==null&&subject.mileage_km!==undefined&&String(subject.mileage_km).trim()!==""&&Number.isFinite(Number(subject.mileage_km))&&Number(subject.mileage_km)>=0)return result;
-  const seen=new Set(),fingerprints=new Set();
-  const base=(result.comparables||[]).filter(c=>{
-    const url=canonicalUrl(c.url);
-    if(!url||seen.has(url))return false;
-    if(c.country!=="PT"||c.availability!=="available"||!(Number(c.price)>0))return false;
-    if(!c.make||!c.model||!registrationCompatible(subject,c))return false;
-    if(subject.fuel&&c.fuel&&canonicalFuel(c.fuel)!==canonicalFuel(subject.fuel))return false;
-    if(subject.generation&&c.generation&&normalizeIdentity(subject.generation)!==normalizeIdentity(c.generation))return false;
-    if(Number(subject.battery_kwh)>0&&Number(c.battery_kwh)>0&&Math.abs(Number(subject.battery_kwh)-Number(c.battery_kwh))>8)return false;
-    if(subject.drivetrain&&c.drivetrain&&normalizeIdentity(subject.drivetrain)!==normalizeIdentity(c.drivetrain))return false;
-    if(Number(subject.year)>0&&Number(c.year)>0&&Math.abs(Number(subject.year)-Number(c.year))>4)return false;
-    if(c.mileage_km===null||c.mileage_km===undefined||c.mileage_km===""||!Number.isFinite(Number(c.mileage_km))||Number(c.mileage_km)<0)return false;
-    const plate=normalizeRegistration(c.registration);
-    if(plate&&plate===normalizeRegistration(subject.registration))return false;
-    const fingerprint=plate||c.seller_name&&[canonicalMake(c.make),normalizeIdentity(c.model),c.year,c.mileage_km,c.price,normalizeIdentity(c.seller_name)].join("|");
-    if(fingerprint&&fingerprints.has(fingerprint))return false;
-    seen.add(url);if(fingerprint)fingerprints.add(fingerprint);return true;
-  });
-  if(!base.length)return result;
-  const subjectYear=Number(subject.year);
-  const yearBand=(rows,years)=>Number.isInteger(subjectYear)?rows.filter(c=>Number.isInteger(Number(c.year))&&Math.abs(Number(c.year)-subjectYear)<=years):rows;
-  const variantMatch=c=>{
-    const sameTrim=subject.trim&&c.trim&&normalizeIdentity(c.trim)===normalizeIdentity(subject.trim);
-    const samePower=Number(subject.power_cv)>0&&Number(c.power_cv)>0&&Math.abs(Number(c.power_cv)-Number(subject.power_cv))<=5;
-    return sameTrim||samePower;
-  };
-  const professionals=base.filter(c=>c.seller_type==="professional");
-  const preferred=professionals.length?professionals:base;
-  let candidates=yearBand(preferred,1).filter(variantMatch);
-  let level="mesma versão/motor e ano ±1";
-  if(!candidates.length){candidates=yearBand(preferred,1);level="mesmo modelo/motor e ano ±1"}
-  if(!candidates.length){candidates=yearBand(preferred,2);level="mesmo modelo/motor e ano ±2"}
-  if(!candidates.length){candidates=preferred;level="mesmo modelo/motor e ano até ±4"}
-  const values=candidates.map(c=>Number(c.mileage_km)).filter(Number.isFinite).sort((a,b)=>a-b);
-  if(!values.length)return result;
+  const subject=normalizeVehicleIdentity(result.subject||{});
+  result.subject=subject;
+  const selection=marketSelection(result);
+  result.market_selection={version:"eligible-v1-20261022",accepted_urls:selection.rows.map(row=>row.comp.url),
+    accepted_count:selection.rows.length,excluded_count:selection.excluded.length,search_tier:selection.searchTier||0,
+    exclusions:selection.excluded.map(row=>({url:row.url||row.comp?.url||null,reason:row.reason}))};
+  if(result.valuation_blocked||subject.mileage_estimated!==true&&subject.mileage_km!==null&&subject.mileage_km!==undefined&&String(subject.mileage_km).trim()!==""&&Number.isFinite(Number(subject.mileage_km))&&Number(subject.mileage_km)>=0)return result;
+  const candidates=selection.rows.map(row=>row.comp).filter(c=>c.mileage_km!==null&&c.mileage_km!==undefined&&c.mileage_km!==""&&Number.isFinite(Number(c.mileage_km))&&Number(c.mileage_km)>=0);
+  if(!candidates.length)return result;
+  const values=candidates.map(c=>Number(c.mileage_km)).sort((a,b)=>a-b);
   const mean=Math.round(values.reduce((sum,value)=>sum+value,0)/values.length);
   const verifiedCount=candidates.filter(c=>c.evidence?.source_url_verified===true).length;
   result.subject={...subject,mileage_km:mean,mileage_estimated:true,mileage_source:"comparables",mileage_estimate:{
-    method:"mean",source:"Anúncios comparáveis em Portugal",sample_size:candidates.length,verified_urls:verifiedCount,matching_level:level,
-    min_km:values[0],max_km:values.at(-1),urls:candidates.map(c=>c.url)
+    method:"mean",source:"Mesma amostra elegível do cálculo de preço",sample_size:candidates.length,verified_urls:verifiedCount,
+    matching_level:selection.marketBasis||"provisional",min_km:values[0],max_km:values.at(-1),urls:candidates.map(c=>c.url)
   }};
   result.data_quality=result.data_quality||{};
-  result.data_quality.notes=[result.data_quality.notes,"Referência de quilometragem pela média de "+candidates.length+" anúncio(s) comparável(is) em Portugal ("+level+"): "+mean+" km; intervalo "+values[0]+"–"+values.at(-1)+" km. Não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
+  result.data_quality.notes=[result.data_quality.notes,"Referência de quilometragem pela média de "+candidates.length+" anúncio(s) da mesma amostra elegível do preço: "+mean+" km; intervalo "+values[0]+"–"+values.at(-1)+" km. Não são os quilómetros reais da viatura."].filter(Boolean).join(" ");
   return result;
 }
 
@@ -356,7 +329,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
   }
 
   const originalYear=Number(parsed.subject?.year);
-  parsed.subject=mergeRegistration(parsed.subject,registration);
+  parsed.subject=normalizeVehicleIdentity(mergeRegistration(parsed.subject,registration));
   if(registration?.provider==="spottd"&&Number.isInteger(originalYear)&&originalYear!==Number(parsed.subject.year)){
     parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
     parsed.data_quality.notes=[parsed.data_quality.notes,"Ano "+originalYear+" da leitura automática substituído por "+parsed.subject.year+" (ano de fabrico confirmado pela Spottd)."].filter(Boolean).join(" ");
@@ -388,15 +361,16 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
 
   parsed.comparables=parsed.comparables.flatMap(c=>{
     const url=canonicalUrl(c.url);
-    if(!url||!(Number(c.price)>0)||url===original)return [];
+    // Keep rejected candidates so the selection can explain every exclusion.
+    // They never enter prices/km without passing the shared eligibility gates.
     const verified=sourceUrls.has(url)
       &&c.seller_type==="professional"
       &&c.country==="PT"
       &&c.price_basis==="gross"
       &&c.availability==="available";
     return [{
-      ...c,
-      url,
+      ...normalizeVehicleIdentity(c),
+      url:url||c.url||null,
       evidence:{
         verified,
         observed_at:observed,
@@ -416,6 +390,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
     usage:data.usage||null,
     registration_data:registration,
     search_sources:sources,
+    source_url:original||null,
     ...parsed
   };
 }
@@ -446,7 +421,7 @@ async function findFreshMarketCache(token,key,excludeJobId=null){
     const cutoff=Date.now()-MARKET_CACHE_HOURS*3600000;
     for(const row of Array.isArray(rows)?rows:[]){
       if(!row||row.id===excludeJobId||!row.result||row.result.valuation_blocked===true)continue;
-      if(!Array.isArray(row.result.comparables)||row.result.comparables.length===0)continue;
+      if(!hasUsefulMarket(row.result))continue;
       const snapshotAt=row.result?.market_cache?.snapshot_at||row.updated_at;
       const ts=Date.parse(snapshotAt||"");
       if(Number.isFinite(ts)&&ts>=cutoff)return {...row,snapshot_at:new Date(ts).toISOString()};
@@ -470,7 +445,7 @@ async function findFreshInputCache(token,signature,excludeJobId=null){
       if(!row||row.id===excludeJobId||!row.result)continue;
       // Não reutilizar uma pesquisa anterior que terminou com zero comparáveis.
       // O modelo/pesquisa podem conseguir referências numa nova tentativa.
-      if(!Array.isArray(row.result.comparables)||row.result.comparables.length===0)continue;
+      if(!hasUsefulMarket(row.result))continue;
       const snapshotAt=row.result?.market_cache?.snapshot_at||row.updated_at;
       const ts=Date.parse(snapshotAt||"");
       if(Number.isFinite(ts)&&ts>=cutoff)return {...row,snapshot_at:new Date(ts).toISOString()};
@@ -557,6 +532,8 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
     image_attached:Array.isArray(body.image_data_urls)&&body.image_data_urls.length>0,
     image_count:Array.isArray(body.image_data_urls)?body.image_data_urls.length:0,
     input_signature:inputSignature(body),
+    initial_started_at:nowIso(),
+    transition_id:crypto.randomUUID(),
     force_market_refresh:body.force_market_refresh===true
   };
 }
@@ -593,11 +570,12 @@ const marketSchema={
       type:"array",minItems:0,maxItems:16,
       items:{
         type:"object",additionalProperties:false,
-        required:["label","url","source_domain","listing_id","seller_type","seller_name","country","availability","price_basis","observed_at","make","model","generation","trim","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","price","vat_deductible","warranty_months","equipment","origin"],
+        required:["label","url","source_domain","listing_id","seller_type","seller_name","country","availability","price_basis","observed_at","make","model","generation","trim","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","price","vat_deductible","warranty_months","equipment","origin","price_conditioned","cash_price","price_conditions"],
         properties:{
           label:{type:"string"},url:{type:"string"},source_domain:{type:"string"},listing_id:{type:["string","null"]},
           seller_type:{type:"string",enum:["professional","private","unknown"]},seller_name:{type:["string","null"]},
-          country:{type:"string",enum:["PT","unknown"]},availability:{type:"string",enum:["available","unknown"]},
+          country:{type:"string",enum:["PT","foreign","unknown"]},availability:{type:"string",enum:["available","sold","unknown"]},
+          price_conditioned:{type:["boolean","null"]},cash_price:{type:["number","null"]},price_conditions:{type:["string","null"]},
           price_basis:{type:"string",enum:["gross","unknown"]},observed_at:{type:["string","null"]},
           make:{type:["string","null"]},model:{type:["string","null"]},generation:{type:["string","null"]},trim:{type:["string","null"]},
           fuel:{type:["string","null"]},battery_kwh:{type:["number","null"]},power_cv:{type:["number","null"]},drivetrain:{type:["string","null"]},
@@ -664,6 +642,7 @@ const instructions=[
   "Não uses anúncios estrangeiros, carros novos, páginas editoriais, peças, aluguer ou resultados sem preço como comparáveis principais.",
   "Evita o próprio anúncio e duplicados do mesmo carro entre plataformas. listing_id deve conter o identificador do anúncio quando estiver disponível.",
   "Não confundas preço pedido com preço vendido.",
+  "Verifica condições do preço de cada anúncio. Se o preço exigir financiamento, retoma ou outra condição, price_conditioned=true; cash_price recebe apenas um preço a pronto explicitamente publicado e incluindo despesas obrigatórias. Sem preço a pronto confirmado, cash_price=null. Explica condições em price_conditions. Nunca inventes um acréscimo. Anúncios vendidos têm availability=sold e não sustentam o mercado atual.",
   "Em fotografias de leilão, distingue licitação mínima, licitação atual, tarifa e preço de compra imediata. Se o campo visível for licitação mínima e não houver outro valor atual, podes indicá-lo como preço da oportunidade com essa ressalva no resumo; nunca inventes um preço final.",
   "Se o relatório de condição indicar luz de aviso no painel ou avaria, inclui o aviso na ficha/riscos; ausência de acidentes registados não significa ausência de problemas mecânicos.",
   "Em TODAS as viaturas, independentemente da marca, origem ou plataforma (AUTO1, Standvirtual, PiscaPisca, leilão, particular, link ou fotografias isoladas), analisa cada imagem anexada e cada informação de condição disponibilizada; regista em condition_report apenas danos, estado e manutenção da VIATURA ANALISADA, nunca dos comparáveis. assessed=true apenas quando existe informação concreta. Usa source_image (posição 1 a 6), o painel ou componente exato, e distingue observação visual, indicação do técnico e suspeita. Um carro sem fotografias suficientes não é certificado como sem danos.",
@@ -698,17 +677,69 @@ function boundedResponseMetadata(raw={}){
   return safe;
 }
 
+function marketSearchPlan(subject={},step=0){
+  const identity=normalizeVehicleIdentity(subject);
+  const level=Math.max(0,Math.min(MAX_MARKET_RECOVERY_STEPS,Number(step)||0));
+  const band=[1,3,4][level];
+  const year=Number(identity.year),knownYear=Number.isInteger(year)&&year>=1950&&year<=new Date().getFullYear()+1;
+  return {step:level,name:["versão próxima","família normalizada","versões próximas compatíveis"][level],
+    make:identity.make||null,model:identity.model||null,trim:level===0?identity.trim||null:null,
+    fuel:identity.fuel||null,drivetrain:identity.drivetrain||null,generation:identity.generation||null,
+    min_year:knownYear?year-band:null,max_year:knownYear?year+band:null,
+    include_private:level===2,reason:level?"Etapa anterior sem anúncios elegíveis; alargar a pesquisa sem alterar a identidade da viatura.":"Pesquisa inicial"};
+}
+function recordMarketAttempt(result,context={}){
+  const selected=marketSelection(result);
+  const reasons={};
+  for(const row of selected.excluded)reasons[row.reason]=(reasons[row.reason]||0)+1;
+  return {step:Number(context.market_search_step)||0,response_id:result.response_id||null,
+    observed_at:nowIso(),plan:marketSearchPlan(result.subject,context.market_search_step),
+    found_count:(result.comparables||[]).length,accepted_count:selected.rows.length,exclusion_reasons:reasons};
+}
+function transitionExpired(context={},fallback){
+  const started=Date.parse(context.pending_started_at||context.initial_started_at||fallback||"");
+  return !Number.isFinite(started)||Date.now()-started>TRANSITION_LEASE_MS;
+}
+async function launchMarketTransition(token,job,nextContext,{recover=false}={}){
+  const transitionId=recover?(job.context.transition_id||sha256(job.id+"|"+(job.response_id||"initial")+"|"+(Number(nextContext.market_search_step)||0))):crypto.randomUUID();
+  const pending={...nextContext,stage:"market_pending",transition_id:transitionId,pending_started_at:nowIso(),
+    transition_retries:recover?(Number(job.context.transition_retries)||0)+1:0};
+  let path="cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage="+(job.context?.stage?"eq."+encodeURIComponent(job.context.stage):"is.null");
+  path+=job.response_id?"&response_id=eq."+encodeURIComponent(job.response_id):"&response_id=is.null";
+  if(recover&&job.context.transition_id)path+="&context->>transition_id=eq."+encodeURIComponent(job.context.transition_id);
+  if(recover&&job.context.pending_started_at)path+="&context->>pending_started_at=eq."+encodeURIComponent(job.context.pending_started_at);
+  const claimed=await rest(token,path,{method:"PATCH",body:{context:pending,status:"in_progress",updated_at:nowIso()},headers:{Prefer:"return=representation"}});
+  if(!claimed?.length)return {ok:true,status:"in_progress",job_id:job.id};
+  let startedResponse=null;
+  try{
+    const next=await startResponse(pending,[],{cap_job_id:job.id,cap_source_url:clip(pending.original_url,480)},false);
+    startedResponse=next;
+    await updateJob(token,job.id,{response_id:next.id,status:next.status||"queued",error_message:null,context:{...pending,stage:"market",pending_started_at:null}});
+    return {ok:true,status:next.status||"queued",job_id:job.id,recovery_step:Number(pending.market_search_step)||0};
+  }catch(error){
+    // Preserve the lease and search context so a dropped connection can be resumed.
+    await updateJob(token,job.id,{status:startedResponse?.status||"in_progress",
+      ...(startedResponse?.id?{response_id:startedResponse.id}:{}),error_message:clip(error?.message||error,600),
+      context:startedResponse?.id?{...pending,stage:"market",pending_started_at:null}:pending}).catch(()=>{});
+    return {ok:true,status:"in_progress",job_id:job.id,retryable:true,warning:"A ligação à pesquisa foi interrompida. O trabalho continua disponível para retoma."};
+  }
+}
+
 async function startResponse(context,imageDataUrls,metadata,identify){
+  // Lease bookkeeping must not change a retry payload sharing an idempotency key.
+  const {pending_started_at,transition_retries,...providerContext}=context;
+  context=providerContext;
+  context=identify?context:{...context,market_search_plan:marketSearchPlan(context.previous_subject||context.registration_data||{},context.market_search_step)};
   const response=await fetch("https://api.openai.com/v1/responses",{
       method:"POST",
       signal:AbortSignal.timeout(35000),
-      headers:{"content-type":"application/json",authorization:"Bearer "+process.env.OPENAI_API_KEY},
+      headers:{"content-type":"application/json",authorization:"Bearer "+process.env.OPENAI_API_KEY,...(context.transition_id?{"Idempotency-Key":"cap-market-"+context.transition_id}:{})},
       body:JSON.stringify({
         model:process.env.OPENAI_MODEL||"gpt-6-sol",
         background:true,
         store:false,
         metadata:boundedResponseMetadata(metadata),
-        instructions:identify?instructions.replace("Pesquisa obrigatoriamente a web antes de devolver comparáveis.","Nesta fase não pesquises comparáveis.")+"\nFASE DE IDENTIFICAÇÃO: identifica apenas a viatura a partir das fontes fornecidas. Se necessário consulta o anúncio original. Se houver registration_input sem registration_data e não houver fotografia/anúncio suficiente, podes pesquisar a matrícula exata; só usa resultados que coincidam claramente. Nunca inventes marca/modelo com base no formato da matrícula. Devolve comparables vazio. Não pesquises preços de mercado. Lê a identidade visual independentemente de registration_data; diferenças serão validadas pelo servidor. Dados em falta ficam null.":instructions,
+        instructions:identify?instructions.replace("Pesquisa obrigatoriamente a web antes de devolver comparáveis.","Nesta fase não pesquises comparáveis.")+"\nFASE DE IDENTIFICAÇÃO: identifica apenas a viatura a partir das fontes fornecidas. Se necessário consulta o anúncio original. Se houver registration_input sem registration_data e não houver fotografia/anúncio suficiente, podes pesquisar a matrícula exata; só usa resultados que coincidam claramente. Nunca inventes marca/modelo com base no formato da matrícula. Devolve comparables vazio. Não pesquises preços de mercado. Lê a identidade visual independentemente de registration_data; diferenças serão validadas pelo servidor. Dados em falta ficam null.":instructions+"\nETAPA CONTROLADA DE PESQUISA: segue market_search_plan no contexto. Pesquisa os limites de ano e a família indicados; não modifiques combustível, geração, bateria ou tração confirmados para obter resultados. Anúncios de versões próximas devem continuar identificados com os seus dados reais. Regista todos os anúncios concretos encontrados, mesmo que tenham de ser excluídos depois.",
         input:imageDataUrls.length?[{
           role:"user",
           content:[
@@ -739,15 +770,44 @@ module.exports=endpoint(async function handler(req,res){
     if(!uuid.test(jobId))return res.status(400).json({error:"invalid_job_id"});
     const job=await getOwnedJob(token,jobId);
     if(job.status==="completed"&&job.result)return res.status(200).json(job.result);
-    if(job.status==="failed")return res.status(502).json({error:"market_job_failed",message:job.error_message||"A pesquisa terminou com erro."});
-    if(!job.response_id)return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id});
+    if(job.status==="failed")return res.status(502).json({error:"market_job_failed",message:job.error_message||"A pesquisa terminou com erro.",job_id:job.id});
+    if(job.context?.stage==="market_pending"){
+      if(!transitionExpired(job.context,job.updated_at))return res.status(202).json({ok:true,status:"in_progress",job_id:job.id});
+      if(Number(job.context.transition_retries)>=2){
+        const message="Não foi possível retomar o arranque da pesquisa. Inicia uma nova pesquisa; os dados anteriores foram preservados.";
+        await updateJob(token,job.id,{status:"failed",error_message:message});
+        return res.status(502).json({error:"market_start_interrupted",message,job_id:job.id});
+      }
+      return res.status(202).json(await launchMarketTransition(token,job,job.context,{recover:true}));
+    }
+    if(!job.response_id){
+      if(!transitionExpired(job.context,job.updated_at))return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id});
+      // Initial photo bytes deliberately are not persisted in the job context.
+      if(job.context?.image_count){
+        const message="O arranque da leitura das fotografias foi interrompido. Repete a pesquisa com as mesmas fotografias.";
+        await updateJob(token,job.id,{status:"failed",error_message:message});
+        return res.status(502).json({error:"market_start_interrupted",message,job_id:job.id});
+      }
+      const subject=normalizeVehicleIdentity(job.context?.previous_subject||job.context?.registration_data||{});
+      if(marketReady(subject))return res.status(202).json(await launchMarketTransition(token,job,{...job.context,previous_subject:subject}));
+      const message="O arranque da identificação foi interrompido. Repete a pesquisa; o histórico foi preservado.";
+      await updateJob(token,job.id,{status:"failed",error_message:message});
+      return res.status(502).json({error:"market_start_interrupted",message,job_id:job.id});
+    }
 
     const response=await fetch("https://api.openai.com/v1/responses/"+encodeURIComponent(job.response_id),{
       signal:AbortSignal.timeout(20000),
       headers:{authorization:"Bearer "+process.env.OPENAI_API_KEY}
     });
     const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw appError(data?.error?.message||"Não foi possível consultar o estado da pesquisa.",502,"openai_market_status_error");
+    if(!response.ok){
+      if([404,410].includes(response.status)){
+        const message="Esta pesquisa antiga já não está disponível no fornecedor. Inicia uma nova pesquisa; o histórico guardado mantém-se disponível.";
+        await updateJob(token,job.id,{status:"failed",error_message:message});
+        return res.status(502).json({error:"market_job_failed",message,job_id:job.id});
+      }
+      throw appError(data?.error?.message||"Não foi possível consultar o estado da pesquisa.",502,"openai_market_status_error");
+    }
     if(data.status==="queued"||data.status==="in_progress"){
       await updateJob(token,job.id,{status:data.status});
       return res.status(202).json({ok:true,status:data.status,job_id:job.id});
@@ -758,7 +818,6 @@ module.exports=endpoint(async function handler(req,res){
       throw appError(message,502,"openai_market_failed");
     }
 
-    if(job.context?.stage==="market_pending")return res.status(202).json({ok:true,status:"in_progress",job_id:job.id});
     const registration=job.context?.registration_data||null;
     const resultData=job.context?.stage==="market"&&job.context.previous_subject
       ?{...data,output_text:JSON.stringify({...structuredResult(data),subject:job.context.previous_subject,
@@ -771,7 +830,23 @@ module.exports=endpoint(async function handler(req,res){
       result.market_cache=reference.market_cache;
       result.search_sources=[...(reference.search_sources||[]),...(result.search_sources||[])].slice(0,100);
     }
-    if(job.context?.stage==="market")estimateMileage(result);
+    if(job.context?.stage==="market"){
+      const previous=job.context.recovery_market;
+      if(previous){
+        result.comparables=[...new Map([...(previous.comparables||[]),...result.comparables].map(comp=>[canonicalUrl(comp.url)||comp.url,comp])).values()];
+        result.search_sources=[...new Map([...(previous.search_sources||[]),...(result.search_sources||[])].map(source=>[source.url,source])).values()].slice(0,100);
+      }
+      estimateMileage(result);
+      result.market_attempts=[...(job.context.market_attempts||[]),recordMarketAttempt(result,job.context)];
+      const step=Number(job.context.market_search_step)||0;
+      if(!result.valuation_blocked&&!reference&&!hasUsefulMarket(result)&&marketReady(result.subject)&&step<MAX_MARKET_RECOVERY_STEPS){
+        const nextContext={...job.context,previous_subject:{...result.subject,mileage_km:result.subject.mileage_estimated?null:result.subject.mileage_km,mileage_estimated:false},
+          previous_condition_report:result.condition_report,previous_auction_context:result.auction_context,
+          market_search_step:step+1,market_attempts:result.market_attempts,
+          recovery_market:{comparables:result.comparables,search_sources:result.search_sources}};
+        return res.status(202).json(await launchMarketTransition(token,job,nextContext));
+      }
+    }
     if(job.context?.stage==="identify"){
       result.condition_report=mergeObservedConditionReports(job.context.previous_condition_report,result.condition_report);
       result.comparables=[];
@@ -797,20 +872,9 @@ module.exports=endpoint(async function handler(req,res){
           comparables:cached.result.comparables,search_sources:cached.result.search_sources||[],
           market_cache:{hit:true,key,snapshot_at:cached.snapshot_at,source_job_id:cached.id,max_age_hours:MARKET_CACHE_HOURS,reuse_mode:"comparables_only"}
         }:null;
-        const nextContext={...job.context,stage:"market_pending",previous_subject:result.subject,previous_condition_report:result.condition_report,previous_auction_context:result.auction_context,registration_data:result.registration_data,market_key:key,market_reference:marketReference};
-        // Claim this transition atomically: overlapping polls must not launch duplicate searches.
-        const claimed=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage=eq.identify&response_id=eq."+encodeURIComponent(job.response_id),{
-          method:"PATCH",body:{context:nextContext,status:"in_progress"},headers:{Prefer:"return=representation"}
-        });
-        if(!claimed?.length)return res.status(202).json({ok:true,status:"in_progress",job_id:job.id});
-        try{
-          const next=await startResponse(nextContext,[],{cap_job_id:job.id,cap_source_url:clip(nextContext.original_url,480)},false);
-          await updateJob(token,job.id,{response_id:next.id,status:next.status||"queued",context:{...nextContext,stage:"market"}});
-          return res.status(202).json({ok:true,status:next.status||"queued",job_id:job.id});
-        }catch(error){
-          await updateJob(token,job.id,{status:"failed",error_message:String(error.message||error)});
-          throw error;
-        }
+        const nextContext={...job.context,previous_subject:result.subject,previous_condition_report:result.condition_report,
+          previous_auction_context:result.auction_context,registration_data:result.registration_data,market_key:key,market_reference:marketReference,market_search_step:0};
+        return res.status(202).json(await launchMarketTransition(token,job,nextContext));
       }
     }
     if(job.context?.stage==="market"&&!result.market_cache){
@@ -927,5 +991,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
 
