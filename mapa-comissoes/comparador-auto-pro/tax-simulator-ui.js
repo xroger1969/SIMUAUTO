@@ -1,65 +1,103 @@
 import {calculateTaxSim} from "./tax-simulator-calc.mjs";
+
+// Os montantes pertencem ao simulador, não à pesquisa de viaturas.
+// A "Nova avaliação" nunca os deve substituir nem limpar.
+const STORAGE_KEY="aap-tax-sim-v2";
+const FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate"];
 const byId=id=>document.getElementById(id);
-const eur=value=>Number(value).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
-const parseEuroText=text=>{
- const raw=String(text||"").replace(/[^\d,.-]/g,"").trim();
+const eur=n=>Number(n).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
+function saveState(){
+ try{
+  const value={};
+  FIELD_IDS.forEach(id=>{value[id]=byId(id)?.value??"";});
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(value));
+ }catch{ /* armazenamento bloqueado: continuar sem guardar */ }
+}
+function restoreState(){
+ try{
+  const data=JSON.parse(localStorage.getItem(STORAGE_KEY)||"null");
+  if(!data||typeof data!=="object")return;
+  FIELD_IDS.forEach(id=>{
+   const el=byId(id),value=data[id];
+   if(el&&typeof value==="string"&&(el.tagName!=="SELECT"||[...el.options].some(o=>o.value===value)))el.value=value;
+  });
+ }catch{ /* sem dados válidos */ }
+}
+function parseMoney(text){
+ const raw=String(text??"").replace(/[^\d,.\-]/g,"");
  if(!raw||raw==="—")return null;
- const compact=raw.replace(/\s/g,"").replace(/\./g,"").replace(",",".");
- const value=Number(compact);
- return Number.isFinite(value)&&value>0?value:null;
-};
-const numeric=id=>{
- const el=byId(id),raw=el?.value??"";
- if(raw.trim()==="")throw new Error("Preenche o campo "+(el?.closest("label")?.firstChild?.textContent||id)+".");
- const n=Number(raw.replace(",","."));
- if(!Number.isFinite(n))throw new Error("Verifica o valor de "+id+".");
- return n;
-};
+ const normalized=raw.includes(",")?raw.replace(/\./g,"").replace(",","."):raw;
+ const num=Number(normalized);
+ return Number.isFinite(num)&&num>0?num:null;
+}
+function numberFrom(id){
+ const el=byId(id),raw=String(el?.value??"").trim();
+ if(!raw)throw Error("Preenche "+(el?.closest("label")?.firstChild?.textContent?.trim()||"o campo")+".");
+ const val=Number(raw.replace(",","."));
+ if(!Number.isFinite(val))throw Error("Valor inválido.");
+ return val;
+}
+function clearOutputs(){
+ ["taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimIrs","taxSimAfterIRS"].forEach(id=>{byId(id).textContent="—";});
+ byId("taxSimSummary").textContent="—";
+ byId("taxSimWarning").textContent="";
+}
 function render(){
  const error=byId("taxSimError");
+ saveState();
  try{
-  const rateInput=byId("taxSimIrsRate").value.trim();
-  const r=calculateTaxSim({purchase:numeric("taxSimPurchase"),sale:numeric("taxSimSale"),costs:numeric("taxSimCosts"),quarterlySales:numeric("taxSimQuarterly"),irsRate:rateInput===""?null:rateInput.replace(",",".")});
+  const irs=byId("taxSimIrsRate").value.trim();
+  const r=calculateTaxSim({
+   purchase:numberFrom("taxSimPurchase"),sale:numberFrom("taxSimSale"),
+   costs:numberFrom("taxSimCosts"),quarterlySales:numberFrom("taxSimQuarterly"),
+   irsRate:irs?irs.replace(",","."):null
+  });
   error.hidden=true;error.textContent="";
-  const values={taxSimMargin:r.grossMargin,taxSimVat:r.marginVat,taxSimExpense:r.costs,taxSimSocial:r.socialPerCar,taxSimTaxable:r.taxableIncome,taxSimBeforeIRS:r.beforeIRS};
-  for(const [id,value] of Object.entries(values))byId(id).textContent=eur(value);
-  byId("taxSimIrs").textContent=r.irsEstimate===null?"Por configurar":eur(r.irsEstimate);
-  byId("taxSimAfterIRS").textContent=r.afterIRS===null?"Por configurar":eur(r.afterIRS);
-  let alerts=[];
-  if(r.exceedsSimplifiedSingleYearThreshold)alerts.push("Atenção: mantendo "+r.projectedAnnualVehicles+" vendas anuais de valor semelhante, a faturação projetada supera 250.000 €. Verifica a passagem a contabilidade organizada no próximo ano.");
-  else if(r.requiresAnnualReview)alerts.push("Faturação anual projetada acima de 200.000 €: revê a permanência no regime simplificado com o contabilista.");
-  if(r.socialMonthly>0)alerts.push("Com este ritmo, SS estimada de "+eur(r.socialMonthly)+"/mês no trimestre contributivo correspondente; imputação média de "+eur(r.socialPerCar)+" por carro.");
-  else alerts.push("Neste cenário trimestral, a isenção de SS por acumulação poderá manter-se se os demais requisitos forem cumpridos.");
-  if(r.irsEstimate===null)alerts.push("IRS não apurado: abre «Estimar IRS e ver critérios fiscais» e introduz uma taxa de referência.");
-  if(r.grossMargin<0)alerts.push("Venda abaixo da compra: IVA da margem a 0 €, mas a receita da venda continua a entrar no IRS e na Segurança Social.");
-  byId("taxSimWarning").textContent=alerts.join(" ");
+  const ids={taxSimMargin:r.grossMargin,taxSimVat:r.marginVat,taxSimExpense:r.costs,taxSimSocial:r.socialPerCar,taxSimTaxable:r.taxableIncome,taxSimBeforeIRS:r.beforeIRS};
+  Object.entries(ids).forEach(([id,val])=>{byId(id).textContent=eur(val);});
+  byId("taxSimIrs").textContent=r.irsEstimate===null?"—":eur(r.irsEstimate);
+  byId("taxSimAfterIRS").textContent=r.afterIRS===null?"—":eur(r.afterIRS);
+  byId("taxSimSummary").textContent="Margem "+eur(r.grossMargin)+" · IVA "+eur(r.marginVat)+" · SS "+eur(r.socialPerCar)+" · Despesas "+eur(r.costs);
+  const warnings=[];
+  if(r.exceedsSimplifiedSingleYearThreshold)warnings.push("Projeção anual superior a 250.000 €: confirmar a obrigatoriedade de contabilidade organizada no ano seguinte.");
+  else if(r.requiresAnnualReview)warnings.push("Projeção anual superior a 200.000 €: confirmar o enquadramento fiscal.");
+  if(r.socialMonthly>0)warnings.push("SS mensal estimada: "+eur(r.socialMonthly)+".");
+  if(r.irsEstimate===null)warnings.push("Para estimar o resultado após IRS, introduz uma taxa. O imposto anual real pode ser diferente.");
+  if(r.grossMargin<0)warnings.push("Margem negativa: a venda continua relevante para IRS e SS.");
+  byId("taxSimWarning").textContent=warnings.join(" ");
  }catch(e){
-  error.textContent=e.message;error.hidden=false;
-  ["taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimIrs","taxSimAfterIRS"].forEach(id=>byId(id).textContent="—");
-  byId("taxSimWarning").textContent="";
+  clearOutputs();
+  error.hidden=false;
+  error.textContent=e.message||"Verifica os valores.";
  }
 }
-function useCurrentAssessment(){
- const root=byId("result");
- if(!root||root.classList.contains("hidden")){byId("taxSimSource").textContent="Faz uma avaliação primeiro ou introduz os valores manualmente.";return;}
- const buy=parseEuroText(byId("currentPrice")?.textContent);
- const sale=parseEuroText(byId("commercialSale")?.textContent);
- if(buy===null||sale===null){byId("taxSimSource").textContent="Sem preços reais suficientes nesta avaliação; não foram inventados valores.";return;}
- byId("taxSimPurchase").value=String(buy);
- byId("taxSimSale").value=String(sale);
- byId("taxSimSource").textContent="Compra = preço atual; venda = revenda estimada do mercado. Confirma-os antes de negociar.";
- render();
+function showUseError(message){
+ const error=byId("taxSimError");
+ error.hidden=false;
+ error.textContent=message;
 }
-function openCalculator(withEvaluation=false){
+function useAssessmentPrices(){
+ const result=byId("result");
+ if(!result||result.classList.contains("hidden")){showUseError("Conclui uma avaliação primeiro.");return false;}
+ const purchase=parseMoney(byId("currentPrice")?.textContent),sale=parseMoney(byId("commercialSale")?.textContent);
+ if(purchase===null||sale===null){showUseError("Faltam preços confirmados nesta avaliação.");return false;}
+ byId("taxSimPurchase").value=String(purchase);
+ byId("taxSimSale").value=String(sale);
+ render();
+ return true;
+}
+function openSimulator(useAssessment=false){
  const panel=byId("taxSimulator");panel.open=true;
- if(withEvaluation)useCurrentAssessment();
+ if(useAssessment)useAssessmentPrices();
  panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
-for(const id of ["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate"]){
- byId(id)?.addEventListener("input",render);
- byId(id)?.addEventListener("change",render);
-}
-byId("taxSimUseAssessment")?.addEventListener("click",useCurrentAssessment);
-byId("taxSimOpenBtn")?.addEventListener("click",()=>openCalculator(false));
-byId("taxSimFromResult")?.addEventListener("click",()=>openCalculator(true));
+restoreState();
+FIELD_IDS.forEach(id=>{
+ const field=byId(id);
+ field?.addEventListener("input",render);
+ field?.addEventListener("change",render);
+});
+byId("taxSimUseAssessment")?.addEventListener("click",useAssessmentPrices);
+byId("taxSimOpenBtn")?.addEventListener("click",()=>openSimulator(false));
+byId("taxSimFromResult")?.addEventListener("click",()=>openSimulator(true));
 render();
