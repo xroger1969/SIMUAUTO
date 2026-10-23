@@ -27,6 +27,7 @@ function harness(extra={}){
  renderResult(result,host,risks){ctx.rendered={result,host,risks};ctx.currentResult=result;},
  closeHistory(){ctx.closed=true;},...extra};
  vm.createContext(ctx);
+ vm.runInContext(source('function publishAssessment','publishAssessment(null);'),ctx);
  vm.runInContext(source('// Reading a revision never','function openHistory'),ctx);
  return ctx;
 }
@@ -172,6 +173,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261023-voice-v2-screen-v1/);
+ assert.match(html,/app-v2\.js\?v=20261023-eni-sync-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });
