@@ -7,6 +7,7 @@ const {JSDOM}=require('./db-runtime/node_modules/jsdom');
 const base=join(__dirname,'../comparador-auto-pro');
 const html=readFileSync(join(base,'index.html'),'utf8');
 const appSource=readFileSync(join(base,'app-v2.js'),'utf8').replace(/^import .*;\n/gm,'');
+const wakeSource=readFileSync(join(base,'screen-wake-lock.js'),'utf8').replace(/^export /gm,'');
 require('../comparador-auto-pro/commercial-identity.js');
 const engine=import('data:text/javascript;base64,'+Buffer.from(readFileSync(join(base,'valuation.js'),'utf8')).toString('base64'));
 const owner='11111111-1111-4111-8111-111111111111';
@@ -32,6 +33,7 @@ async function boot(rows=new Map()){
  w.relevantMemories=()=>[];w.parseVehicleInput=()=>{};w.manualMissing=()=>[];w.formatVehiclePlate=v=>v;w.parseOptionalMileage=()=>null;
  const comparables=[1,2,3].map(i=>({...vehicle,registration:'BB-'+i+'-CC',price:30000+i*100,url:'https://stand'+i+'.example/car',seller_type:'professional',country:'PT',price_basis:'gross',availability:'available',observed_at:new Date().toISOString(),evidence:{verified:true,observed_at:new Date().toISOString(),source_url_verified:true}}));
  const input={subject:vehicle,comparables,current_purchase_price:20000};
+ w.eval(wakeSource+'\n;globalThis.createScreenWakeLock=createScreenWakeLock;');
  w.eval(appSource+`\n;globalThis.learningHarness={
    setState(owner,id,vehicle,result){session={user:{id:owner},access_token:'test'};currentAnalysisId=id;currentVehicle=vehicle;currentResult=result;currentMarketData={marketPayload:{url:null}};},
    load:loadMemories,evaluate:evaluatePurchase,capture:captureEvaluationFeedback,

@@ -44,6 +44,7 @@ function harness(options = {}) {
     MediaRecorderClass: options.MediaRecorderClass || Recorder,
     maxDurationMs: options.maxDurationMs,
     maxBytes: options.maxBytes,
+    stopFinalizeTimeoutMs: options.stopFinalizeTimeoutMs,
     onState: value => { states.push(value); options.onState?.(value); },
     onText: (text, ctx) => transcripts.push({text, context: ctx, state: voice.state}),
     onError: (error, ctx) => errors.push({error, context: ctx}),
@@ -173,7 +174,7 @@ test('oversized capture is stopped and discarded before an upload starts', async
 test('microphone interruption releases capture and cannot submit a partial teaching turn', async () => {
   const h = harness({lastChunk: 'a'.repeat(160)});
   await h.voice.toggle(context);
-  h.track.dispatchEvent(new Event('mute'));
+  h.track.dispatchEvent(new Event('ended'));
   await flush();
   assert.equal(h.voice.state, 'idle');
   assert.equal(h.errors[0].error.code, 'voice_interrupted');
@@ -227,7 +228,7 @@ test('recorder initialization failure still releases an already granted micropho
   await h.voice.toggle(context);
   assert.equal(h.voice.state, 'idle');
   assert.equal(h.stopped(), 1);
-  assert.equal(h.errors[0].error.code, 'voice_recording');
+  assert.equal(h.errors[0].error.code, 'voice_unsupported_format');
   assert.equal(h.uploads.length, 0);
 });
 
@@ -246,4 +247,39 @@ test('a late permission from a cancelled turn cannot interrupt a newer recording
   assert.equal(h.voice.state, 'recording');
   assert.equal(h.recorders.length, 1);
   h.voice.cancel();
+});
+
+test('temporary iPhone mute does not discard the recording', async () => {
+  const h=harness({supportedType:'audio/mp4',lastChunk:'a'.repeat(160)});
+  await h.voice.toggle(context);
+  h.track.dispatchEvent(new Event('mute'));
+  assert.equal(h.voice.state,'recording');
+  h.voice.stop();
+  await flush();
+  assert.equal(h.errors.length,0);
+  assert.equal(h.transcripts.length,1);
+});
+test('recorder.stop keeps microphone tracks running until final MP4 data is flushed',async()=>{
+  const h=harness({supportedType:'audio/mp4',lastChunk:'a'.repeat(160)});
+  await h.voice.toggle(context);
+  h.voice.stop();
+  assert.equal(h.stopped(),0);
+  await flush();
+  assert.equal(h.stopped(),1);
+  assert.equal(h.uploads.length,1);
+});
+test('WebKit recorder never finishing shows an actionable error',async()=>{
+  class HungRecorder{
+    static isTypeSupported(m){return m==='audio/mp4'}
+    constructor(){this.mimeType='audio/mp4';this.state='inactive'}
+    start(){this.state='recording'}
+    stop(){this.state='inactive'}
+  }
+  const h=harness({MediaRecorderClass:HungRecorder,stopFinalizeTimeoutMs:6});
+  await h.voice.toggle(context);
+  h.voice.stop();
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(h.voice.state,'idle');
+  assert.equal(h.errors[0].error.code,'voice_stop_timeout');
+  assert.ok(h.stopped()>0);
 });

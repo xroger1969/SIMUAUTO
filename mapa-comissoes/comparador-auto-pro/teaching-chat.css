@@ -45,3 +45,15 @@
   .teaching-composer .btn{min-width:100px}
   .refine-dialog-message{max-width:94%}
 }
+
+/* Distinct states for voice recording on iOS. */
+.teaching-composer .voice-button{width:auto;min-width:165px;gap:9px;font-weight:800;font-size:16px;white-space:nowrap}
+.teaching-composer .voice-button.recording{background:#fff0f1;color:#a1122b;border:2px solid #c22542;box-shadow:0 0 0 3px #c2254225}
+.teaching-voice-status:not(:empty){padding:9px 11px;background:#f0f5fb;border:1px solid #bdd0e5;border-radius:10px;color:#234363}
+.awake-btn{font-size:13px!important;white-space:nowrap;min-height:36px}
+.awake-btn.awake-active{border-color:#5bbfa3!important;color:#a9f4d9!important;background:#123a38!important}
+@media(max-width:560px){
+  .teaching-composer .voice-button{width:100%;min-width:0;grid-column:1}
+  .teaching-composer .btn{grid-column:2}
+  .awake-btn{font-size:12px!important;padding-inline:10px!important}
+}
