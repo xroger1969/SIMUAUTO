@@ -1,6 +1,7 @@
 import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261023-supervised-v1";
-import { relevantMemories } from "./memory.js?v=20261023-supervised-v1";
+import { relevantMemories } from "./memory.js?v=20261023-voice-v1";
 import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
+import { createVoiceInput } from "./voice-input.js?v=20261023-voice-v1";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -37,11 +38,14 @@ let preparingImages=false;
 let imageGeneration=0;
 const MAX_IMAGES=6;
 let selectedImageName="";
-let speechRecognition=null;
-let mediaRecorder=null;
-let mediaStream=null;
-let audioChunks=[];
-let recordingTimer=null;
+let voiceInput=null;
+let voiceTarget=null;
+let voiceGeneration=0;
+let pendingTeachingFeedback=null;
+let lastTeachingMemory=null;
+let lastTeachingReply="";
+let spokenReply=null;
+let conversationUsesVoice=false;
 
 const DEFAULT_DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
@@ -131,6 +135,8 @@ const HISTORY_PAGE_SIZE=40;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
+  cancelVoiceInput();stopTeachingSpeech();
+  q("refineDialog")?.classList.add("hidden");
   q("authGate").classList.remove("hidden");q("app").classList.add("hidden");
 }
 function showApp(){
@@ -315,7 +321,7 @@ function showSavedRevisionView(row,record){
     paintPriceModeInput:deal.reconditioning?.paint_mode,paintMinInput:deal.reconditioning?.paint_min_eur,paintMaxInput:deal.reconditioning?.paint_max_eur};
   for(const [id,value] of Object.entries(fields)){if(q(id))q(id).value=value??"";}
   const controls=new Set();
-  for(const id of ["refineForm","conditionCostForm","assumptionsForm","chatForm"]){
+  for(const id of ["conditionCostForm","assumptionsForm","chatForm"]){
     for(const element of q(id)?.querySelectorAll("input,select,textarea,button")||[])controls.add(element);
   }
   for(const id of ["refreshMarketBtn","auctionLocationPtBtn","auctionLocationForeignBtn"]){if(q(id))controls.add(q(id));}
@@ -368,6 +374,7 @@ q("historyList")?.addEventListener("click",event=>{
 
 function openHistory(){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  cancelVoiceInput();stopTeachingSpeech();
   q("historyDialog").classList.remove("hidden");
   loadHistory(true).catch(()=>{q("historyStatus").textContent="Não foi possível carregar o histórico.";});
 }
@@ -462,10 +469,11 @@ function addMsg(role,text){
   conversation.push({role,content:text});conversation=conversation.slice(-12);
   const div=document.createElement("div");div.className="msg "+role;div.textContent=text;q("chat").appendChild(div);q("chat").scrollTop=q("chat").scrollHeight;
 }
-async function storeMessage(role,content,rules=[]){
-  if(!session)return;
+async function storeMessage(role,content,rules=[],scope=null){
+  const owner=scope?.owner||session?.user?.id,analysisId=scope?.analysisId||currentAnalysisId;
+  if(!owner||session?.user?.id!==owner)return;
   try{
-    const {error}=await db.from("cap_messages").insert({analysis_id:currentAnalysisId,user_id:session.user.id,role,content,extracted_rules:rules});
+    const {error}=await db.from("cap_messages").insert({analysis_id:analysisId,user_id:owner,role,content,extracted_rules:rules});
     if(error)throw error;
   }catch{toast("Não foi possível guardar esta mensagem no histórico.")}
 }
@@ -475,60 +483,43 @@ async function refreshMemoryCount(){
   q("memoryCount").textContent=(count||0)+" "+((count||0)===1?"regra":"regras");
 }
 
-async function learnFromRefinement(text){
-  if(!text||!session||!currentAnalysisId)return {learned:false,reply:""};
-  try{
-    const memories=relevantMemories(await loadMemories(),currentVehicle||{});
-    const response=await fetch("/api/comparador-ai",{
-      method:"POST",
-      headers:{
-        "content-type":"application/json",
-        "authorization":"Bearer "+session.access_token
-      },
-      body:JSON.stringify({
-        message:text,
-        analysis_id:currentAnalysisId,
-        context:{
-          vehicle:currentVehicle||null,
-          valuation:currentResult?{
-            market:currentResult.market,
-            purchase:currentResult.purchase,
-            tax:currentResult.tax,
-            warnings:currentResult.warnings
-          }:null,
-          dealer_memories:memories||[],
-          conversation:conversation.slice(-8)
-        }
-      })
-    });
-
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok)return {learned:false,reply:""};
-
-    const reply=String(data.reply||"").trim();
-    const memory=data.memory_rule;
-    if(!(data.should_save_memory&&memory&&memory.rule_type&&memory.rule_type!=="none")){
-      return {learned:false,reply};
-    }
-
-    const scope=memory.scope||{};
-    const {error}=await db.from("cap_memory_rules").insert({
-      user_id:session.user.id,
-      analysis_id:currentAnalysisId,
-      rule_type:memory.rule_type,
-      statement:memory.statement||text,
-      scope,
-      effect:memory.effect||{mode:"advisory"},
-      evidence_level:"observation",
-      confidence:Number.isFinite(Number(memory.confidence))?Number(memory.confidence):.6
-    });
-    if(error)throw error;
-    await refreshMemoryCount();
-    return {learned:true,reply};
-  }catch(error){
-    console.warn("Aprendizagem do refinamento:",error);
-    return {learned:false,reply:""};
-  }
+async function requestTeachingReply(text,operation){
+  const memories=relevantMemories(await loadMemories(),currentVehicle||{});
+  assertOperation(operation);
+  const {response,data}=await fetchJson("/api/comparador-ai",{
+    method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+session.access_token},
+    body:JSON.stringify({message:text,analysis_id:operation.analysisId,context:{
+      vehicle:currentVehicle,valuation:currentResult?{
+        market:currentResult.market,purchase:currentResult.purchase,tax:currentResult.tax,warnings:currentResult.warnings
+      }:null,dealer_memories:memories,conversation:conversation.slice(0,-1).slice(-8)
+    }})
+  },55000);
+  assertOperation(operation);
+  if(!response.ok||!String(data.reply||"").trim())throw Error(data.message||"Não consegui obter a resposta da IA. A tua mensagem continua no campo para tentares novamente.");
+  return data;
+}
+async function saveTeachingMemory(data,text,operation){
+  const memory=data.memory_rule;
+  if(!data.should_save_memory||!memory||memory.rule_type==="none")return null;
+  assertOperation(operation);
+  const owner=operation.owner,analysisId=operation.analysisId;
+  if(!owner||!analysisId||!memory.scope?.make||!memory.scope?.model)throw Error("Confirma a marca e o modelo antes de guardar a orientação.");
+  const observation=String(memory.source_quote||text).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+  const identity=[memory.rule_type,memory.scope.make,memory.scope.model,memory.scope.trim,memory.scope.fuel,observation].join(":");
+  const row={id:await feedbackRecordId(owner,analysisId,"conversation:"+identity),user_id:owner,analysis_id:analysisId,
+    rule_type:memory.rule_type,statement:memory.statement||text,scope:memory.scope,
+    effect:{...memory.effect,mode:"advisory",source:"user_observation"},evidence_level:"observation",
+    confidence:Math.min(.6,Math.max(0,Number(memory.confidence)||.5)),active:true,
+    updated_at:new Date().toISOString(),valid_until:new Date(Date.now()+120*86400000).toISOString()};
+  assertOperation(operation);
+  const {data:saved,error}=await db.from("cap_memory_rules").upsert(row,{onConflict:"id"}).select("id").single();
+  assertOperation(operation);
+  if(error||saved?.id!==row.id)throw Error("Não consegui confirmar a gravação da orientação. A tua mensagem continua disponível para tentares novamente.");
+  lastTeachingMemory={id:row.id,owner,analysisId};
+  q("teachingUndoBtn").hidden=false;
+  // A failed refresh must not turn a confirmed write into a false failure.
+  await loadMemories().catch(()=>{});await refreshMemoryCount().catch(()=>{});
+  return row;
 }
 
 const originLabel=v=>v==="national"?"Nacional":v==="imported"?"Importado":"Origem por confirmar";
@@ -1368,20 +1359,20 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setOperationBusy(busy){
-  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
+  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","refineMicBtn","teachingMicBtn","teachingSendBtn","teachingFeedbackSave","teachingUndoBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
   if(chatButton)chatButton.disabled=!!busy;
 }
 function beginOperation(kind,analysisId=null){
-  if(currentHistoryRevision&&!["history","learning","learning-undo"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
+  if(currentHistoryRevision&&!["history","learning","learning-undo","conversation"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
-  const op={id:++operationSequence,kind,analysisId,requestKey:crypto.randomUUID(),jobId:null};
+  const op={id:++operationSequence,kind,analysisId,owner:session?.user?.id,requestKey:crypto.randomUUID(),jobId:null};
   activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);return op;
 }
 function assertOperation(op){
-  if(activeOperation!==op)throw new Error("Esta operação já não é a análise ativa.");
+  if(activeOperation!==op||(op.owner&&op.owner!==session?.user?.id))throw new Error("Esta operação já não é a análise ativa.");
 }
 function finishOperation(op){
   if(activeOperation===op){activeOperation=null;setOperationBusy(false);if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;}
@@ -1628,29 +1619,8 @@ function resetSearchInput({announce=true,focus=true}={}){
   q("vehiclePhoto").value="";
   setImageStatus("");
 
-  if(speechRecognition){
-    try{
-      speechRecognition.onerror=null;
-      speechRecognition.onend=null;
-      speechRecognition.onresult=null;
-      speechRecognition.abort();
-    }catch{}
-    speechRecognition=null;
-  }
-  if(mediaRecorder&&mediaRecorder.state!=="inactive"){
-    try{
-      mediaRecorder.ondataavailable=null;
-      mediaRecorder.onstop=null;
-      mediaRecorder.stop();
-    }catch{}
-  }
-  clearTimeout(recordingTimer);
-  recordingTimer=null;
-  mediaStream?.getTracks().forEach(track=>track.stop());
-  mediaStream=null;
-  mediaRecorder=null;
-  audioChunks=[];
-  setMicActive(false);
+  cancelVoiceInput();
+  stopTeachingSpeech();
 
   if(focus)input.focus();
   if(announce)toast("Pesquisa limpa.");
@@ -1671,6 +1641,10 @@ function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
   auctionLocationOverride=null;
   hideVehicleFollowup();
   conversation=[];
+  pendingTeachingFeedback=null;lastTeachingMemory=null;lastTeachingReply="";conversationUsesVoice=false;
+  q("teachingInput").value="";q("teachingFeedback").hidden=true;
+  q("teachingUndoBtn").hidden=true;q("teachingListenBtn").hidden=true;
+  q("teachingVoiceStatus").textContent="";
 
   q("result").classList.add("hidden");
   q("emptyState").classList.add("hidden");
@@ -1782,16 +1756,9 @@ function imageFromClipboard(event){
   return files.find(file=>String(file.type||"").startsWith("image/"))||null;
 }
 function appendDictation(text){
-  const input=q("vehicleUrl");
-  const current=input.value.trim();
+  const input=q("vehicleUrl"),current=input.value.trim();
   input.value=(current?current+" ":"")+String(text||"").trim();
   input.dispatchEvent(new Event("input",{bubbles:true}));
-  input.focus();
-}
-function setMicActive(active){
-  q("micBtn").classList.toggle("recording",!!active);
-  q("micBtn").setAttribute("aria-label",active?"Parar gravação":"Ditar por voz");
-  q("micBtn").title=active?"Parar gravação":"Ditar por voz";
 }
 function blobToDataUrl(blob){
   return new Promise((resolve,reject)=>{
@@ -1801,59 +1768,107 @@ function blobToDataUrl(blob){
     reader.readAsDataURL(blob);
   });
 }
-async function transcribeAudio(blob){
-  if(!session)throw new Error("A sessão expirou.");
-  toast("A transcrever a voz…");
+function voiceContextCurrent(context){
+  return context.generation===voiceGeneration&&context.owner===session?.user?.id&&context.analysisId===currentAnalysisId;
+}
+async function transcribeAudio(blob,{context,signal}){
+  if(!voiceContextCurrent(context))throw Error("A avaliação mudou.");
   const audio_data_url=await blobToDataUrl(blob);
-  const {response,data}=await fetchJson("/api/comparador-transcribe",{
-    method:"POST",
-    headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
-    body:JSON.stringify({audio_data_url})
-  },45000);
-  if(!response.ok)throw new Error(data.message||data.error||"Não consegui transcrever a voz.");
-  if(data.text)appendDictation(data.text);
+  if(signal.aborted||!voiceContextCurrent(context))throw Error("Gravação cancelada.");
+  const timeout=new AbortController(),timer=setTimeout(()=>timeout.abort(),45000);
+  const abort=()=>timeout.abort();signal.addEventListener("abort",abort,{once:true});
+  try{
+    const response=await fetch("/api/comparador-transcribe",{
+      method:"POST",signal:timeout.signal,
+      headers:{"content-type":"application/json",authorization:"Bearer "+session.access_token},
+      body:JSON.stringify({audio_data_url})
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(data.message||"Não consegui transcrever a voz. Tenta novamente.");
+    return String(data.text||"");
+  }finally{clearTimeout(timer);signal.removeEventListener("abort",abort);}
 }
-async function stopRecorder(){
-  if(mediaRecorder&&mediaRecorder.state!=="inactive")mediaRecorder.stop();
-}
-async function startRecorder(){
-  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error("Este navegador não permite gravação de voz nesta página.");
-  mediaStream=await navigator.mediaDevices.getUserMedia({audio:true});
-  const preferred=["audio/mp4","audio/webm;codecs=opus","audio/webm"].find(x=>MediaRecorder.isTypeSupported?.(x));
-  mediaRecorder=preferred?new MediaRecorder(mediaStream,{mimeType:preferred}):new MediaRecorder(mediaStream);
-  audioChunks=[];
-  mediaRecorder.ondataavailable=e=>{if(e.data?.size)audioChunks.push(e.data)};
-  mediaRecorder.onstop=async()=>{
-    clearTimeout(recordingTimer);recordingTimer=null;setMicActive(false);
-    const type=mediaRecorder?.mimeType||audioChunks[0]?.type||"audio/webm";
-    const blob=new Blob(audioChunks,{type});
-    mediaStream?.getTracks().forEach(t=>t.stop());mediaStream=null;mediaRecorder=null;audioChunks=[];
-    if(blob.size<1000)return;
-    try{await transcribeAudio(blob)}catch(error){toast(error.message)}
-  };
-  mediaRecorder.start();
-  setMicActive(true);
-  toast("A ouvir… toca outra vez para terminar.");
-  recordingTimer=setTimeout(()=>stopRecorder(),20000);
-}
-async function startVoiceInput(){
-  if(mediaRecorder&&mediaRecorder.state!=="inactive"){await stopRecorder();return}
-  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(Recognition){
-    if(speechRecognition){try{speechRecognition.stop()}catch{};return}
-    const r=new Recognition();speechRecognition=r;r.lang="pt-PT";r.interimResults=false;r.continuous=false;
-    r.onstart=()=>setMicActive(true);
-    r.onresult=e=>{const text=e.results?.[0]?.[0]?.transcript;if(text)appendDictation(text)};
-    r.onerror=async e=>{
-      if(e.error!=="aborted"&&e.error!=="no-speech")toast("A voz direta falhou. Vou usar gravação.");
-      speechRecognition=null;setMicActive(false);
-      if(e.error!=="not-allowed"&&e.error!=="service-not-allowed"){try{await startRecorder()}catch(error){toast(error.message)}}
-    };
-    r.onend=()=>{speechRecognition=null;if(!mediaRecorder||mediaRecorder.state==="inactive")setMicActive(false)};
-    try{r.start();return}catch{speechRecognition=null;setMicActive(false)}
+function renderVoiceState({state,elapsedSeconds=0}){
+  const recording=state==="recording",waiting=["requesting","transcribing"].includes(state),busy=state!=="idle";
+  const label=recording?"Terminar e enviar a voz":waiting?"A preparar a voz…":"Falar com o Comprador IA";
+  for(const id of ["refineMicBtn","teachingMicBtn"]){
+    const button=q(id);if(!button)continue;
+    button.classList.toggle("recording",recording&&voiceTarget==="conversation");
+    button.setAttribute("aria-pressed",String(recording&&voiceTarget==="conversation"));
+    button.setAttribute("aria-label",voiceTarget==="conversation"?label:"Falar com o Comprador IA");
+    button.title=button.getAttribute("aria-label");
+    button.disabled=!!activeOperation||waiting||(busy&&voiceTarget!=="conversation");
   }
-  await startRecorder();
+  const mic=q("micBtn");
+  mic.classList.toggle("recording",recording&&voiceTarget==="vehicle");
+  mic.setAttribute("aria-label",recording&&voiceTarget==="vehicle"?"Terminar ditado":"Ditar por voz");
+  mic.disabled=!!activeOperation||waiting||(busy&&voiceTarget!=="vehicle");
+  for(const id of ["analyzeBtn","refineBtn","teachingSendBtn","teachingFeedbackSave"]){if(q(id))q(id).disabled=!!activeOperation||busy;}
+  const message=state==="requesting"?"A aguardar acesso ao microfone…":recording?"A ouvir · "+elapsedSeconds+" s · toca no microfone para terminar.":state==="transcribing"?"A transcrever a tua mensagem…":"";
+  q("teachingVoiceStatus").textContent=voiceTarget==="conversation"?message:"";
+  q("teachingVoiceCancel").hidden=voiceTarget!=="conversation"||!busy;
+  q("teachingVoiceCancel").textContent=state==="transcribing"?"Cancelar envio":"Cancelar gravação";
+  if(voiceTarget==="vehicle"&&state!=="idle"&&elapsedSeconds===0)toast(message);
 }
+function getVoiceInput(){
+  if(!voiceInput)voiceInput=createVoiceInput({
+    isContextCurrent:voiceContextCurrent,transcribe:transcribeAudio,onState:renderVoiceState,
+    onText(text,context){
+      if(!voiceContextCurrent(context))return;
+      if(context.target==="vehicle"){appendDictation(text);toast("Ditado concluído.");return;}
+      q("teachingInput").value=text;q("refineInput").value=text;
+      sendTeachingMessage(text,{voice:true}).catch(error=>toast(error.message));
+    },
+    onError(error,context){
+      if(context&&!voiceContextCurrent(context))return;
+      if(context?.target==="conversation")q("teachingVoiceStatus").textContent=error.message;
+      toast(error.message);
+    }
+  });
+  return voiceInput;
+}
+function cancelVoiceInput(){
+  voiceGeneration++;voiceInput?.cancel();voiceTarget=null;
+}
+function startVoiceInput(target="vehicle"){
+  if(activeOperation){toast("Aguarda a resposta que está em curso.");return;}
+  if(!session){toast("Entra na tua conta para falar.");return;}
+  if(target==="conversation"&&!currentVehicle){toast("Faz primeiro uma avaliação.");return;}
+  if(voiceInput?.state!=="idle"&&voiceTarget&&voiceTarget!==target)cancelVoiceInput();
+  stopTeachingSpeech();voiceTarget=target;
+  if(target==="conversation"){
+    conversationUsesVoice=true;openTeachingConversation();
+    // Do not bring up the keyboard when the microphone is the chosen input.
+    if(document.activeElement?.tagName==="INPUT"||document.activeElement?.tagName==="TEXTAREA")document.activeElement.blur();
+  }
+  return getVoiceInput().toggle({target,owner:session.user.id,analysisId:currentAnalysisId,generation:voiceGeneration});
+}
+function stopTeachingSpeech(){
+  window.speechSynthesis?.cancel();spokenReply=null;
+  if(q("teachingListenBtn"))q("teachingListenBtn").textContent="Ouvir resposta";
+}
+function speakTeachingReply(manual=false){
+  if(!lastTeachingReply||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
+  if(!manual&&(!conversationUsesVoice||!q("teachingSpeakEnabled").checked||q("refineDialog").classList.contains("hidden")))return;
+  stopTeachingSpeech();
+  const utterance=new window.SpeechSynthesisUtterance(lastTeachingReply);
+  utterance.lang="pt-PT";utterance.rate=1;
+  const voices=window.speechSynthesis.getVoices();
+  const voice=voices.find(v=>v.lang.toLowerCase()==="pt-pt")||voices.find(v=>v.lang.toLowerCase().startsWith("pt"));
+  if(voice)utterance.voice=voice;
+  spokenReply=utterance;
+  utterance.onstart=()=>{if(spokenReply===utterance)q("teachingListenBtn").textContent="Parar voz";};
+  const finish=()=>{if(spokenReply===utterance){spokenReply=null;q("teachingListenBtn").textContent="Ouvir resposta";}};
+  utterance.onend=finish;utterance.onerror=finish;
+  try{window.speechSynthesis.speak(utterance);}catch{finish();}
+}
+q("refineMicBtn")?.addEventListener("click",()=>startVoiceInput("conversation"));
+q("teachingMicBtn")?.addEventListener("click",()=>startVoiceInput("conversation"));
+q("teachingVoiceCancel")?.addEventListener("click",()=>{cancelVoiceInput();q("teachingVoiceStatus").textContent="Gravação cancelada.";});
+q("teachingListenBtn")?.addEventListener("click",()=>spokenReply?stopTeachingSpeech():speakTeachingReply(true));
+q("teachingSpeakEnabled")?.addEventListener("change",()=>{if(!q("teachingSpeakEnabled").checked)stopTeachingSpeech();});
+window.addEventListener("pagehide",()=>{cancelVoiceInput();stopTeachingSpeech();});
+document.addEventListener("visibilitychange",()=>{if(document.hidden){cancelVoiceInput();stopTeachingSpeech();}});
 
 q("vehiclePhoto").addEventListener("change",ev=>attachImageFiles(ev.target.files));
 q("vehicleUrl").addEventListener("input",ev=>{
@@ -1893,7 +1908,7 @@ q("newSearchBtn").addEventListener("click",resetAnalysisView);
 q("startNewAnalysisBtn").addEventListener("click",resetAnalysisView);
 q("shareValuationBtn").addEventListener("click",shareValuationSummary);
 q("printValuationBtn").addEventListener("click",printValuationSummary);
-q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
+q("micBtn").addEventListener("click",()=>startVoiceInput());
 
 async function loadMemories(){
   const owner=session.user.id;
@@ -2131,7 +2146,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     const imagesForAnalysis=selectedImages.map(image=>image.data);
     const marketPayload={
       url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,mileage_input_km:mileageInput,
-      page:reader.page||{},image_data_urls:imagesForAnalysis,dealer_memories:allRules.slice(0,20),refinement_history:[]
+      page:reader.page||{},image_data_urls:imagesForAnalysis,dealer_memories:allRules.filter(rule=>rule.effect?.mode!=="supervised").slice(0,200),refinement_history:[]
     };
     let sourceHost=entry.registration?"Matrícula":reader?.source_kind==="authenticated_browser"?url.hostname:imagesForAnalysis.length?"photo":entry.mode==="manual"?"manual":url.hostname;
     lastAnalysisContext={entry,reader,url:url?.toString()||null,sourceHost,marketPayload,allRules};
@@ -2222,23 +2237,150 @@ function appendRefineDialogMessage(role,message){
   scrollRefineDialog();
 }
 function showRefineDialog(state,message,tone="loading",reset=false){
-  if(q("refineDialog").classList.contains("hidden"))lastRefineFocus=document.activeElement;
+  const wasHidden=q("refineDialog").classList.contains("hidden");
+  if(wasHidden)lastRefineFocus=document.activeElement;
   q("refineDialogState").textContent=state;
   q("refineDialogState").className="refine-dialog-state"+(tone==="success"?" success":tone==="error"?" error":"");
   const box=q("refineDialogMessages");
   if(reset&&box)box.innerHTML="";
   q("refineDialog").classList.remove("hidden");
-  q("refineDialogClose")?.focus({preventScroll:true});
+  if(wasHidden)q("refineDialogClose")?.focus({preventScroll:true});
+  syncConversationViewport();
   if(message)appendRefineDialogMessage(tone==="error"?"error":"assistant",message);
   scrollRefineDialog();
 }
 function closeRefineDialog(){
+  cancelVoiceInput();stopTeachingSpeech();
   q("refineDialog").classList.add("hidden");
   if(lastRefineFocus?.focus)lastRefineFocus.focus();
 }
 q("refineDialogClose").addEventListener("click",closeRefineDialog);
 q("refineDialog").addEventListener("click",ev=>{if(ev.target===q("refineDialog"))closeRefineDialog()});
 document.addEventListener("keydown",ev=>{if(ev.key==="Escape"&&!q("refineDialog").classList.contains("hidden"))closeRefineDialog()});
+
+function syncConversationViewport(){
+  const viewport=window.visualViewport,dialog=q("refineDialog");
+  if(!viewport||!dialog)return;
+  dialog.style.top=viewport.offsetTop+"px";
+  dialog.style.height=viewport.height+"px";
+  dialog.style.bottom="auto";
+  dialog.style.setProperty("--conversation-height",Math.max(240,viewport.height-20)+"px");
+}
+window.visualViewport?.addEventListener("resize",syncConversationViewport);
+window.visualViewport?.addEventListener("scroll",syncConversationViewport);
+function openTeachingConversation(){
+  if(!currentVehicle)return;
+  const wasHidden=q("refineDialog").classList.contains("hidden");
+  if(wasHidden){
+    q("refineDialogMessages").innerHTML="";
+    for(const item of conversation)appendRefineDialogMessage(item.role,item.content);
+    if(!conversation.length)appendRefineDialogMessage("assistant","Diz-me o que sabes sobre este carro. Podemos conversar sobre procura, preço de revenda e margem.");
+  }
+  q("teachingVehicle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim,currentVehicle.year].filter(Boolean).join(" · ");
+  showRefineDialog(activeOperation?"A responder…":"Conversa sobre esta viatura","","loading");
+}
+function showTeachingFeedback(proposal,operation){
+  if(!proposal||!["retail_estimate","margin"].includes(proposal.kind)||!Number.isFinite(Number(proposal.value))||Number(proposal.value)<=0)return;
+  pendingTeachingFeedback={...proposal,value:Number(proposal.value),owner:operation.owner,analysisId:operation.analysisId};
+  const label=proposal.kind==="margin"?"Margem pretendida":"A tua estimativa de revenda";
+  q("teachingFeedbackText").textContent=label+": "+fmt(proposal.value)+". Confirmas este valor para a aprendizagem?";
+  q("teachingFeedback").hidden=false;
+}
+function teachingReply(text,state="Resposta da IA",tone="success"){
+  lastTeachingReply=text;
+  addMsg("assistant",text);
+  if(!q("refineDialog").classList.contains("hidden"))showRefineDialog(state,text,tone);
+  q("teachingListenBtn").hidden=!window.speechSynthesis;
+  speakTeachingReply();
+}
+async function sendTeachingMessage(raw,{voice=false}={}){
+  const text=String(raw||"").trim();
+  if(!text)return;
+  if(text.length>3000){toast("A mensagem é demasiado longa. Divide-a em duas partes.");return;}
+  if(activeOperation||voiceInput&&voiceInput.state!=="idle"){toast("Aguarda a resposta ou termina a gravação.");return;}
+  if(!session||!currentVehicle||!currentAnalysisId){toast("Faz primeiro uma avaliação.");return;}
+  if(voice)conversationUsesVoice=true;
+  const confirmation=text.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[.!?,]/g,"").trim();
+  if(pendingTeachingFeedback&&/^(sim|sim confirmo|sim confirma|confirmo|confirmar|podes guardar|guarda|guarda sim|e isso|esta certo)$/.test(confirmation)){
+    await confirmTeachingFeedback(text);return;
+  }
+  if(awaitingVehicleDetails&&!currentHistoryRevision){await refineEvaluation(text);return;}
+  const operation=beginOperation("conversation",currentAnalysisId);
+  q("teachingInput").value=text;q("refineInput").value=text;
+  q("teachingInput").disabled=true;q("refineInput").disabled=true;
+  pendingTeachingFeedback=null;q("teachingFeedback").hidden=true;
+  stopTeachingSpeech();openTeachingConversation();
+  addMsg("user",text);appendRefineDialogMessage("user",text);
+  q("refineInlineStatus").textContent="A conversar com a IA…";q("refineInlineStatus").classList.remove("hidden");
+  try{
+    await storeMessage("user",text,[],operation);assertOperation(operation);
+    const data=await requestTeachingReply(text,operation);
+    if(data.action==="refine"&&!currentHistoryRevision){
+      finishOperation(operation);
+      await refineEvaluation(text,{aiData:data,alreadyShown:true});return;
+    }
+    const row=await saveTeachingMemory(data,text,operation);
+    assertOperation(operation);
+    let reply=String(data.reply).trim();
+    if(data.action==="refine"&&currentHistoryRevision)reply+="\n\nPara refazer os valores deste registo, abre uma nova avaliação.";
+    if(row)reply+="\n\nOrientação guardada para este modelo e versão: “"+row.statement+"”";
+    showTeachingFeedback(data.feedback_proposal,operation);
+    if(pendingTeachingFeedback)reply+="\n\nConfirma o valor apresentado, ou diz-me o valor correto.";
+    teachingReply(reply,row?"Orientação guardada":"Resposta da IA");
+    await storeMessage("assistant",reply,row?[row]:[],operation);
+    assertOperation(operation);
+    q("teachingInput").value="";q("refineInput").value="";
+    q("refineInlineStatus").textContent=row?"Orientação guardada. Podes continuar a conversa.":"A IA respondeu. Podes continuar a conversa.";
+  }catch(error){
+    if(activeOperation!==operation||operation.owner!==session?.user?.id)return;
+    const message=error.name==="AbortError"?"A resposta demorou demasiado. A tua mensagem continua no campo; podes tentar novamente.":error.message||"Não foi possível concluir a conversa.";
+    if(!q("refineDialog").classList.contains("hidden"))showRefineDialog("Não foi possível concluir",message,"error");
+    q("refineInlineStatus").textContent=message;
+  }finally{
+    if(operation.owner===session?.user?.id){q("teachingInput").disabled=false;q("refineInput").disabled=false;}
+    finishOperation(operation);
+  }
+}
+async function confirmTeachingFeedback(confirmation="Confirmo o valor apresentado."){
+  const proposal=pendingTeachingFeedback;
+  if(activeOperation||!proposal||proposal.owner!==session?.user?.id||proposal.analysisId!==currentAnalysisId)return;
+  const operation=beginOperation("learning",currentAnalysisId);
+  try{
+    await saveSupervisedFeedback(proposal.kind,proposal.value);
+    assertOperation(operation);
+    pendingTeachingFeedback=null;q("teachingFeedback").hidden=true;
+    addMsg("user",confirmation);appendRefineDialogMessage("user",confirmation);
+    await storeMessage("user",confirmation,[],operation);
+    const reply=(proposal.kind==="margin"?"Margem de ":"Estimativa de revenda de ")+fmt(proposal.value)+" guardada. Será considerada nas próximas avaliações de viaturas semelhantes.";
+    teachingReply(reply,"Aprendizagem guardada");
+    await storeMessage("assistant",reply,[],operation);
+    q("teachingInput").value="";q("refineInput").value="";
+    q("learningSaveStatus").textContent=reply;
+    q("refineInlineStatus").textContent=reply;
+  }catch(error){
+    if(activeOperation===operation)showRefineDialog("Não foi possível guardar",error.message,"error");
+  }finally{finishOperation(operation);}
+}
+q("teachingFeedbackSave")?.addEventListener("click",()=>confirmTeachingFeedback());
+q("teachingFeedbackCancel")?.addEventListener("click",()=>{
+  pendingTeachingFeedback=null;q("teachingFeedback").hidden=true;
+  q("teachingInput").value="";q("teachingInput").focus();
+});
+q("teachingUndoBtn")?.addEventListener("click",async()=>{
+  const row=lastTeachingMemory;
+  if(activeOperation||!row||row.owner!==session?.user?.id||row.analysisId!==currentAnalysisId)return;
+  const operation=beginOperation("learning-undo",currentAnalysisId);
+  try{
+    const {data,error}=await db.from("cap_memory_rules").update({active:false,updated_at:new Date().toISOString()})
+      .eq("id",row.id).eq("user_id",row.owner).select("id").single();
+    assertOperation(operation);
+    if(error||data?.id!==row.id)throw Error("Não foi possível desativar a orientação. Tenta novamente.");
+    lastTeachingMemory=null;q("teachingUndoBtn").hidden=true;
+    await loadMemories().catch(()=>{});await refreshMemoryCount().catch(()=>{});
+    teachingReply("A última orientação desta conversa foi desativada.","Orientação desativada");
+  }catch(error){if(activeOperation===operation)showRefineDialog("Não foi possível concluir",error.message,"error");}
+  finally{finishOperation(operation);}
+});
 
 q("vehicleFollowupForm")?.addEventListener("submit",ev=>{
   ev.preventDefault();
@@ -2254,9 +2396,7 @@ q("vehicleFollowupForm")?.addEventListener("submit",ev=>{
   q("refineForm").requestSubmit();
 });
 
-q("refineForm").addEventListener("submit",async ev=>{
-  ev.preventDefault();
-  const text=q("refineInput").value.trim();
+async function refineEvaluation(text,{aiData=null,alreadyShown=false}={}){
   if(!text)return;
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
   if(!session||!lastAnalysisContext||!currentVehicle){toast("Faz primeiro uma análise.");return}
@@ -2266,10 +2406,10 @@ q("refineForm").addEventListener("submit",async ev=>{
   const button=q("refineBtn"),originalButtonText=button.textContent;
   q("refineInput").disabled=true;button.textContent="A analisar…";
   q("refineInlineStatus").textContent="A IA está a refazer a análise…";q("refineInlineStatus").classList.remove("hidden");
-  showRefineDialog("A analisar…","","loading",true);
-  appendRefineDialogMessage("user",text);
+  showRefineDialog("A analisar…","","loading",false);
+  if(!alreadyShown)appendRefineDialogMessage("user",text);
   appendRefineDialogMessage("assistant","A testar a tua indicação contra esta viatura e a concorrência profissional.");
-  addMsg("user","Refinar análise: "+text);await storeMessage("user","Refinar análise: "+text);
+  if(!alreadyShown){addMsg("user",text);await storeMessage("user",text);}
 
   try{
     const memories=relevantMemories(await loadMemories(),currentVehicle||{});
@@ -2334,8 +2474,8 @@ q("refineForm").addEventListener("submit",async ev=>{
     if(missing.length)showVehicleFollowup(subject,missing,{scroll:false});
     await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,nextPayload,"refinement");
 
-    const refinementAI=wasVehicleFollowup?{learned:false,reply:""}:await learnFromRefinement(text);
-    q("refineInput").value="";
+    const refinementAI={learned:false,reply:wasVehicleFollowup?"":String(aiData?.reply||"")};
+    q("refineInput").value="";q("teachingInput").value="";
     if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
     const reply=(result.purchase?.eligible
       ?"Análise refeita com evidência suficiente para o teto."
@@ -2345,7 +2485,9 @@ q("refineForm").addEventListener("submit",async ev=>{
       +(refinementAI.learned?" A orientação ficou guardada como hipótese para pesquisas futuras.":"");
     const priceSummary=result.purchase?.effectiveCeiling!=null&&Number.isFinite(Number(result.purchase.effectiveCeiling))?"\n\nValor-alvo de compra: "+fmt(result.purchase.effectiveCeiling)+".":"";
     const visibleReply=(refinementAI.reply?refinementAI.reply+"\n\n":"")+reply+priceSummary;
-    addMsg("assistant",reply);await storeMessage("assistant",reply);
+    addMsg("assistant",visibleReply);await storeMessage("assistant",visibleReply);
+    lastTeachingReply=visibleReply;q("teachingListenBtn").hidden=!window.speechSynthesis;
+    speakTeachingReply();
     q("saveStatus").textContent="IA ativa";q("refineInlineStatus").textContent="Análise atualizada pela IA.";
     showRefineDialog("Análise atualizada",visibleReply,"success");
     toast(refinementAI.learned?"Análise refeita e orientação guardada.":"Análise refeita.");
@@ -2357,83 +2499,19 @@ q("refineForm").addEventListener("submit",async ev=>{
   }finally{
     stopProgress();q("refineInput").disabled=false;button.textContent=originalButtonText;finishOperation(operation);
   }
+}
+
+q("refineForm").addEventListener("submit",event=>{
+  event.preventDefault();
+  const text=q("refineInput").value.trim();
+  if(awaitingVehicleDetails){refineEvaluation(text).catch(error=>toast(error.message));return;}
+  sendTeachingMessage(text).catch(error=>toast(error.message));
 });
-
-q("chatForm").addEventListener("submit",async ev=>{
-  ev.preventDefault();
-  if(activeOperation){toast("Aguarda a análise que está em curso.");return}
-  const text=q("chatInput").value.trim();
-  if(!text||!session)return;
-
-  const button=ev.currentTarget.querySelector("button[type=submit]");
-  q("chatInput").value="";
-  button.disabled=true;
-  addMsg("user",text);
-  await storeMessage("user",text);
-
-  try{
-    const memories=relevantMemories(await loadMemories(),currentVehicle||{});
-    const response=await fetch("/api/comparador-ai",{
-      method:"POST",
-      headers:{
-        "content-type":"application/json",
-        "authorization":"Bearer "+session.access_token
-      },
-      body:JSON.stringify({
-        message:text,
-        analysis_id:currentAnalysisId,
-        context:{
-          vehicle:currentVehicle||null,
-          valuation:currentResult?{
-            market:currentResult.market,
-            purchase:currentResult.purchase,
-            tax:currentResult.tax,
-            warnings:currentResult.warnings
-          }:null,
-          dealer_memories:memories||[],
-          conversation:conversation.slice(0,-1).slice(-8)
-        }
-      })
-    });
-
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw new Error(data.message||data.error||"A IA não respondeu.");
-
-    const reply=data.reply||"Recebi a tua mensagem.";
-
-
-    let savedRules=[];
-    const memory=data.memory_rule;
-    if(data.should_save_memory&&memory&&memory.rule_type&&memory.rule_type!=="none"){
-      const scope=memory.scope||{};
-      const {error}=await db.from("cap_memory_rules").insert({
-        user_id:session.user.id,
-        analysis_id:currentAnalysisId,
-        rule_type:memory.rule_type,
-        statement:memory.statement||text,
-        scope,
-        effect:memory.effect||{mode:"advisory"},
-        evidence_level:"observation",
-        confidence:Number.isFinite(Number(memory.confidence))?Number(memory.confidence):.6
-      });
-      if(error)throw error;
-      savedRules=[memory];
-      refreshMemoryCount();
-    }
-
-    addMsg("assistant",reply);
-    if(savedRules.length)addMsg("assistant","Orientação guardada. Será recuperada nas próximas análises a que se aplica.");
-    await storeMessage("assistant",reply,savedRules);
-    q("saveStatus").textContent="IA ativa";
-  }catch(err){
-    const fallback="Não consegui concluir a resposta da IA. A tua mensagem não foi guardada como aprendizagem. Tenta novamente.";
-    addMsg("assistant",fallback);
-    await storeMessage("assistant",fallback,[]);
-    q("saveStatus").textContent="IA pendente";
-    console.warn("Comparador IA:",err);
-  }finally{
-    button.disabled=false;
-  }
+q("teachingForm").addEventListener("submit",event=>{
+  event.preventDefault();sendTeachingMessage(q("teachingInput").value.trim()).catch(error=>toast(error.message));
+});
+q("chatForm").addEventListener("submit",event=>{
+  event.preventDefault();sendTeachingMessage(q("chatInput").value.trim()).catch(error=>toast(error.message));
 });
 
 async function applyAuctionLocationAnswer(vehicleLocation){

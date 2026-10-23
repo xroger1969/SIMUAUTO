@@ -4,6 +4,7 @@ const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
 const {normalizeVehicleIdentity,selectEligibleComparables,sameModel}=require("../comparador-auto-pro/commercial-identity.js");
+const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clip=(v,n)=>String(v??"").slice(0,n);
@@ -521,13 +522,9 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
     previous_subject:body.previous_subject&&typeof body.previous_subject==="object"?{...body.previous_subject,...(body.previous_subject.mileage_estimated?{mileage_km:null,mileage_estimated:false,mileage_estimate:null}:{})}:null,
     previous_condition_report:body.previous_condition_report&&typeof body.previous_condition_report==="object"?normalizeConditionReport(body.previous_condition_report):null,
     previous_auction_context:body.previous_auction_context&&typeof body.previous_auction_context==="object"?body.previous_auction_context:null,
-    dealer_memories:memories.slice(0,12).map(rule=>({
-      rule_type:clip(rule?.rule_type,60),
-      statement:clip(rule?.statement,420),
-      scope:rule?.scope||{},
-      effect:rule?.effect||{},
-      confidence:Number(rule?.confidence)||0
-    })),
+    // Retain candidates through identification; only matching memories reach the provider.
+    memory_candidates:boundedAdvisoryMemories(memories),
+    dealer_memories:[],
     refinement_history:refinements.slice(-5).map(text=>clip(text,650)),
     image_attached:Array.isArray(body.image_data_urls)&&body.image_data_urls.length>0,
     image_count:Array.isArray(body.image_data_urls)?body.image_data_urls.length:0,
@@ -727,8 +724,11 @@ async function launchMarketTransition(token,job,nextContext,{recover=false}={}){
 
 async function startResponse(context,imageDataUrls,metadata,identify){
   // Lease bookkeeping must not change a retry payload sharing an idempotency key.
-  const {pending_started_at,transition_retries,...providerContext}=context;
-  context=providerContext;
+  const {pending_started_at,transition_retries,memory_candidates,dealer_memories,...providerContext}=context;
+  const started=Date.parse(context.initial_started_at||"");
+  const candidates=Array.isArray(memory_candidates)?memory_candidates:dealer_memories;
+  context={...providerContext,dealer_memories:identify?[]:relevantAdvisoryMemories(candidates,
+    context.previous_subject||context.registration_data||{},Number.isFinite(started)?started:Date.now())};
   context=identify?context:{...context,market_search_plan:marketSearchPlan(context.previous_subject||context.registration_data||{},context.market_search_step)};
   const response=await fetch("https://api.openai.com/v1/responses",{
       method:"POST",
