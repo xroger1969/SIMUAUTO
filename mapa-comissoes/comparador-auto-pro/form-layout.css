@@ -1,0 +1,27 @@
+/* One centred form column. Keep the sunset layer and all assessment logic unchanged. */
+#app > .hero{width:100%;max-width:760px;margin-inline:auto}
+#analyzeForm{width:100%;min-width:0;margin-inline:auto;grid-template-columns:minmax(0,1fr);gap:12px}
+#analyzeForm > :is(.vehicle-input-shell,.mileage-input-group,.search-actions){width:100%;min-width:0;margin-inline:0;box-sizing:border-box}
+#analyzeForm .vehicle-input-shell{display:flex;align-items:center;min-height:60px;border:1px solid #c4d1e0;border-radius:18px;background:#fff;box-shadow:0 10px 30px rgba(0,8,19,.16);color-scheme:light}
+#analyzeForm .vehicle-input-shell:focus-within{border-color:#2874d8;box-shadow:0 0 0 3px #2874d820}
+#analyzeForm .vehicle-input-shell > input{flex:1 1 0;min-width:0;width:0;min-height:58px;padding:14px 8px 14px 16px;border:0;border-radius:18px;background:transparent;color:#182638;box-shadow:none;font-size:16px;line-height:1.4;text-overflow:ellipsis}
+#analyzeForm .input-tools{position:static;inset:auto;transform:none;flex:0 0 auto;display:flex;align-items:center;gap:2px;margin-inline-end:6px}
+#analyzeForm .input-tool{flex:0 0 44px;width:44px;height:44px;min-width:44px;min-height:44px;margin:0}
+#analyzeForm .mileage-input-group{padding:14px 16px;gap:8px}
+#analyzeForm .mileage-input-group input{min-width:0;font-size:16px;line-height:1.4}
+#analyzeForm input::placeholder{color:#64748b;opacity:1}
+#analyzeForm .search-actions .btn{display:flex;align-items:center;justify-content:center;min-width:0;min-height:52px;text-align:center}
+#app > .hero .hint{overflow-wrap:anywhere}
+@media(max-width:560px){
+  /* Override the older high-specificity empty-screen rules, including their !important spacing. */
+  #app > .hero,
+  #app:has(#result.hidden):has(#progressPanel.hidden) > .hero{
+    flex:0 0 auto!important;
+    min-height:0!important;
+    justify-content:flex-start!important;
+    padding:20px 0 18px!important;
+  }
+  #analyzeForm{margin-top:8px}
+  #analyzeForm .search-actions{grid-template-columns:minmax(0,1fr);gap:10px}
+  #analyzeForm .search-actions .btn{width:100%;min-height:52px;border-radius:16px;font-size:16px}
+}
