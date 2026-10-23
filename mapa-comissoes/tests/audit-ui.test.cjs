@@ -113,8 +113,8 @@ test('real page loads the shared identity module before the current valuation en
   const shared=html.indexOf('src="./commercial-identity.js?v=20261022-commercial-cohort-v2"');
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
-  assert.match(app,/valuation\.js\?v=20261022-commercial-cohort-v2/);
-  assert.match(html,/tax-simulator-ui\.js\?v=20261022-[a-z0-9-]+/);
+  assert.match(app,/valuation\.js\?v=20261023-supervised-v1/);
+  assert.match(html,/tax-simulator-ui\.js\?v=20261023-[a-z0-9-]+/);
 });
 
 test('simultaneous save retries do not duplicate the same evidence write',async()=>{
@@ -126,3 +126,4 @@ test('simultaneous save retries do not duplicate the same evidence write',async(
   assert.deepEqual(await Promise.all([first,second]),[true,true]);
   assert.equal(writes,1);
 });
+

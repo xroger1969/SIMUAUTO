@@ -1,5 +1,5 @@
-import { evaluatePurchase } from "./valuation.js?v=20261022-commercial-cohort-v2";
-import { relevantMemories } from "./memory.js";
+import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261023-supervised-v1";
+import { relevantMemories } from "./memory.js?v=20261023-supervised-v1";
 import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
@@ -44,13 +44,83 @@ let recordingTimer=null;
 const DEFAULT_DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
   reconditioning:{paint_mode:"web",pricing_version:2,paint_min_eur:80,paint_max_eur:100},
-  target_margin:3500,
+  target_margin:null,
   minimum_margin:1200
 };
 let DEAL=JSON.parse(JSON.stringify(DEFAULT_DEAL));
 let activeOperation=null;
 let operationSequence=0;
 let currentMarketData=null;
+let learningRulesCache=[];
+let learningOwner=null;
+function evaluatePurchase(input,custom){
+  const perCar=q("vehicleMargin")?.value?.trim()||"";
+  return evaluateBasePurchase({...input,analysis_id:currentAnalysisId,
+    learning_rules:learningOwner===session?.user?.id?learningRulesCache:[],
+    target_margin:perCar!==""?Number(perCar):input.target_margin},custom);
+}
+let lastLearningRecord=null;
+function renderLearning(result){
+  const learning=result.market?.learning||{};
+  const mode={manual:"escolhida",automatic:"automática",learned:"aprendida"}[result.purchase?.marginMode]||"automática";
+  const parts=["Margem "+mode+": "+fmt(result.purchase?.targetMargin)+" · antes de impostos"];
+  if(learning.retailSamples)parts.push(learning.retailSamples+" registo(s) de revenda · ajuste "+Math.round(learning.saleAdjustmentPct*10000)/100+"%");
+  if(learning.tradeSamples)parts.push(learning.tradeSamples+" compra(s)/adjudicação(ões)"+(learning.tradeSamples<3?" · mínimo 3 para calibrar":""));
+  if(learning.bidSamples)parts.push(learning.bidSamples+" licitação(ões) · apenas observação");
+  if(q("learningSummary"))q("learningSummary").textContent=parts.join(". ");
+  if(q("learningUndoBtn"))q("learningUndoBtn").hidden=lastLearningRecord?.analysisId!==currentAnalysisId;
+}
+async function saveSupervisedFeedback(kind,value,feesConfirmed=false){
+  const owner=session?.user?.id,analysisId=currentAnalysisId;
+  if(!owner||!analysisId||!currentResult)throw Error("Conclui uma avaliação primeiro.");
+  const row=buildFeedbackRecord({userId:owner,analysisId,vehicle:currentVehicle,result:currentResult,kind,value,feesConfirmed,
+    sourceUrl:currentMarketData?.marketPayload?.url||null});
+  row.id=await feedbackRecordId(owner,analysisId,kind);
+  const {error}=await db.from("cap_memory_rules").upsert(row,{onConflict:"id"});
+  if(error)throw Error("Não foi possível guardar a aprendizagem. Podes tentar novamente.");
+  lastLearningRecord={id:row.id,owner,analysisId};
+  await loadMemories();
+  await refreshMemoryCount();
+  if(q("learningUndoBtn"))q("learningUndoBtn").hidden=false;
+  return row;
+}
+async function captureEvaluationFeedback(){
+  if(q("vehicleMargin")?.value.trim())await saveSupervisedFeedback("margin",Number(q("vehicleMargin").value));
+  if(currentResult?.purchase?.acquisition?.isAuction&&Number(currentVehicle?.price)>0)await saveSupervisedFeedback("auction_bid",Number(currentVehicle.price));
+}
+q("learningKind")?.addEventListener("change",()=>{
+  const row=learningRulesCache.find(r=>r.analysis_id===currentAnalysisId&&r.effect?.mode==="supervised"&&r.effect.kind===q("learningKind").value);
+  q("learningValue").value=row?String(row.effect.value):"";
+  q("learningFeesConfirmed").checked=row?.effect?.fees_confirmed===true;
+  lastLearningRecord=row?{id:row.id,owner:session.user.id,analysisId:currentAnalysisId}:null;
+  q("learningUndoBtn").hidden=!row;
+});
+q("learningForm")?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return;}
+  const button=q("learningSaveBtn"),status=q("learningSaveStatus");
+  const operation=beginOperation("learning",currentAnalysisId);
+  button.disabled=true;
+  try{
+    const kind=q("learningKind").value;
+    await saveSupervisedFeedback(kind,Number(q("learningValue").value),q("learningFeesConfirmed").checked);
+    status.textContent="Registo guardado. Será considerado em futuras avaliações de viaturas semelhantes.";
+    q("learningValue").value="";
+    if(kind==="auction_bid")status.textContent="Licitação guardada como observação. Quando terminar, regista a adjudicação ou a compra.";
+  }catch(error){status.textContent=error.message;}
+  finally{finishOperation(operation);button.disabled=false;}
+});
+q("learningUndoBtn")?.addEventListener("click",async()=>{
+  if(activeOperation||!lastLearningRecord||lastLearningRecord.owner!==session?.user?.id||lastLearningRecord.analysisId!==currentAnalysisId)return;
+  const operation=beginOperation("learning-undo",currentAnalysisId);
+  try{
+    const {error}=await db.from("cap_memory_rules").update({active:false,updated_at:new Date().toISOString()}).eq("id",lastLearningRecord.id).eq("user_id",session.user.id);
+    if(error)throw Error("Não foi possível desativar o registo.");
+    lastLearningRecord=null;await loadMemories();await refreshMemoryCount();q("learningUndoBtn").hidden=true;
+    q("learningSaveStatus").textContent="Registo desativado. Já não será usado nas avaliações seguintes.";
+  }catch(error){q("learningSaveStatus").textContent=error.message;}
+  finally{finishOperation(operation);}
+});
 let lastRefineFocus=null;
 let auctionLocationOverride=null;
 let awaitingVehicleDetails=false;
@@ -726,6 +796,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   currentResult=result||null;
   globalThis.AutoProAssessment=currentResult;
   currentVehicle=result.subject||{};
+  renderLearning(result);
   const shareBar=q("valuationShareBar");
   if(shareBar)shareBar.classList.add("hidden");
   const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
@@ -763,6 +834,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
     ?"hipótese matemática sem revenda confirmada"
     :hasCurrent?(askingPrice?"se comprasses ao preço pedido":"se comprares ao preço/licitação atual")
     :"comprando ao teto comercial";
+  if(q("expectedMarginNote"))q("expectedMarginNote").textContent+=" · antes de impostos";
   q("comparableCount").textContent=String(result.market?.comparablesUsed??0);
   q("decisionText").textContent=Number.isFinite(displayedCeiling)
     ?(result.purchase?.priceScenario?"SIMULAÇÃO FINANCEIRA · mercado não confirmado":result.purchase?.needsLocationConfirmation?"Cenário provisório · confirmar localização":result.market?.dispersion>.45?"Cenários indicativos — anúncios com preços muito dispersos":result.market?.broadenedMarket?"Cenários indicativos — anúncios menos semelhantes":result.purchase?.eligible?"Teto de compra recomendado · evidência "+(result.market?.confidencePct??0)+"%":"Teto comercial provisório · evidência "+(result.market?.confidencePct??0)+"%")
@@ -1213,12 +1285,15 @@ function mergeDeal(settings){
   }
   for(const key of ["target_margin","minimum_margin"]){
     const value=Number(src[key]);
-    if(Number.isFinite(value)&&value>=0)out[key]=value;
+    if(src[key]!==null&&src[key]!==undefined&&src[key]!==""&&Number.isFinite(value)&&value>=0)out[key]=value;
   }
+  // Migrate the former fixed default to automatic pricing; preserve deliberate custom targets.
+  if(src.margin_policy_version!==1&&out.target_margin===3500)out.target_margin=null;
+  out.margin_policy_version=1;
   const prep=src.reconditioning||{};
   out.reconditioning={paint_mode:prep.pricing_version===2&&prep.paint_mode==="trade"?"trade":"web",pricing_version:2,paint_min_eur:Math.max(0,Number.isFinite(Number(prep.paint_min_eur))?Number(prep.paint_min_eur):80),paint_max_eur:Math.max(0,Number.isFinite(Number(prep.paint_max_eur))?Number(prep.paint_max_eur):100)};
   out.reconditioning.paint_max_eur=Math.max(out.reconditioning.paint_min_eur,out.reconditioning.paint_max_eur);
-  out.minimum_margin=Math.min(out.minimum_margin,out.target_margin);
+  if(out.target_margin!==null)out.minimum_margin=Math.min(out.minimum_margin,out.target_margin);
   return out;
 }
 async function loadDealPreferences(){
@@ -1236,12 +1311,12 @@ function syncDealForm(){
     warrantyCostInput:DEAL.costs.warranty_reserve,stockCostInput:DEAL.costs.stock_finance,
     otherCostInput:DEAL.costs.other,auctionCostInput:DEAL.costs.auction_fee,registrationCostInput:DEAL.costs.registration
   };
-  for(const [id,value] of Object.entries(map))if(q(id))q(id).value=String(value);
+  for(const [id,value] of Object.entries(map))if(q(id))q(id).value=value===null?"":String(value);
 }
 function dealFromForm(){
   const read=id=>Math.max(0,Number(q(id)?.value||0));
   return mergeDeal({
-    target_margin:read("targetMarginInput"),minimum_margin:read("minimumMarginInput"),
+    margin_policy_version:1,target_margin:q("targetMarginInput")?.value.trim()?read("targetMarginInput"):null,minimum_margin:read("minimumMarginInput"),
     reconditioning:{paint_mode:q("paintPriceModeInput")?.value,pricing_version:2,paint_min_eur:read("paintMinInput"),paint_max_eur:read("paintMaxInput")},
     costs:{
       transport:read("transportCostInput"),reconditioning:read("reconditioningCostInput"),
@@ -1309,7 +1384,7 @@ q("retryAnalysisSaveBtn")?.addEventListener("click",async()=>{
   finally{button.disabled=false}
 });
 async function initializeAppData(){
-  await Promise.allSettled([refreshMemoryCount(),loadDealPreferences()]);
+  await Promise.allSettled([refreshMemoryCount(),loadDealPreferences(),loadMemories()]);
   try{pendingAnalysisSaves=JSON.parse(sessionStorage.getItem(pendingSavesKey())||"[]").filter(item=>item.analysisId&&item.snapshot?.result)}catch{pendingAnalysisSaves=[]}
   if(pendingAnalysisSaves.length)await retryPendingSaves();
   await resumePendingAnalysis();
@@ -1436,6 +1511,7 @@ function resetSearchInput({announce=true,focus=true}={}){
   const input=q("vehicleUrl");
   input.value="";
   q("vehicleMileage").value="";
+  if(q("vehicleMargin"))q("vehicleMargin").value="";
   imageGeneration++;selectedImages=[];
   selectedImageData=null;
   selectedImageName="";
@@ -1709,8 +1785,10 @@ q("printValuationBtn").addEventListener("click",printValuationSummary);
 q("micBtn").addEventListener("click",()=>startVoiceInput().catch(error=>toast(error.message)));
 
 async function loadMemories(){
-  const {data,error}=await db.from("cap_memory_rules").select("rule_type,statement,scope,effect,evidence_level,confidence,created_at,valid_until").eq("active",true).eq("user_id",session.user.id).order("created_at",{ascending:false}).limit(200);
+  const owner=session.user.id;
+  const {data,error}=await db.from("cap_memory_rules").select("id,analysis_id,rule_type,statement,scope,effect,evidence_level,confidence,created_at,updated_at,valid_until").eq("active",true).eq("user_id",owner).order("updated_at",{ascending:false}).limit(200);
   if(error)throw new Error("Não foi possível recuperar as tuas orientações guardadas.");
+  if(session?.user?.id===owner){learningRulesCache=data||[];learningOwner=owner;}
   return data||[];
 }
 
@@ -1764,7 +1842,7 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
 }
 async function runMarketAnalysis(payload,operation){
   assertOperation(operation);
-  const requestBody={...payload,analysis_id:operation.analysisId,request_key:operation.requestKey};
+  const requestBody={...payload,dealer_memories:(payload.dealer_memories||[]).filter(r=>r.effect?.mode!=="supervised"),analysis_id:operation.analysisId,request_key:operation.requestKey};
   let start=null;
   for(let attempt=0;attempt<2;attempt++){
     try{
@@ -1993,6 +2071,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     if(reader.source_kind==="auto1_screenshot")q("sourceLabel").textContent="AUTO1 · Link + fotografia · "+(reader.vehicle_code||"");
 
     await persistCompletedAnalysis(operation.analysisId,result,market,reader,entry,marketPayload,"analysis");
+    await captureEvaluationFeedback().catch(error=>{q("learningSaveStatus").textContent=error.message;});
     const completion=result.purchase?.eligible
       ?"Análise concluída com evidência profissional suficiente para emitir o teto."
       :result.purchase?.priceScenario
@@ -2352,6 +2431,7 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
   finally{finishOperation(operation)}
 });
 
-db.auth.onAuthStateChange((_event,data)=>{session=data;if(!data){activeOperation=null;showAuth()}});
+db.auth.onAuthStateChange((_event,data)=>{if(session?.user?.id!==data?.user?.id){learningRulesCache=[];learningOwner=null;}session=data;if(!data){activeOperation=null;showAuth()}});
 boot();
+
 

@@ -13,6 +13,11 @@
 .input-tool{color:#344d68}
 .input-tool:hover,.input-tool:focus-visible{background:#e8eef7;color:#183c66}
 .mileage-input-group input:focus{border-color:#2874d8;box-shadow:0 0 0 3px #2874d820}
+.assumptions-form .learning-check{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:14px;line-height:1.5}
+.assumptions-form .learning-check input{width:22px;height:22px;min-height:22px;flex:none;padding:0}
+#learningPanel .assumptions-form label{font-size:14px}
+#learningPanel input,#learningPanel select{min-height:46px;font-size:16px}
+#learningPanel .learning-check input{min-height:22px}
 .hero:after{pointer-events:none}
 .result{--muted:#526276;--line:#ccd7e4}
 .result :is(.vehicle-readout,.decision-card,.commercial-panel,.kpis article,.panel,.condition-details,.vehicle-followup,.assumptions-details,.refine-bar,.valuation-share-bar,.mileage-reference),.empty-state,.progress-panel,.attachment-status{
@@ -54,3 +59,4 @@
   .analyze-bar .vehicle-input-shell>input{background:#fff;border-color:#c4d1e0;color:#182638}
   .mileage-input-group{padding:13px 14px}
 }
+

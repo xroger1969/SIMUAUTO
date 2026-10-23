@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-22-commercial-cohort-v2";
+export const ENGINE_VERSION="2026-10-23-supervised-v1";
 const identity=globalThis.CommercialIdentity;
 if(!identity)throw new Error("CommercialIdentity must load before the valuation engine");
 export const normalizeVehicleIdentity=identity.normalizeVehicleIdentity;
@@ -35,6 +35,81 @@ const fuel=v=>({
   "gasolina plug in":"phev","gasolina plugin":"phev",
   "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev"
 }[norm(v).replace(/[-_]+/g," ").replace(/\s+/g," ")]||norm(v));
+
+// Commercial margin before personal taxes. The fiscal simulator reports net profit separately.
+export function automaticMargin(sale){
+  const value=num(sale);
+  return Math.round((value<=15000?3500:value<=20000?3500+(value-15000)*.2:value<=25000?4500+(value-20000)*.1:5000+(value-25000)*.1)/50)*50;
+}
+export const FEEDBACK_KINDS=Object.freeze({retail_estimate:"Minha estimativa de revenda",retail_sale:"Venda concluída",auction_bid:"Licitação em curso",auction_hammer:"Adjudicação confirmada",purchase:"Compra concluída",margin:"Margem pretendida"});
+const positive=v=>known(v)&&Number.isFinite(Number(v))&&Number(v)>0&&Number(v)<=10000000;
+export function feedbackScope(vehicle){
+  const v=normalizeVehicleIdentity(vehicle);
+  const out={};
+  for(const key of ["make","model","trim","fuel","generation","drivetrain","battery_kwh","year","mileage_km","mileage_estimated","registration"]){if(known(v[key]))out[key]=v[key];}
+  return out;
+}
+export function feedbackMatches(rule,vehicle,now=Date.now()){
+  if(rule?.active===false||rule?.effect?.mode!=="supervised"||rule.effect.version!==1)return false;
+  const date=Date.parse(rule.updated_at||rule.created_at);
+  if(!Number.isFinite(date)||date>now+86400000||now-date>120*86400000)return false;
+  if(rule.valid_until&&(!Number.isFinite(Date.parse(rule.valid_until))||Date.parse(rule.valid_until)<=now))return false;
+  const a=normalizeVehicleIdentity(rule.scope||{}),b=normalizeVehicleIdentity(vehicle);
+  if(!a.make||!a.model||!same(a.make,b.make)||!same(a.model,b.model)||!a.fuel||fuel(a.fuel)!==fuel(b.fuel))return false;
+  for(const key of ["trim","generation","drivetrain"]){if(known(a[key])&&(!known(b[key])||!same(a[key],b[key])))return false;}
+  if(!positive(a.year)||!positive(b.year)||Math.abs(Number(a.year)-Number(b.year))>1)return false;
+  if(fuel(a.fuel)==="electric"&&(!positive(a.battery_kwh)||!positive(b.battery_kwh)))return false;
+  if(known(a.battery_kwh)&&(!known(b.battery_kwh)||Math.abs(Number(a.battery_kwh)-Number(b.battery_kwh))>5))return false;
+  if(!known(a.mileage_km)||!known(b.mileage_km)||a.mileage_estimated||b.mileage_estimated||Math.abs(Number(a.mileage_km)-Number(b.mileage_km))>30000)return false;
+  return true;
+}
+export function learningCalibration(rules,vehicle,{excludeAnalysisId=null,now=Date.now()}={}){
+  // One vehicle, one observation per category: reevaluations cannot manufacture a sample.
+  const latest=new Map();
+  const category=k=>k==="margin"?"margin":["retail_sale","retail_estimate"].includes(k)?"retail":"trade";
+  for(const r of [...(rules||[])].sort((a,b)=>Date.parse(b.updated_at||b.created_at)-Date.parse(a.updated_at||a.created_at))){
+    if(r.analysis_id===excludeAnalysisId||!feedbackMatches(r,vehicle,now))continue;
+    const e=r.effect,k=e.kind;
+    if(!FEEDBACK_KINDS[k]||!positive(e.value))continue;
+    // With no plate, conservatively collapse the same model/year/mileage bucket even across adverts.
+    const fingerprint=[r.scope.make,r.scope.model,r.scope.trim,r.scope.year,Math.round(Number(r.scope.mileage_km)/5000)].join(":");
+    const caseKey=String(r.scope?.registration||fingerprint).toLowerCase().replace(/[^a-z0-9]/g,"");
+    if(!caseKey)continue;
+    const key=caseKey+":"+category(k),old=latest.get(key);
+    // A final sale/adjudication outranks a later estimate/bid for the same vehicle.
+    if(old&&!(["retail_sale","auction_hammer","purchase"].includes(k)&&["retail_estimate","auction_bid"].includes(old.effect.kind)))continue;
+    latest.set(key,r);
+  }
+  const rows=[...latest.values()];
+  const retail=rows.filter(r=>["retail_sale","retail_estimate"].includes(r.effect.kind)&&positive(r.effect.baseline_sale)&&r.effect.value/r.effect.baseline_sale>=.65&&r.effect.value/r.effect.baseline_sale<=1.35);
+  const median=xs=>{const a=xs.slice().sort((a,b)=>a-b);return a.length?(a[Math.floor((a.length-1)/2)]+a[Math.ceil((a.length-1)/2)])/2:null;};
+  const weight=retail.reduce((s,r)=>s+(r.effect.kind==="retail_sale"?1:.35),0);
+  const deviation=median(retail.map(r=>r.effect.value/r.effect.baseline_sale-1))||0;
+  const saleAdjustmentPct=clamp(deviation*(weight/(weight+4)),-.05,.05);
+  const margins=rows.filter(r=>r.effect.kind==="margin");
+  const trade=rows.filter(r=>["auction_hammer","purchase"].includes(r.effect.kind)&&r.effect.price_basis==="gross"&&r.effect.fees_confirmed===true&&positive(r.effect.baseline_sale)&&r.effect.value/r.effect.baseline_sale>=.3&&r.effect.value/r.effect.baseline_sale<=1);
+  return {saleAdjustmentPct,retailSamples:retail.length,confirmedSales:retail.filter(r=>r.effect.kind==="retail_sale").length,
+    learnedMargin:margins.length>=3?median(margins.map(r=>Number(r.effect.value))):null,marginSamples:margins.length,
+    tradeRatio:trade.length>=3?median(trade.map(r=>r.effect.value/r.effect.baseline_sale)):null,tradeSamples:trade.length,
+    bidSamples:rows.filter(r=>r.effect.kind==="auction_bid").length,ids:rows.map(r=>r.id).filter(Boolean)};
+}
+export function buildFeedbackRecord({userId,analysisId,vehicle,result,kind,value,feesConfirmed=false,sourceUrl=null}){
+  if(!userId||!analysisId||!FEEDBACK_KINDS[kind]||!positive(value))throw Error("Seleciona o tipo de registo e um valor positivo válido.");
+  if(kind==="margin"&&Number(value)>100000)throw Error("A margem é demasiado elevada.");
+  const scope=feedbackScope(vehicle);
+  if(!scope.make||!scope.model)throw Error("Confirma a marca e o modelo antes de ensinar.");
+  const baseline=result?.market?.saleBaseline??result?.market?.saleLikely;
+  return {user_id:userId,analysis_id:analysisId,rule_type:"margin_cost",statement:FEEDBACK_KINDS[kind]+": "+Number(value)+" €",
+    scope,effect:{mode:"supervised",version:1,kind,value:Number(value),baseline_sale:positive(baseline)?Number(baseline):null,
+      price_basis:result?.tax?.mode==="deductible"?"net_or_deductible":"gross",fees_confirmed:feesConfirmed===true,source_url:sourceUrl||null},
+    evidence_level:["retail_sale","auction_hammer","purchase"].includes(kind)?"internal_history":"observation",confidence:kind==="retail_estimate"?.35:.8,active:true,updated_at:new Date().toISOString()};
+}
+export async function feedbackRecordId(userId,analysisId,kind,cryptoApi=globalThis.crypto){
+  const bytes=new Uint8Array(await cryptoApi.subtle.digest("SHA-256",new TextEncoder().encode([userId,analysisId,kind].join(":"))));
+  bytes[6]=(bytes[6]&15)|80;bytes[8]=(bytes[8]&63)|128;
+  const hex=Array.from(bytes.slice(0,16),v=>v.toString(16).padStart(2,"0")).join("");
+  return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join("-");
+}
 const sellerType=c=>{
   const t=norm(c?.seller_type||c?.sellerType);
   if(["professional","dealer","stand","trade"].includes(t))return "professional";
@@ -262,7 +337,9 @@ export function evaluatePurchase(input,custom={}){
     value:r.adjustedPrice,
     weight:Math.pow(r.similarity/100,2)*(sellerType(r.comp)==="professional"?1.25:.5)
   }))));
-  const saleLikely=Number.isFinite(marketValue)?Math.round(marketValue*(1-num(input.negotiation_discount_pct,config.negotiationDiscountPct))):NaN;
+  const saleBaseline=Number.isFinite(marketValue)?Math.round(marketValue*(1-num(input.negotiation_discount_pct,config.negotiationDiscountPct))):NaN;
+  const learning=learningCalibration(input.learning_rules||[],s,{excludeAnalysisId:input.analysis_id});
+  const saleLikely=Number.isFinite(saleBaseline)?Math.min(marketValue,Math.round(saleBaseline*(1+learning.saleAdjustmentPct))):NaN;
   const saleFast=Number.isFinite(saleLikely)?Math.round(saleLikely*(1-num(input.fast_sale_discount_pct,config.fastSaleDiscountPct))):NaN;
 
   const verified=valid.filter(r=>recentEvidence(r.comp,config));
@@ -348,10 +425,15 @@ export function evaluatePurchase(input,custom={}){
   const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&(!x.partial||x.basis==="fallback")).map(x=>x.key));
   const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(pricedComponents.has(norm(r.related_component).replace(/[^a-z0-9]+/g,"_"))?0:Math.max(0,num(r.reserve_eur))),0);
   const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
-  const targetMargin=Math.max(0,num(input.target_margin,config.targetMargin));
+  const automaticTarget=automaticMargin(quoteSaleGross);
+  const learnedTarget=learning.learnedMargin===null?automaticTarget:Math.max(3500,clamp(learning.learnedMargin,automaticTarget*.8,automaticTarget*1.3));
+  const manualMargin=known(input.target_margin)&&Number.isFinite(Number(input.target_margin));
+  const targetMargin=manualMargin?Math.max(0,Number(input.target_margin)):Math.round(learnedTarget/50)*50;
+  const marginMode=manualMargin?"manual":learning.learnedMargin===null?"automatic":"learned";
   const minimumMargin=Math.max(0,Math.min(targetMargin,num(input.minimum_margin,config.minimumMargin)));
 
-  const computedTargetCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-targetMargin)*factor)):NaN;
+  const tradeCeiling=taxMode==="gross"&&Number.isFinite(saleLikely)&&learning.tradeRatio!==null?Math.floor(saleLikely*learning.tradeRatio):Infinity;
+  const computedTargetCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.min(tradeCeiling,Math.floor((saleEconomic-fixedCosts-riskReserve-targetMargin)*factor))):NaN;
   const computedWithoutRepairs=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCostsWithoutRepairs-riskReserve-targetMargin)*factor)):NaN;
   const computedAbsoluteCeiling=Number.isFinite(saleEconomic)?Math.max(0,Math.floor((saleEconomic-fixedCosts-riskReserve-minimumMargin)*factor)):NaN;
   const maxPurchase=eligible?computedTargetCeiling:NaN;
@@ -399,7 +481,7 @@ export function evaluatePurchase(input,custom={}){
       verifiedProfessionals:verified.length,
       privateComparables:valid.filter(r=>sellerType(r.comp)==="private").length,
       unknownSellerComparables:valid.filter(r=>sellerType(r.comp)==="unknown").length,
-      marketBasis:valid.length?marketBasis:"none",marketValue,saleLikely,saleFast,confidencePct,dispersion,broadenedMarket,
+      marketBasis:valid.length?marketBasis:"none",marketValue,saleBaseline,saleLikely,saleFast,learning,confidencePct,dispersion,broadenedMarket,
       searchTier:priceScenario?4:valid.length?searchTier:0,hasIndependentMarket:valid.length>0,
       confidenceMethod:"heuristic-evidence-v3",sampleSize:valid.length
     },
@@ -414,6 +496,7 @@ export function evaluatePurchase(input,custom={}){
       acquisition,
       riskReserve,
       targetMargin,
+      marginMode,automaticTarget,tradeCeiling:Number.isFinite(tradeCeiling)?tradeCeiling:null,
       minimumMargin,
       maxPurchase,
       absoluteMax,
@@ -439,4 +522,5 @@ export function evaluatePurchase(input,custom={}){
   result.commercial=commercialDiagnosis(result);
   return result;
 }
+
 

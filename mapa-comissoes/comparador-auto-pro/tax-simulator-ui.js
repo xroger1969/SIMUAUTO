@@ -1,9 +1,9 @@
-import {calculateTaxSim} from "./tax-simulator-calc.mjs?v=20261022-social-option-v1";
+import {calculateTaxSim} from "./tax-simulator-calc.mjs?v=20261023-progressive-v1";
 
 // Os montantes pertencem ao simulador, não à pesquisa de viaturas.
 // A "Nova avaliação" nunca os deve substituir nem limpar.
 const STORAGE_KEY="aap-tax-sim-v2";
-const FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate","taxSimSocialEnabled"];
+const FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate","taxSimSocialEnabled","taxSimAnnualSales","taxSimGrossSalary"];
 const byId=id=>document.getElementById(id);
 const eur=n=>Number(n).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
 function saveState(){
@@ -50,7 +50,9 @@ function render(){
   const r=calculateTaxSim({
    purchase:numberFrom("taxSimPurchase"),sale:numberFrom("taxSimSale"),
    costs:numberFrom("taxSimCosts"),quarterlySales:numberFrom("taxSimQuarterly"),
-   irsRate:irs?irs.replace(",","."):null,includeSocialSecurity
+   irsRate:irs?irs.replace(",","."):null,includeSocialSecurity,automaticIRS:true,
+   annualSales:byId("taxSimAnnualSales")?numberFrom("taxSimAnnualSales"):10,
+   monthlyGrossSalary:byId("taxSimGrossSalary")?numberFrom("taxSimGrossSalary"):730
   });
   error.hidden=true;error.textContent="";
   const ids={taxSimMargin:r.grossMargin,taxSimVat:r.marginVat,taxSimExpense:r.costs,taxSimSocial:r.socialPerCar,taxSimTaxable:r.taxableIncome,taxSimBeforeIRS:r.beforeIRS};
@@ -62,7 +64,8 @@ function render(){
   if(r.exceedsSimplifiedSingleYearThreshold)warnings.push("Projeção anual superior a 250.000 €: confirmar a obrigatoriedade de contabilidade organizada no ano seguinte.");
   else if(r.requiresAnnualReview)warnings.push("Projeção anual superior a 200.000 €: confirmar o enquadramento fiscal.");
   if(r.socialMonthly>0)warnings.push("SS mensal estimada: "+eur(r.socialMonthly)+".");
-  if(r.irsEstimate===null)warnings.push("Para estimar o resultado após IRS, introduz uma taxa. O imposto anual real pode ser diferente.");
+  if(r.irsMethod==="progressive-estimate")warnings.push("IRS automático: "+r.effectiveIRSRate.toLocaleString("pt-PT")+"% sobre a base tributável. Cenário individual, antes das deduções do agregado.");
+  if(!includeSocialSecurity&&r.relevantMonthly>=r.exemptLimit)warnings.push("Sem isenção automática neste cenário: o rendimento relevante excede 4 IAS. Confirma a opção de SS.");
   if(r.grossMargin<0)warnings.push("Margem negativa: a venda continua relevante para "+(includeSocialSecurity?"IRS e SS.":"IRS."));
   byId("taxSimWarning").textContent=warnings.join(" ");
  }catch(e){
@@ -123,3 +126,4 @@ byId("taxSimUseAssessment")?.addEventListener("click",useAssessmentPrices);
 byId("taxSimOpenBtn")?.addEventListener("click",()=>openSimulator(false));
 byId("taxSimFromResult")?.addEventListener("click",()=>openSimulator(true));
 render();
+

@@ -143,9 +143,10 @@ test("current margin and ceiling margin are separate values",()=>{
   assert.notEqual(r.purchase.expectedMargin,r.market.saleLikely-r.purchase.maxPurchase);
 });
 
-test("default target margin remains 3500 euros",()=>{
+test("default target margin scales with the resale market",()=>{
   const r=evaluatePurchase({subject,comparables:[professional(1),professional(2),professional(3)],source_url:"https://auction.example/x"});
-  assert.equal(r.purchase.targetMargin,3500);
+  assert.ok(r.purchase.targetMargin>=5000);
+  assert.equal(r.purchase.marginMode,"automatic");
 });
 
 
@@ -644,3 +645,4 @@ test('Volkswagen ID punctuation aliases preserve the model number',()=>{
   const ad={...car,make:'Volkswagen',model:'ID 4',url:'https://stand.example/id4',price:24000};
   assert.equal(evaluatePurchase({subject:car,comparables:[ad]}).market.comparablesUsed,1);
 });
+

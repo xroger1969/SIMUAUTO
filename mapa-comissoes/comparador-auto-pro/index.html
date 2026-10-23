@@ -34,8 +34,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="preload" as="image" href="./assets/car-sunset.webp">
   <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
-  <link rel="stylesheet" href="./light-panels.css?v=20261022-optional-mileage-v1">
-  <link rel="stylesheet" href="./tax-simulator.css?v=20261022-social-option-v1">
+  <link rel="stylesheet" href="./light-panels.css?v=20261023-supervised-v1">
+  <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -121,6 +121,10 @@
           <input id="vehicleMileage" type="text" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Ex.: 125 000" aria-describedby="mileageHelp">
           <small id="mileageHelp">Se não souberes, deixa vazio. Uso a média e o intervalo dos anúncios comparáveis.</small>
         </div>
+        <div class="mileage-input-group">
+          <label for="vehicleMargin">Margem comercial (€) <span>opcional</span></label>
+          <input id="vehicleMargin" type="number" inputmode="decimal" min="0" max="100000" step="50" placeholder="Automática · mínimo 3 500 €">
+        </div>
         <div class="search-actions">
           <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
           <button class="btn ghost" type="button" id="startNewAnalysisBtn">Nova avaliação</button>
@@ -176,11 +180,18 @@
             <div><span>Base tributável de IRS</span><strong id="taxSimTaxable">—</strong></div>
             <div><span>IRS estimado</span><strong id="taxSimIrs">—</strong></div>
           </div>
-          <label class="tax-sim-irs-field" for="taxSimIrsRate">Taxa estimada de IRS (%)
-            <input id="taxSimIrsRate" type="number" inputmode="decimal" min="0" max="53" step="0.1" placeholder="Ex.: 31,1">
+          <label class="tax-sim-irs-field" for="taxSimAnnualSales">Vendas previstas/ano
+            <input id="taxSimAnnualSales" type="number" min="1" max="120" step="1" value="10">
+          </label>
+          <label class="tax-sim-irs-field" for="taxSimGrossSalary">Salário bruto/mês · estimado (€)
+            <input id="taxSimGrossSalary" type="number" min="0" max="1000000" step="0.01" value="730">
+          </label>
+          <label class="tax-sim-irs-field" for="taxSimIrsRate">Taxa de IRS manual (%) · opcional
+            <input id="taxSimIrsRate" type="number" inputmode="decimal" min="0" max="53" step="0.1" placeholder="Automática">
           </label>
           <p class="tax-sim-warning" id="taxSimWarning" role="status"></p>
-          <p class="tax-sim-footnote">Estimativa fiscal de 2026. O IRS real é anual e depende dos teus rendimentos e deduções. A isenção da Segurança Social depende das condições legais.</p>
+          <p class="tax-sim-footnote">Cenário 2026: regime da margem e IRS simplificado, salário estimado de 730 € brutos × 14. Ajusta ao recibo. O IRS final depende do agregado e das deduções; a SS, do trimestre real.</p>
+          <p class="tax-sim-footnote"><a href="https://info.portaldasfinancas.gov.pt/pt/informacao_fiscal/codigos_tributarios/cirs_rep/Pages/irs68.aspx" target="_blank" rel="noopener noreferrer">Escalões IRS</a> · <a href="https://info.portaldasfinancas.gov.pt/pt/informacao_fiscal/codigos_tributarios/cirs_rep/Pages/irs31.aspx" target="_blank" rel="noopener noreferrer">Regime simplificado</a></p>
         </details>
         <p class="tax-sim-error" id="taxSimError" role="alert" hidden></p>
       </div>
@@ -387,7 +398,7 @@
       <details class="assumptions-details">
         <summary>Premissas da compra</summary>
         <form id="assumptionsForm" class="assumptions-form">
-          <label>Margem objetivo (€)<input id="targetMarginInput" type="number" min="0" step="50"></label>
+          <label>Margem comercial por defeito (€)<input id="targetMarginInput" type="number" min="0" step="50" placeholder="Automática"></label>
           <label>Margem mínima (€)<input id="minimumMarginInput" type="number" min="0" step="50"></label>
           <label>Transporte (€)<input id="transportCostInput" type="number" min="0" step="10"></label>
           <label>Reserva mínima de preparação (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
@@ -402,6 +413,23 @@
           <button class="btn ghost small" type="submit">Aplicar e guardar</button>
         </form>
         <p class="assumptions-help">A preparação usa o maior valor entre a reserva mínima e o orçamento identificado, sem os somar. Os preços por painel e os custos corrigidos incluem IVA; os restantes custos mantêm a base económica do cálculo.</p>
+      </details>
+
+      <details class="assumptions-details" id="learningPanel">
+        <summary>Ensinar com este carro</summary>
+        <p id="learningSummary" class="assumptions-help" role="status"></p>
+        <form id="learningForm" class="assumptions-form">
+          <label>Tipo de registo<select id="learningKind">
+            <option value="retail_estimate">Minha estimativa de revenda</option><option value="retail_sale">Venda concluída</option>
+            <option value="auction_bid">Licitação em curso</option><option value="auction_hammer">Adjudicação confirmada</option>
+            <option value="purchase">Compra concluída</option><option value="margin">Margem pretendida</option>
+          </select></label>
+          <label>Valor (€)<input id="learningValue" type="number" min="0.01" max="10000000" step="0.01" required></label>
+          <label class="learning-check"><input id="learningFeesConfirmed" type="checkbox">Preço de compra com IVA incluído confirmado; comissões excluídas</label>
+          <button class="btn ghost small" type="submit" id="learningSaveBtn">Guardar aprendizagem</button>
+        </form>
+        <p class="assumptions-help" id="learningSaveStatus" role="status">Margem comercial antes de impostos. Licitações ficam como observações; só compras e adjudicações confirmadas calibram a referência profissional.</p>
+        <button class="btn ghost small" type="button" id="learningUndoBtn" hidden>Desativar este registo</button>
       </details>
 
       <form id="refineForm" class="refine-bar">
@@ -462,11 +490,12 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
-  <script type="module" src="./app-v2.js?v=20261022-social-alerts-v2"></script>
-  <script type="module" src="./tax-simulator-ui.js?v=20261022-social-option-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261023-supervised-v1"></script>
+  <script type="module" src="./tax-simulator-ui.js?v=20261023-progressive-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->
 </body>
 </html>
+
 
