@@ -23,6 +23,8 @@ let member=null;
 let currentAnalysisId=null;
 let currentVehicle=null;
 let currentResult=null;
+let currentHistoryRevision=null;
+let historyControlStates=[];
 globalThis.AutoProAssessment=null;
 let pendingResearch=null;
 let pendingAnalysisSaves=[];
@@ -142,6 +144,7 @@ async function validateMember(){
   return !!member?.active && member?.role==="admin";
 }
 async function boot(){
+  resetAnalysisView({announce:false,focus:false,scroll:false});
   const {data}=await db.auth.getSession();
   session=data.session||null;
   if(!session){showAuth();return}
@@ -212,6 +215,7 @@ function historyItem(row){
       '<div><span>Venda rápida</span><strong>'+esc(fmt(row.sale_fast))+'</strong></div>'+
     '</div>'+
     '<small class="history-meta">'+esc(comps)+' comparável(is) · motor '+esc(row.engine_version||"—")+'</small>'+
+    '<button type="button" class="btn ghost small history-open-btn" data-history-revision="'+esc(row.id)+'" aria-label="Abrir avaliação de '+title+'">Abrir avaliação</button>'+
   '</article>';
 }
 async function loadHistory(reset=false){
@@ -257,6 +261,111 @@ async function loadRecoverableJobs(){
     item.append(label,when,button);list.appendChild(item);
   }
 }
+// Reading a revision never runs the valuation engine or writes another revision.
+function savedRevisionSnapshot(row){
+  const object=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
+  const original=row?.snapshot;
+  if(!object(original)||!object(original.result)||!object(original.result.subject)||!object(original.result.market)||!object(original.result.purchase)){
+    throw new Error("Este registo não contém a avaliação completa. Não foi feita uma nova pesquisa.");
+  }
+  const snapshot=JSON.parse(JSON.stringify(original));
+  const result=snapshot.result;
+  for(const key of ["comparables","excluded","warnings"]){
+    if(!Array.isArray(result[key]))result[key]=[];
+  }
+  if(object(result.reconditioning)){
+    if(!Array.isArray(result.reconditioning.items))result.reconditioning.items=[];
+    if(!Array.isArray(result.reconditioning.notes))result.reconditioning.notes=[];
+  }
+  const research=object(snapshot.research)?snapshot.research:{};
+  const source=object(snapshot.source)?snapshot.source:{};
+  const sourceHost=String(source.domain||"manual");
+  const entry={sourceUrl:source.url||null,sourceDomain:sourceHost,mode:source.mode||"manual",registration:result.subject.registration||null};
+  const market={...research,subject:result.subject,comparables:result.comparables,
+    condition_report:research.condition_report||result.condition_report||null,
+    risk_flags:Array.isArray(research.risk_flags)?research.risk_flags:[]};
+  const rawDate=row.created_at||snapshot.saved_at;
+  const date=new Date(rawDate);
+  return {snapshot,result,sourceHost,
+    savedAt:Number.isFinite(date.getTime())?date.toISOString():null,
+    context:{market,reader:snapshot.reader||{},entry,sourceHost,marketPayload:{url:entry.sourceUrl},allRules:snapshot.memory_rules||[]}};
+}
+function clearSavedRevisionView(){
+  currentHistoryRevision=null;
+  for(const [element,disabled] of historyControlStates)element.disabled=disabled;
+  historyControlStates=[];
+  q("historySnapshotNotice")?.classList.add("hidden");
+  q("conditionPanel")?.classList.remove("hidden");
+  syncDealForm();
+}
+function showSavedRevisionView(row,record){
+  currentHistoryRevision={id:row.id,analysisId:row.analysis_id,savedAt:record.savedAt};
+  const notice=q("historySnapshotNotice");
+  if(notice){
+    const when=record.savedAt?historyDate.format(new Date(record.savedAt)):"data indisponível";
+    notice.textContent="Avaliação guardada · "+when+". Valores originais, sem nova pesquisa. Usa Nova avaliação para atualizar.";
+    notice.classList.remove("hidden");
+  }
+  // Expose the saved assumptions without changing the user's current preferences.
+  const deal=record.snapshot.deal||{};
+  const fields={targetMarginInput:deal.target_margin,minimumMarginInput:deal.minimum_margin,
+    transportCostInput:deal.costs?.transport,reconditioningCostInput:deal.costs?.reconditioning,
+    warrantyCostInput:deal.costs?.warranty_reserve,stockCostInput:deal.costs?.stock_finance,
+    otherCostInput:deal.costs?.other,auctionCostInput:deal.costs?.auction_fee,registrationCostInput:deal.costs?.registration,
+    paintPriceModeInput:deal.reconditioning?.paint_mode,paintMinInput:deal.reconditioning?.paint_min_eur,paintMaxInput:deal.reconditioning?.paint_max_eur};
+  for(const [id,value] of Object.entries(fields)){if(q(id))q(id).value=value??"";}
+  const controls=new Set();
+  for(const id of ["refineForm","conditionCostForm","assumptionsForm","chatForm"]){
+    for(const element of q(id)?.querySelectorAll("input,select,textarea,button")||[])controls.add(element);
+  }
+  for(const id of ["refreshMarketBtn","auctionLocationPtBtn","auctionLocationForeignBtn"]){if(q(id))controls.add(q(id));}
+  historyControlStates=[...controls].map(element=>[element,element.disabled]);
+  for(const element of controls)element.disabled=true;
+  const result=record.result;
+  if(result.purchase.purchaseWithRepairs===undefined){
+    q("purchaseCeilingLabel").textContent="Teto de compra guardado";
+    q("maxPurchase").textContent=fmt(result.purchase.effectiveCeiling);
+    q("purchaseWithoutRepairs").textContent="—";
+    q("purchaseComparisonNote").textContent="Este registo não separava os valores com e sem reparações.";
+  }
+  if(!result.commercial)q("commercialPanel")?.classList.add("hidden");
+  if(!result.reconditioning)q("conditionPanel")?.classList.add("hidden");
+}
+async function openSavedRevision(revisionId){
+  if(!session||activeOperation||!revisionId)return;
+  const owner=session.user.id;
+  const operation=beginOperation("history");
+  q("historyStatus").textContent="A abrir a avaliação guardada…";
+  try{
+    const {data:row,error}=await db.from("cap_revisions")
+      .select("id,analysis_id,user_id,created_at,snapshot")
+      .eq("user_id",owner).eq("id",revisionId).maybeSingle();
+    assertOperation(operation);
+    if(session?.user?.id!==owner)return;
+    if(error||!row||row.user_id!==owner)throw new Error("Não foi possível abrir esta avaliação guardada. Tenta novamente.");
+    const record=savedRevisionSnapshot(row);
+    finishOperation(operation);
+    resetAnalysisView({announce:false,focus:false,scroll:false});
+    currentAnalysisId=row.analysis_id;
+    currentMarketData=record.context;
+    lastAnalysisContext=null;
+    q("vehicleUrl").value=record.result.subject.registration||record.context.entry.sourceUrl||"";
+    if(record.result.subject.mileage_km!=null&&!record.result.subject.mileage_estimated)q("vehicleMileage").value=record.result.subject.mileage_km;
+    renderResult(record.result,record.sourceHost,record.context.market.risk_flags);
+    showSavedRevisionView(row,record);
+    closeHistory();
+    q("result").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(error){
+    if(session?.user?.id!==owner)return;
+    q("historyStatus").textContent=error.message||"Não foi possível abrir a avaliação.";
+    toast(q("historyStatus").textContent);
+  }finally{finishOperation(operation);}
+}
+q("historyList")?.addEventListener("click",event=>{
+  const button=event.target.closest?.("[data-history-revision]");
+  if(button&&q("historyList").contains(button))openSavedRevision(button.dataset.historyRevision);
+});
+
 function openHistory(){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
   q("historyDialog").classList.remove("hidden");
@@ -999,9 +1108,9 @@ function valuationShareData(){
     advertised:Number.isFinite(advertised)?advertised:null,
     source:String(q("sourceLabel")?.textContent||"").trim(),
     provisional:currentResult.purchase?.eligible!==true,
-    preparation:currentResult.reconditioning?.appliedGross||0,
+    preparation:currentResult.reconditioning?.appliedGross??null,
     preparationPending:currentResult.reconditioning?.unpriced||0,
-    date:new Date().toLocaleDateString("pt-PT")
+    date:currentHistoryRevision?(currentHistoryRevision.savedAt?new Date(currentHistoryRevision.savedAt).toLocaleDateString("pt-PT"):"Data não registada"):new Date().toLocaleDateString("pt-PT")
   };
 }
 function valuationShareText(data){
@@ -1266,6 +1375,7 @@ function setOperationBusy(busy){
   if(chatButton)chatButton.disabled=!!busy;
 }
 function beginOperation(kind,analysisId=null){
+  if(currentHistoryRevision&&!["history","learning","learning-undo"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
   const op={id:++operationSequence,kind,analysisId,requestKey:crypto.randomUUID(),jobId:null};
   activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);return op;
@@ -1274,7 +1384,7 @@ function assertOperation(op){
   if(activeOperation!==op)throw new Error("Esta operação já não é a análise ativa.");
 }
 function finishOperation(op){
-  if(activeOperation===op){activeOperation=null;setOperationBusy(false)}
+  if(activeOperation===op){activeOperation=null;setOperationBusy(false);if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;}
 }
 function mergeDeal(settings){
   const src=settings&&typeof settings==="object"?settings:{};
@@ -1387,7 +1497,7 @@ async function initializeAppData(){
   await Promise.allSettled([refreshMemoryCount(),loadDealPreferences(),loadMemories()]);
   try{pendingAnalysisSaves=JSON.parse(sessionStorage.getItem(pendingSavesKey())||"[]").filter(item=>item.analysisId&&item.snapshot?.result)}catch{pendingAnalysisSaves=[]}
   if(pendingAnalysisSaves.length)await retryPendingSaves();
-  await resumePendingAnalysis();
+  // Pending research is resumed only by an explicit action in the history.
 }
 
 function auto1Request(action,url,timeout=80000){
@@ -1545,9 +1655,10 @@ function resetSearchInput({announce=true,focus=true}={}){
   if(focus)input.focus();
   if(announce)toast("Pesquisa limpa.");
 }
-function resetAnalysisView(){
+function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
 
+  clearSavedRevisionView();
   resetSearchInput({announce:false,focus:false});
   stopProgress();
   q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
@@ -1576,9 +1687,9 @@ function resetAnalysisView(){
   q("refineDialogMessages").innerHTML='<div class="refine-dialog-message assistant" id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</div>';
   lastRefineFocus=null;
 
-  q("analyzeForm").scrollIntoView({behavior:"smooth",block:"center"});
-  setTimeout(()=>q("vehicleUrl").focus({preventScroll:true}),220);
-  toast("Pronto para uma nova pesquisa.");
+  if(scroll)q("analyzeForm").scrollIntoView({behavior:"smooth",block:"center"});
+  if(focus)setTimeout(()=>q("vehicleUrl").focus({preventScroll:true}),220);
+  if(announce)toast("Pronto para uma nova pesquisa.");
 }
 function loadImageElement(file){
   return new Promise((resolve,reject)=>{
@@ -1873,16 +1984,16 @@ async function runMarketAnalysis(payload,operation){
   return result;
 }
 async function resumePendingAnalysis(jobId=null,analysisId=null){
-  if(!session||activeOperation)return;
+  if(!session||activeOperation||(!jobId&&!analysisId))return;
   let query=db.from("cap_jobs").select("id,analysis_id,status,context,created_at").eq("user_id",session.user.id);
   if(jobId)query=query.eq("id",jobId);
   else if(analysisId)query=query.eq("analysis_id",analysisId);
-  else query=query.in("status",["starting","queued","in_progress"]);
   const {data:jobs,error}=await query.order("created_at",{ascending:false}).limit(1);
   if(error||!jobs?.length){if(jobId||analysisId)toast("Não foi possível recuperar o pedido. Consulta o histórico ou inicia uma nova avaliação.");return;}
   const job=jobs[0];
   const {data:analysis}=await db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle();
   if(!analysis)return;
+  clearSavedRevisionView();
   const operation=beginOperation("resume",job.analysis_id);operation.jobId=job.id;
   currentAnalysisId=job.analysis_id;
   try{
@@ -1942,6 +2053,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   if(entry.mode==="url"&&entry.url)q("vehicleUrl").value=entry.url.toString();
   else if(entry.registration)q("vehicleUrl").value=entry.registration;
 
+  clearSavedRevisionView();
   const operation=beginOperation("analysis");
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
@@ -2432,6 +2544,13 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
 });
 
 db.auth.onAuthStateChange((_event,data)=>{if(session?.user?.id!==data?.user?.id){learningRulesCache=[];learningOwner=null;}session=data;if(!data){activeOperation=null;showAuth()}});
+// BFCache restoration is a reopen; ordinary tab/phone backgrounding is not.
+window.addEventListener("pageshow",event=>{
+  if(event.persisted&&!activeOperation){
+    resetAnalysisView({announce:false,focus:false,scroll:false});
+    closeHistory();
+  }
+});
 boot();
 
 
