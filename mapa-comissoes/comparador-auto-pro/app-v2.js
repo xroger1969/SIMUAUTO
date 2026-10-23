@@ -1,7 +1,8 @@
 import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261023-supervised-v1";
 import { relevantMemories } from "./memory.js?v=20261023-voice-v1";
 import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
-import { createVoiceInput } from "./voice-input.js?v=20261023-voice-v1";
+import { createVoiceInput } from "./voice-input.js?v=20261023-voice-v2";
+import { createScreenWakeLock } from "./screen-wake-lock.js?v=20261023-wake-v1";
 
 const SUPABASE_URL = "https://ciyycnjxteqpphgbkneg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_NLLNaEvhKHfoJNenqpObdA_sNA8UTNa";
@@ -46,6 +47,29 @@ let lastTeachingMemory=null;
 let lastTeachingReply="";
 let spokenReply=null;
 let conversationUsesVoice=false;
+const screenWake=createScreenWakeLock({
+  onStatus({status,enabled,supported}){
+    const button=q("screenAwakeBtn");if(!button)return;
+    const label=status==="active"?"Ecrã protegido":status==="pending"?"A ativar ecrã…":status==="disabled"?"Ecrã normal":status==="inactive"?"Ecrã em pausa":"Ecrã automático";
+    button.textContent=label;button.classList.toggle("awake-active",status==="active");
+    button.setAttribute("aria-pressed",String(enabled));
+    button.title=status==="active"?"Proteção ativa enquanto a aplicação estiver visível.":status==="unsupported"?"Esta versão do iPhone/navegador não suporta manter o ecrã ativo.":status==="blocked"?"O iPhone recusou manter o ecrã ligado. Toca para tentar novamente.":enabled?"A tentar manter o ecrã ligado.":"Toca para manter o ecrã ligado.";
+    button.setAttribute("aria-label",label+". "+button.title);
+    if(!supported)button.dataset.unsupported="true";
+  }
+});
+q("screenAwakeBtn")?.addEventListener("click",()=>{
+  if(!session){toast("Entra para ativar o ecrã.");return;}
+  if(screenWake.enabled&&screenWake.status!=="active"){
+    void screenWake.ensure({force:true});
+    toast(screenWake.supported?"A tentar manter o ecrã ligado…":"Este iPhone não suporta manter o ecrã ligado neste navegador.");
+    return;
+  }
+  screenWake.setEnabled(!screenWake.enabled);
+});
+document.addEventListener("pointerdown",()=>{
+  if(session?.user?.id&&screenWake.enabled&&screenWake.status!=="active")void screenWake.ensure();
+},{passive:true});
 
 const DEFAULT_DEAL={
   costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
@@ -135,12 +159,13 @@ const HISTORY_PAGE_SIZE=40;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
-  cancelVoiceInput();stopTeachingSpeech();
+  cancelVoiceInput();stopTeachingSpeech();screenWake.setEnabled(false);
   q("refineDialog")?.classList.add("hidden");
   q("authGate").classList.remove("hidden");q("app").classList.add("hidden");
 }
 function showApp(){
   q("authGate").classList.add("hidden");q("app").classList.remove("hidden");
+  screenWake.setEnabled(true);
   initializeAppData().catch(error=>console.warn("Inicialização CAP:",error));
 }
 async function validateMember(){
@@ -1790,23 +1815,35 @@ async function transcribeAudio(blob,{context,signal}){
 }
 function renderVoiceState({state,elapsedSeconds=0}){
   const recording=state==="recording",waiting=["requesting","transcribing"].includes(state),busy=state!=="idle";
-  const label=recording?"Terminar e enviar a voz":waiting?"A preparar a voz…":"Falar com o Comprador IA";
+  const inConversation=voiceTarget==="conversation";
+  const text=recording?"Terminar e enviar":state==="requesting"?"A ligar…":state==="transcribing"?"A transcrever…":"Gravar voz";
+  const label=recording?"Terminar e enviar a voz":state==="requesting"?"A pedir acesso ao microfone":state==="transcribing"?"A transcrever a voz":"Gravar voz";
   for(const id of ["refineMicBtn","teachingMicBtn"]){
     const button=q(id);if(!button)continue;
-    button.classList.toggle("recording",recording&&voiceTarget==="conversation");
-    button.setAttribute("aria-pressed",String(recording&&voiceTarget==="conversation"));
-    button.setAttribute("aria-label",voiceTarget==="conversation"?label:"Falar com o Comprador IA");
+    button.classList.toggle("recording",recording&&inConversation);
+    button.setAttribute("aria-pressed",String(recording&&inConversation));
+    button.setAttribute("aria-label",inConversation?label:"Gravar voz com o Comprador IA");
     button.title=button.getAttribute("aria-label");
-    button.disabled=!!activeOperation||waiting||(busy&&voiceTarget!=="conversation");
+    button.disabled=!!activeOperation||waiting||(busy&&!inConversation);
   }
+  if(q("teachingMicLabel"))q("teachingMicLabel").textContent=inConversation?text:"Gravar voz";
   const mic=q("micBtn");
   mic.classList.toggle("recording",recording&&voiceTarget==="vehicle");
   mic.setAttribute("aria-label",recording&&voiceTarget==="vehicle"?"Terminar ditado":"Ditar por voz");
   mic.disabled=!!activeOperation||waiting||(busy&&voiceTarget!=="vehicle");
-  for(const id of ["analyzeBtn","refineBtn","teachingSendBtn","teachingFeedbackSave"]){if(q(id))q(id).disabled=!!activeOperation||busy;}
-  const message=state==="requesting"?"A aguardar acesso ao microfone…":recording?"A ouvir · "+elapsedSeconds+" s · toca no microfone para terminar.":state==="transcribing"?"A transcrever a tua mensagem…":"";
-  q("teachingVoiceStatus").textContent=voiceTarget==="conversation"?message:"";
-  q("teachingVoiceCancel").hidden=voiceTarget!=="conversation"||!busy;
+  for(const id of ["analyzeBtn","refineBtn","teachingSendBtn","teachingFeedbackSave"]){
+    if(q(id))q(id).disabled=!!activeOperation||busy;
+  }
+  const message=state==="requesting"?"A pedir autorização ao iPhone para usar o microfone…":recording?"A gravar · "+elapsedSeconds+" s · toca em Terminar e enviar para obter a resposta.":state==="transcribing"?"A gravação terminou. A transcrever a voz…":"";
+  const status=q("teachingVoiceStatus");
+  if(inConversation&&status){
+    if(message)status.textContent=message;
+    else if(/^A gravar|^A gravação terminou/.test(status.textContent))status.textContent="A preparar a mensagem gravada…";
+  }
+  if(recording&&inConversation)q("refineDialogState").textContent="Microfone ligado · a gravar";
+  if(state==="requesting"&&inConversation)q("refineDialogState").textContent="A iniciar o microfone…";
+  if(state==="transcribing"&&inConversation)q("refineDialogState").textContent="A transcrever a gravação…";
+  q("teachingVoiceCancel").hidden=!inConversation||!busy;
   q("teachingVoiceCancel").textContent=state==="transcribing"?"Cancelar envio":"Cancelar gravação";
   if(voiceTarget==="vehicle"&&state!=="idle"&&elapsedSeconds===0)toast(message);
 }
@@ -1817,11 +1854,18 @@ function getVoiceInput(){
       if(!voiceContextCurrent(context))return;
       if(context.target==="vehicle"){appendDictation(text);toast("Ditado concluído.");return;}
       q("teachingInput").value=text;q("refineInput").value=text;
-      sendTeachingMessage(text,{voice:true}).catch(error=>toast(error.message));
+      q("teachingVoiceStatus").textContent="Transcrição recebida: “"+text.slice(0,200)+"” · A enviar à IA…";
+      q("refineDialogState").textContent="A enviar a tua mensagem…";
+      sendTeachingMessage(text,{voice:true}).catch(error=>{
+        q("teachingVoiceStatus").textContent=error.message;toast(error.message);
+      });
     },
     onError(error,context){
       if(context&&!voiceContextCurrent(context))return;
-      if(context?.target==="conversation")q("teachingVoiceStatus").textContent=error.message;
+      if(context?.target==="conversation"){
+        q("teachingVoiceStatus").textContent=error.message;
+        q("refineDialogState").textContent="Não foi possível gravar";
+      }
       toast(error.message);
     }
   });
@@ -1838,6 +1882,7 @@ function startVoiceInput(target="vehicle"){
   stopTeachingSpeech();voiceTarget=target;
   if(target==="conversation"){
     conversationUsesVoice=true;openTeachingConversation();
+    if(voiceInput?.state==="idle"||!voiceInput)q("teachingVoiceStatus").textContent="A iniciar o microfone…";
     // Do not bring up the keyboard when the microphone is the chosen input.
     if(document.activeElement?.tagName==="INPUT"||document.activeElement?.tagName==="TEXTAREA")document.activeElement.blur();
   }
@@ -1868,7 +1913,7 @@ q("teachingVoiceCancel")?.addEventListener("click",()=>{cancelVoiceInput();q("te
 q("teachingListenBtn")?.addEventListener("click",()=>spokenReply?stopTeachingSpeech():speakTeachingReply(true));
 q("teachingSpeakEnabled")?.addEventListener("change",()=>{if(!q("teachingSpeakEnabled").checked)stopTeachingSpeech();});
 window.addEventListener("pagehide",()=>{cancelVoiceInput();stopTeachingSpeech();});
-document.addEventListener("visibilitychange",()=>{if(document.hidden){cancelVoiceInput();stopTeachingSpeech();}});
+document.addEventListener("visibilitychange",()=>{if(document.hidden)stopTeachingSpeech();});
 
 q("vehiclePhoto").addEventListener("change",ev=>attachImageFiles(ev.target.files));
 q("vehicleUrl").addEventListener("input",ev=>{

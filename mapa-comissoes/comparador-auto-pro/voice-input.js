@@ -9,6 +9,7 @@ export function createVoiceInput({
   MediaRecorderClass = globalThis.MediaRecorder,
   maxDurationMs = 90_000,
   maxBytes = 2_800_000,
+  stopFinalizeTimeoutMs = 8_000,
 } = {}) {
   let state = 'idle';
   let active = null;
@@ -36,6 +37,7 @@ export function createVoiceInput({
   function release(session, complete = true) {
     clearInterval(session.interval);
     clearTimeout(session.deadline);
+    clearTimeout(session.stopTimer);
     if (complete) {
       for (const remove of session.removeListeners) remove();
       session.removeListeners.length = 0;
@@ -90,6 +92,9 @@ export function createVoiceInput({
     }
     if (error?.name === 'NotFoundError') {
       return voiceError('Não foi encontrado um microfone. Liga um microfone ou escreve a mensagem.', 'voice_missing');
+    }
+    if (error?.name === 'NotSupportedError') {
+      return voiceError('O formato de gravação não está disponível neste iPhone. Experimenta no Safari.', 'voice_unsupported_format');
     }
     if (error?.name === 'NotReadableError' || error?.name === 'AbortError') {
       return voiceError('Não foi possível usar o microfone. Fecha outras chamadas ou gravações e tenta novamente.', 'voice_unavailable');
@@ -157,9 +162,14 @@ export function createVoiceInput({
     clearTimeout(session.deadline);
     updateState('transcribing', session);
     try {
+      // iOS may drop the final AAC/MP4 chunk if tracks stop before onstop.
+      session.stopTimer = setTimeout(() => {
+        if (owns(session) && !session.finalizing) {
+          fail(session, voiceError('A gravação não terminou no iPhone. Toca novamente em Gravar voz.', 'voice_stop_timeout'));
+        }
+      }, stopFinalizeTimeoutMs);
       session.recorder.stop();
-      // stop() queues its final dataavailable event before onstop. Do not upload here.
-      stopTracks(session.stream);
+      // Keep microphone tracks alive until onstop flushes the final chunk.
     } catch (error) {
       fail(session, readableError(error));
     }
@@ -188,7 +198,10 @@ export function createVoiceInput({
     updateState('requesting', session);
     listen(session, globalThis, 'pagehide', () => { if (owns(session)) cancel(); });
     listen(session, globalThis.document, 'visibilitychange', () => {
-      if (globalThis.document?.hidden && owns(session)) cancel();
+      // iOS may briefly hide the page while presenting microphone permission.
+      if (globalThis.document?.hidden && owns(session) && state !== 'requesting') {
+        fail(session, voiceError('A gravação foi interrompida ao sair da aplicação. Toca em Gravar voz novamente.', 'voice_background'));
+      }
     });
     try {
       const stream = await getUserMedia({audio: true});
@@ -199,6 +212,10 @@ export function createVoiceInput({
         return;
       }
       session.stream = stream;
+      if (globalThis.document?.hidden) {
+        fail(session, voiceError('A aplicação ficou em segundo plano. Reabre e toca em Gravar voz.', 'voice_background'));
+        return;
+      }
       const recorder = makeRecorder(stream);
       session.recorder = recorder;
       recorder.ondataavailable = event => {
@@ -221,7 +238,8 @@ export function createVoiceInput({
       };
       for (const track of stream.getTracks()) {
         listen(session, track, 'ended', interrupted);
-        listen(session, track, 'mute', interrupted);
+        // A transient iOS mute while negotiating its audio session must not
+        // silently discard the entire recording.
       }
       recorder.start(1000);
       if (!current(session)) {

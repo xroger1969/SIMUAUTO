@@ -37,7 +37,7 @@
   <link rel="stylesheet" href="./light-panels.css?v=20261023-supervised-v1">
   <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
   <link rel="stylesheet" href="./form-layout.css?v=20261023-centered-v1">
-  <link rel="stylesheet" href="./teaching-chat.css?v=20261023-voice-v1">
+  <link rel="stylesheet" href="./teaching-chat.css?v=20261023-voice-v2-screen-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -94,6 +94,7 @@
       </div>
       <div class="top-actions">
         <span class="status-dot" id="saveStatus">Ligado</span>
+        <button class="btn ghost small awake-btn" type="button" id="screenAwakeBtn" aria-pressed="true" title="Manter o ecrã ligado enquanto usas a aplicação">A ativar ecrã…</button>
         <button class="btn ghost small" type="button" id="taxSimOpenBtn">Lucro ENI</button>
         <button class="btn ghost small" type="button" id="historyBtn">Histórico</button>
         <button class="btn ghost small" id="logoutBtn">Sair</button>
@@ -501,8 +502,9 @@
       <form id="teachingForm" class="teaching-composer">
         <label class="sr-only" for="teachingInput">Mensagem para o Comprador IA</label>
         <textarea id="teachingInput" rows="2" maxlength="3000" placeholder="Fala pelo microfone ou escreve…"></textarea>
-        <button class="voice-button" type="button" id="teachingMicBtn" aria-label="Falar com o Comprador IA" title="Falar com o Comprador IA" aria-pressed="false">
+        <button class="voice-button" type="button" id="teachingMicBtn" aria-label="Gravar voz" title="Gravar voz" aria-pressed="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"></path></svg>
+          <span id="teachingMicLabel">Gravar voz</span>
         </button>
         <button class="btn primary small" type="submit" id="teachingSendBtn">Enviar</button>
       </form>
@@ -517,7 +519,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
-  <script type="module" src="./app-v2.js?v=20261023-voice-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261023-voice-v2-screen-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261023-progressive-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->

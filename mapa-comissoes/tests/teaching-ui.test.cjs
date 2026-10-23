@@ -9,6 +9,7 @@ const base = join(__dirname, '../comparador-auto-pro');
 const html = readFileSync(join(base, 'index.html'), 'utf8');
 const appSource = readFileSync(join(base, 'app-v2.js'), 'utf8').replace(/^import .*;\n/gm, '');
 const voiceSource = readFileSync(join(base, 'voice-input.js'), 'utf8').replace(/^export /gm, '');
+const wakeSource = readFileSync(join(base, 'screen-wake-lock.js'), 'utf8').replace(/^export /gm, '');
 const {normalizeVehicleIdentity} = require('../comparador-auto-pro/commercial-identity.js');
 const importSource = name => import('data:text/javascript;base64,' + Buffer.from(readFileSync(join(base, name), 'utf8')).toString('base64'));
 const modules = Promise.all([importSource('valuation.js'), importSource('memory.js'), importSource('input.js')]);
@@ -107,6 +108,7 @@ async function boot({rows = new Map(), ai = defaultReply, transcribe = async () 
   };
   // Execute the real module in the DOM realm so its Blob is compatible with FileReader.
   w.eval(voiceSource + '\n;globalThis.createVoiceInput=createVoiceInput;');
+  w.eval(wakeSource + '\n;globalThis.createScreenWakeLock=createScreenWakeLock;');
   w.fetch = async (url, options = {}) => {
     const body = options.body ? JSON.parse(options.body) : null;
     requests.push({url, body, signal: options.signal});
