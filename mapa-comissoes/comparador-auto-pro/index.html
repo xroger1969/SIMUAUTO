@@ -149,9 +149,9 @@
       </summary>
       <div class="tax-simulator-body">
         <div class="tax-sim-fields">
-          <label for="taxSimPurchase">Compra (€)<input id="taxSimPurchase" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" value="19600"></label>
-          <label for="taxSimSale">Venda (€)<input id="taxSimSale" type="number" inputmode="decimal" min="0.01" max="10000000" step="0.01" value="22990"></label>
-          <label for="taxSimCosts">Custos e reserva (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" step="0.01" value="500"></label>
+          <label for="taxSimPurchase">Compra (€)<input id="taxSimPurchase" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" placeholder="—"></label>
+          <label for="taxSimSale">Venda (€)<input id="taxSimSale" type="number" inputmode="decimal" min="0.01" max="10000000" step="0.01" placeholder="—"></label>
+          <label for="taxSimCosts">Custos e reserva (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" step="0.01" placeholder="—"></label>
           <label for="taxSimQuarterly">Vendas/trimestre
             <select id="taxSimQuarterly">
               <option value="1">1 carro</option><option value="2">2 carros</option>
@@ -519,8 +519,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
-  <script type="module" src="./app-v2.js?v=20261023-voice-v2-screen-v1"></script>
-  <script type="module" src="./tax-simulator-ui.js?v=20261023-progressive-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261023-eni-sync-v1"></script>
+  <script type="module" src="./tax-simulator-ui.js?v=20261023-eni-sync-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->
   <!-- valuation-share-deploy -->

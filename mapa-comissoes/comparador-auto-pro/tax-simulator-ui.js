@@ -1,15 +1,18 @@
 import {calculateTaxSim} from "./tax-simulator-calc.mjs?v=20261023-progressive-v1";
 
-// Os montantes pertencem ao simulador, não à pesquisa de viaturas.
-// A "Nova avaliação" nunca os deve substituir nem limpar.
+// Só as preferências fiscais persistem entre pesquisas. Os montantes acompanham
+// a avaliação visível e deixam de existir quando se inicia outra pesquisa.
 const STORAGE_KEY="aap-tax-sim-v2";
-const FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimQuarterly","taxSimIrsRate","taxSimSocialEnabled","taxSimAnnualSales","taxSimGrossSalary"];
+const DEAL_FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts"];
+const PREFERENCE_IDS=["taxSimQuarterly","taxSimIrsRate","taxSimSocialEnabled","taxSimAnnualSales","taxSimGrossSalary"];
+const FIELD_IDS=[...DEAL_FIELD_IDS,...PREFERENCE_IDS];
+let syncedAssessment;
 const byId=id=>document.getElementById(id);
 const eur=n=>Number(n).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
 function saveState(){
  try{
   const value={};
-  FIELD_IDS.forEach(id=>{const el=byId(id);value[id]=el?.type==="checkbox"?el.checked:el?.value??"";});
+  PREFERENCE_IDS.forEach(id=>{const el=byId(id);value[id]=el?.type==="checkbox"?el.checked:el?.value??"";});
   localStorage.setItem(STORAGE_KEY,JSON.stringify(value));
  }catch{ /* armazenamento bloqueado: continuar sem guardar */ }
 }
@@ -17,7 +20,7 @@ function restoreState(){
  try{
   const data=JSON.parse(localStorage.getItem(STORAGE_KEY)||"null");
   if(!data||typeof data!=="object")return;
-  FIELD_IDS.forEach(id=>{
+  PREFERENCE_IDS.forEach(id=>{
    const el=byId(id),value=data[id];
    if(el?.type==="checkbox"){if(typeof value==="boolean")el.checked=value;return;}
    if(el&&typeof value==="string"&&(el.tagName!=="SELECT"||[...el.options].some(o=>o.value===value)))el.value=value;
@@ -41,9 +44,25 @@ function clearOutputs(){
  byId("taxSimSummary").textContent="—";
  byId("taxSimWarning").textContent="";
 }
+function clearCostSource(){
+ const field=byId("taxSimCosts");
+ field.title="";
+ if(field.dataset){delete field.dataset.assessmentFixedCosts;delete field.dataset.assessmentRiskReserve;}
+}
+function clearDeal(){
+ DEAL_FIELD_IDS.forEach(id=>{byId(id).value="";});
+ clearCostSource();
+ clearOutputs();
+ const error=byId("taxSimError");
+ error.hidden=true;error.textContent="";
+ saveState();
+}
 function render(){
  const error=byId("taxSimError");
  saveState();
+ if(DEAL_FIELD_IDS.every(id=>!byId(id).value.trim())){
+  clearOutputs();error.hidden=true;error.textContent="";return;
+ }
  try{
   const irs=byId("taxSimIrsRate").value.trim();
   const includeSocialSecurity=byId("taxSimSocialEnabled")?.checked===true;
@@ -104,6 +123,15 @@ function useAssessmentPrices(){
  render();
  return true;
 }
+function syncAssessment(){
+ const assessment=globalThis.AutoProAssessment||null;
+ // A simples abertura do painel ou repetição do mesmo resultado não deve
+ // substituir os ajustes manuais feitos neste negócio.
+ if(assessment&&assessment===syncedAssessment)return;
+ syncedAssessment=assessment;
+ clearDeal();
+ if(assessment)useAssessmentPrices();
+}
 function openSimulator(useAssessment=false){
  const panel=byId("taxSimulator");panel.open=true;
  if(useAssessment)useAssessmentPrices();
@@ -113,10 +141,7 @@ restoreState();
 FIELD_IDS.forEach(id=>{
  const field=byId(id);
  const update=()=>{
-  if(id==="taxSimCosts"){
-   field.title="";
-   if(field.dataset){delete field.dataset.assessmentFixedCosts;delete field.dataset.assessmentRiskReserve;}
-  }
+  if(id==="taxSimCosts")clearCostSource();
   render();
  };
  field?.addEventListener("input",update);
@@ -125,5 +150,7 @@ FIELD_IDS.forEach(id=>{
 byId("taxSimUseAssessment")?.addEventListener("click",useAssessmentPrices);
 byId("taxSimOpenBtn")?.addEventListener("click",()=>openSimulator(false));
 byId("taxSimFromResult")?.addEventListener("click",()=>openSimulator(true));
-render();
+globalThis.addEventListener("autopro:assessment-change",syncAssessment);
+// Também funciona se a avaliação tiver terminado antes deste módulo carregar.
+syncAssessment();
 

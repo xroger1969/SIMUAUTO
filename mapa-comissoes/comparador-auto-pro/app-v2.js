@@ -27,7 +27,13 @@ let currentVehicle=null;
 let currentResult=null;
 let currentHistoryRevision=null;
 let historyControlStates=[];
-globalThis.AutoProAssessment=null;
+function publishAssessment(assessment){
+  globalThis.AutoProAssessment=assessment||null;
+  if(typeof globalThis.dispatchEvent==="function"&&typeof globalThis.Event==="function"){
+    globalThis.dispatchEvent(new globalThis.Event("autopro:assessment-change"));
+  }
+}
+publishAssessment(null);
 let pendingResearch=null;
 let pendingAnalysisSaves=[];
 let pendingSavesAttempt=null;
@@ -159,6 +165,8 @@ const HISTORY_PAGE_SIZE=40;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
+  currentResult=null;publishAssessment(null);
+  q("result").classList.add("hidden");
   cancelVoiceInput();stopTeachingSpeech();screenWake.setEnabled(false);
   q("refineDialog")?.classList.add("hidden");
   q("authGate").classList.remove("hidden");q("app").classList.add("hidden");
@@ -739,7 +747,7 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
   if(scroll)setTimeout(()=>panel.scrollIntoView({behavior:"smooth",block:"center"}),120);
 }
 function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
-  currentResult=null;globalThis.AutoProAssessment=null;
+  currentResult=null;publishAssessment(null);
   currentVehicle=subject||{};
   q("valuationShareBar")?.classList.add("hidden");
   q("auctionLocationQuestion")?.classList.add("hidden");
@@ -919,7 +927,6 @@ function renderMileageReference(result){
 function renderResult(result,sourceHost,riskFlags=[]){
   hideVehicleFollowup();
   currentResult=result||null;
-  globalThis.AutoProAssessment=currentResult;
   currentVehicle=result.subject||{};
   renderLearning(result);
   const shareBar=q("valuationShareBar");
@@ -1023,6 +1030,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   const shareReady=result.purchase?.effectiveCeiling!=null&&result.market?.saleFast!=null&&Number.isFinite(Number(result.purchase.effectiveCeiling))&&Number.isFinite(Number(result.market.saleFast));
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
+  publishAssessment(currentResult);
 }
 
 function conditionCostContext(market={}){
@@ -1331,7 +1339,7 @@ function printValuationSummary(){
   popup.document.close();
 }
 function renderAuto1NeedsPhotos(reader,url){
-  currentResult=null;globalThis.AutoProAssessment=null;
+  currentResult=null;publishAssessment(null);
   currentVehicle=null;
   q("result").classList.add("hidden");
   const empty=q("emptyState");
@@ -1348,7 +1356,7 @@ function renderAuto1NeedsPhotos(reader,url){
 }
 function renderReaderOnly(reader,url){
   hideVehicleFollowup();
-  currentResult=null;globalThis.AutoProAssessment=null;
+  currentResult=null;publishAssessment(null);
   const shareBar=q("valuationShareBar");if(shareBar)shareBar.classList.add("hidden");
   currentVehicle={make:"",model:"",trim:"",year:null,mileage_km:null};
   const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
@@ -1660,7 +1668,7 @@ function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
 
   currentAnalysisId=null;
   currentVehicle=null;
-  currentResult=null;globalThis.AutoProAssessment=null;
+  currentResult=null;publishAssessment(null);
   currentMarketData=null;
   lastAnalysisContext=null;
   auctionLocationOverride=null;
@@ -2045,23 +2053,31 @@ async function runMarketAnalysis(payload,operation){
 }
 async function resumePendingAnalysis(jobId=null,analysisId=null){
   if(!session||activeOperation||(!jobId&&!analysisId))return;
-  let query=db.from("cap_jobs").select("id,analysis_id,status,context,created_at").eq("user_id",session.user.id);
+  const owner=session.user.id;
+  let query=db.from("cap_jobs").select("id,analysis_id,status,context,created_at").eq("user_id",owner);
   if(jobId)query=query.eq("id",jobId);
   else if(analysisId)query=query.eq("analysis_id",analysisId);
   const {data:jobs,error}=await query.order("created_at",{ascending:false}).limit(1);
+  if(session?.user?.id!==owner||activeOperation)return;
   if(error||!jobs?.length){if(jobId||analysisId)toast("Não foi possível recuperar o pedido. Consulta o histórico ou inicia uma nova avaliação.");return;}
   const job=jobs[0];
   const {data:analysis}=await db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle();
+  if(session?.user?.id!==owner||activeOperation)return;
   if(!analysis)return;
   clearSavedRevisionView();
   const operation=beginOperation("resume",job.analysis_id);operation.jobId=job.id;
   currentAnalysisId=job.analysis_id;
+  currentVehicle=null;currentResult=null;publishAssessment(null);
+  currentMarketData=null;lastAnalysisContext=null;
+  q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
+  q("mileageReference").classList.add("hidden");hideVehicleFollowup();
   try{
     progress("A retomar a pesquisa…","A pesquisa anterior ficou guardada. Vou continuar do ponto onde parou.");
     const market=await pollMarketJob(job.id,operation);
     assertOperation(operation);
     const subject=market.subject||analysis.vehicle||{};
     const allRules=await loadMemories().catch(()=>[]);
+    assertOperation(operation);
     const memories=relevantMemories(allRules,subject);
     const result=evaluatePurchase({
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],
@@ -2119,7 +2135,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   q("auto1Connection").classList.add("hidden");
   q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
   q("mileageReference").classList.add("hidden");hideVehicleFollowup();
-  currentAnalysisId=null;currentVehicle=null;currentResult=null;globalThis.AutoProAssessment=null;currentMarketData=null;lastAnalysisContext=null;auctionLocationOverride=null;q("chat").innerHTML="";conversation=[];
+  currentAnalysisId=null;currentVehicle=null;currentResult=null;publishAssessment(null);currentMarketData=null;lastAnalysisContext=null;auctionLocationOverride=null;q("chat").innerHTML="";conversation=[];
 
   try{
     progress("A ler o anúncio…","A identificar a fonte e preparar a análise.");
