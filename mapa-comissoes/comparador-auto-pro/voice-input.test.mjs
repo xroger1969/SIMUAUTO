@@ -44,6 +44,7 @@ function harness(options = {}) {
     MediaRecorderClass: options.MediaRecorderClass || Recorder,
     maxDurationMs: options.maxDurationMs,
     maxBytes: options.maxBytes,
+    stopFinalizeTimeoutMs: options.stopFinalizeTimeoutMs,
     onState: value => { states.push(value); options.onState?.(value); },
     onText: (text, ctx) => transcripts.push({text, context: ctx, state: voice.state}),
     onError: (error, ctx) => errors.push({error, context: ctx}),
@@ -227,7 +228,7 @@ test('recorder initialization failure still releases an already granted micropho
   await h.voice.toggle(context);
   assert.equal(h.voice.state, 'idle');
   assert.equal(h.stopped(), 1);
-  assert.equal(h.errors[0].error.code, 'voice_recording');
+  assert.equal(h.errors[0].error.code, 'voice_unsupported_format');
   assert.equal(h.uploads.length, 0);
 });
 

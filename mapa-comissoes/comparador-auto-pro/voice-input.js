@@ -43,6 +43,7 @@ export function createVoiceInput({
       session.removeListeners.length = 0;
     }
     stopTracks(session.stream);
+    session.stream = null; // release once, including in final cleanup after transcription
   }
 
   function listen(session, target, event, handler) {
