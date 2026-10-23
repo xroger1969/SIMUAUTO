@@ -160,7 +160,7 @@ test("mostra apenas resumo numa linha e mantém o detalhe fiscal disponível",()
  assert.match(app.elements.taxSimSummary.textContent,/SS/);
  assert.match(app.elements.taxSimSummary.textContent,/Despesas/);
  assert.ok(app.elements.taxSimSocial.textContent.includes("€"));
- assert.equal(app.elements.taxSimAfterIRS.textContent,"—");
+ assert.notEqual(app.elements.taxSimAfterIRS.textContent,"—");
 });
 
 test("valores inválidos não exibem lucro incorreto",()=>{
@@ -218,3 +218,4 @@ test("montantes antigos são preservados sem ligar a Segurança Social por coer�
   assert.equal(app.elements.taxSimSocialEnabled.checked,false);
  }
 });
+

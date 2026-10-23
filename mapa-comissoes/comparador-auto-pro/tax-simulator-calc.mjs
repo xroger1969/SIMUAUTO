@@ -3,7 +3,17 @@
 // Segurança Social: vendas = 20% de rendimento relevante; IAS 2026 = 537,13 EUR;
 // isenção por acumulação com trabalho por conta de outrem (art. 157.º CRCSPSS).
 // O IRS efetivo não pode ser deduzido do valor de uma venda sem conhecer a situação anual.
-export function calculateTaxSim({purchase,sale,costs=0,quarterlySales=1,irsRate=null,includeSocialSecurity=true}={}){
+// CIRS art. 68.º, Lei 73-A/2025; checked 2026-10-23 at Portal das Finanças.
+export function annualProgressiveIRS(taxable){
+  if(!Number.isFinite(taxable)||taxable<0)throw Error("Rendimento coletável inválido.");
+  const brackets=[[8342,.125],[12587,.157],[17838,.212],[23089,.241],[29397,.311],[43090,.349],[46566,.431],[86634,.446],[Infinity,.48]];
+  let total=0,previous=0;
+  for(const [limit,rate] of brackets){total+=Math.max(0,Math.min(taxable,limit)-previous)*rate;previous=limit;if(taxable<=limit)break;}
+  // CIRS art. 68.º-A: additional solidarity tax.
+  total+=Math.max(0,Math.min(taxable,250000)-80000)*.025+Math.max(0,taxable-250000)*.05;
+  return total;
+}
+export function calculateTaxSim({purchase,sale,costs=0,quarterlySales=1,irsRate=null,includeSocialSecurity=true,automaticIRS=false,annualSales=10,monthlyGrossSalary=730,salaryPayments=14}={}){
   const round=n=>Math.round(n*100+1e-7)/100;
   for(const [name,value] of Object.entries({purchase,sale,costs,quarterlySales})){
     if(typeof value!=="number"||!Number.isFinite(value))throw new Error("O campo "+name+" tem de ser numérico.");
@@ -29,8 +39,15 @@ export function calculateTaxSim({purchase,sale,costs=0,quarterlySales=1,irsRate=
   const socialQuarter=round(socialMonthly*3);
   const socialPerCar=round(socialQuarter/quarterlySales);
   const beforeIRS=round(operatingBeforeContributions-socialPerCar);
-  const irsEstimate=validRate===null?null:round(taxableIncome*validRate/100);
+  if(automaticIRS&&(!Number.isInteger(annualSales)||annualSales<1||annualSales>120||!Number.isFinite(monthlyGrossSalary)||monthlyGrossSalary<0||monthlyGrossSalary>1000000||![12,14].includes(salaryPayments)))throw Error("Confirma o salário bruto e as vendas anuais.");
+  // 8.54 IAS specific employment deduction (art.25); estimate before household deductions.
+  const otherTaxable=automaticIRS?Math.max(0,monthlyGrossSalary*salaryPayments-Math.max(8.54*IAS2026,monthlyGrossSalary*salaryPayments*.11)):null;
+  const incrementalAnnualIRS=automaticIRS?annualProgressiveIRS(otherTaxable+taxableIncome*annualSales)-annualProgressiveIRS(otherTaxable):null;
+  const irsEstimate=validRate!==null?round(taxableIncome*validRate/100):automaticIRS?round(incrementalAnnualIRS/annualSales):null;
   const afterIRS=irsEstimate===null?null:round(beforeIRS-irsEstimate);
-  const projectedAnnualRevenue=round(saleWithoutVat*quarterlySales*4);
-  return {grossMargin,marginVat,saleWithoutVat,costs,taxableIncome,relevantMonthly,exemptLimit,socialMonthly,socialQuarter,socialPerCar,beforeIRS,irsEstimate,afterIRS,projectedAnnualRevenue,projectedAnnualVehicles:quarterlySales*4,requiresAnnualReview:projectedAnnualRevenue>200000,exceedsSimplifiedSingleYearThreshold:projectedAnnualRevenue>250000,inputs:{purchase,sale,costs,quarterlySales,irsRate:validRate,includeSocialSecurity}};
+  const projectedAnnualVehicles=automaticIRS?annualSales:quarterlySales*4;
+  const projectedAnnualRevenue=round(saleWithoutVat*projectedAnnualVehicles);
+  const effectiveIRSRate=irsEstimate===null?null:round(irsEstimate/taxableIncome*100);
+  return {grossMargin,marginVat,saleWithoutVat,costs,taxableIncome,relevantMonthly,exemptLimit,socialMonthly,socialQuarter,socialPerCar,beforeIRS,irsEstimate,afterIRS,effectiveIRSRate,otherTaxable,incrementalAnnualIRS,irsMethod:validRate!==null?"manual":automaticIRS?"progressive-estimate":"unset",projectedAnnualRevenue,projectedAnnualVehicles,requiresAnnualReview:projectedAnnualRevenue>200000,exceedsSimplifiedSingleYearThreshold:projectedAnnualRevenue>250000,inputs:{purchase,sale,costs,quarterlySales,irsRate:validRate,includeSocialSecurity,automaticIRS,annualSales,monthlyGrossSalary,salaryPayments}};
 }
+
