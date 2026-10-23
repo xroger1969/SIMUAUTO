@@ -1,0 +1,40 @@
+name: Validate fresh opening and full history
+on:
+  push:
+    branches: [fix/fresh-open-history-20261023]
+    paths:
+      - 'tools/aap-fresh-history/**'
+      - 'mapa-comissoes/tests/fresh-history.test.cjs'
+      - '.github/workflows/aap-fresh-history-repair.yml'
+permissions:
+  contents: write
+concurrency:
+  group: aap-fresh-history-repair
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Apply scoped source correction
+        run: |
+          if ! grep -q 'app-v2.js?v=20261023-fresh-history-v1' mapa-comissoes/comparador-auto-pro/index.html; then
+            python3 tools/aap-fresh-history/apply-fix.py
+          fi
+          node --check mapa-comissoes/comparador-auto-pro/app-v2.js
+      - name: Install isolated database test runtime
+        run: npm ci --prefix mapa-comissoes/tests/db-runtime --ignore-scripts --no-audit --no-fund
+      - name: Run all comparator regressions
+        run: node --test mapa-comissoes/tests/*.cjs mapa-comissoes/comparador-auto-pro/*.test.mjs
+      - name: Save only validated application changes on the repair branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mapa-comissoes/comparador-auto-pro/app-v2.js mapa-comissoes/comparador-auto-pro/index.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'Fix fresh opening and full historical assessment reading'
+            git push origin HEAD:fix/fresh-open-history-20261023
+          fi
