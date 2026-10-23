@@ -37,6 +37,7 @@
   <link rel="stylesheet" href="./light-panels.css?v=20261023-supervised-v1">
   <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
   <link rel="stylesheet" href="./form-layout.css?v=20261023-centered-v1">
+  <link rel="stylesheet" href="./teaching-chat.css?v=20261023-voice-v1">
 </head>
 <body>
   <script id="rogue-literal-newline-cleanup">
@@ -435,8 +436,11 @@
       </details>
 
       <form id="refineForm" class="refine-bar">
-        <span class="refine-mark">Mais informações</span>
-        <input id="refineInput" autocomplete="off" maxlength="1200" placeholder="Ex.: é Long Range / esta versão vende-se mal / confirmar bateria">
+        <label class="refine-mark" for="refineInput">Conversar e ensinar</label>
+        <input id="refineInput" autocomplete="off" maxlength="3000" placeholder="Ex.: este modelo vende-se com dificuldade…">
+        <button class="voice-button" type="button" id="refineMicBtn" aria-label="Falar com o Comprador IA" title="Falar com o Comprador IA" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"></path></svg>
+        </button>
         <button class="btn ghost small" type="submit" id="refineBtn">Enviar</button>
       </form>
       <div class="refine-inline-status hidden" id="refineInlineStatus" role="status" aria-live="polite"></div>
@@ -478,13 +482,34 @@
       <div class="refine-dialog-head">
         <div>
           <span class="eyebrow">Comprador IA</span>
-          <strong id="refineDialogTitle">Mais informações</strong>
+          <strong id="refineDialogTitle">Conversar e ensinar</strong>
+          <small id="teachingVehicle"></small>
         </div>
         <button class="refine-dialog-close" type="button" id="refineDialogClose" aria-label="Fechar">×</button>
       </div>
       <div class="refine-dialog-state" id="refineDialogState">A analisar…</div>
       <div class="refine-dialog-messages" id="refineDialogMessages" aria-live="polite">
-        <div class="refine-dialog-message assistant" id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</div>
+        <div class="refine-dialog-message assistant" id="refineDialogText">Diz-me o que sabes sobre este carro.</div>
+      </div>
+      <div class="teaching-feedback" id="teachingFeedback" hidden>
+        <span id="teachingFeedbackText"></span>
+        <button type="button" class="btn primary small" id="teachingFeedbackSave">Confirmar e guardar</button>
+        <button type="button" class="btn ghost small" id="teachingFeedbackCancel">Corrigir</button>
+      </div>
+      <div class="teaching-voice-status" id="teachingVoiceStatus" role="status" aria-live="polite"></div>
+      <button type="button" class="teaching-link" id="teachingVoiceCancel" hidden>Cancelar gravação</button>
+      <form id="teachingForm" class="teaching-composer">
+        <label class="sr-only" for="teachingInput">Mensagem para o Comprador IA</label>
+        <textarea id="teachingInput" rows="2" maxlength="3000" placeholder="Fala pelo microfone ou escreve…"></textarea>
+        <button class="voice-button" type="button" id="teachingMicBtn" aria-label="Falar com o Comprador IA" title="Falar com o Comprador IA" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"></path></svg>
+        </button>
+        <button class="btn primary small" type="submit" id="teachingSendBtn">Enviar</button>
+      </form>
+      <div class="teaching-tools">
+        <label><input type="checkbox" id="teachingSpeakEnabled" checked>Resposta por voz</label>
+        <button type="button" class="teaching-link" id="teachingListenBtn" hidden>Ouvir resposta</button>
+        <button type="button" class="teaching-link" id="teachingUndoBtn" hidden>Desativar orientação</button>
       </div>
     </div>
   </div>
@@ -492,7 +517,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
-  <script type="module" src="./app-v2.js?v=20261023-fresh-history-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261023-voice-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261023-progressive-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->

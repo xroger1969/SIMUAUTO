@@ -65,6 +65,14 @@ A entrada principal continua simples. No resultado existem secções discretas p
 
 O diálogo aceita Escape e devolve o foco ao controlo anterior. Durante uma análise, ações incompatíveis ficam bloqueadas.
 
+### Conversa e aprendizagem por voz
+
+O campo **Conversar e ensinar** e o diálogo têm microfone. Um toque inicia a gravação; outro termina, transcreve e envia a mensagem à conversa. A gravação tem limite de 90 segundos/2,8 MB, usa o formato suportado pelo navegador e é cancelada ao mudar de avaliação, fechar o diálogo, sair da conta ou ocultar a página. O áudio é enviado ao serviço de transcrição; a aplicação guarda o texto da conversa, não um ficheiro de áudio. A resposta pode ser ouvida automaticamente nas conversas iniciadas por voz, com botão **Ouvir resposta** para navegadores que exigem um toque.
+
+`/api/comparador-ai` distingue conversa de correção da viatura. Perguntas e observações de procura não iniciam pesquisas de mercado. Correções de versão/ano/quilómetros e pedidos explícitos de nova pesquisa mantêm o fluxo de refinamento. Uma observação comercial só recebe confirmação de gravação depois da escrita na base de dados, fica limitada à identidade atual e pode ser desativada. Montantes ditados de revenda ou margem são propostos para confirmação, por botão ou por resposta «sim», antes de entrar na aprendizagem supervisionada existente. As referências numéricas confirmadas são usadas em avaliações futuras compatíveis; a conversa não substitui valores de revisões históricas.
+
+Na pesquisa seguinte, o servidor identifica primeiro a viatura e só depois seleciona até 12 orientações compatíveis entre até 200 candidatas. As candidatas de outros modelos/versões/combustíveis/anos não são enviadas à pesquisa, e a identificação não recebe estas opiniões. Observações qualitativas não inventam descontos ou reservas em euros.
+
 ## Integrações
 
 Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSignal permanecem deliberadamente fora do caminho crítico do Comparador: não são necessários para calcular uma compra e só deverão ser ligados quando existir um caso concreto de notificação.
