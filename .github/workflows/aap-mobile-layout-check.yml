@@ -1,0 +1,65 @@
+name: Validate centred comparator fields
+on:
+  push:
+    branches: [fix/centered-form-20261023]
+    paths:
+      - '.github/workflows/aap-mobile-layout-check.yml'
+      - 'mapa-comissoes/comparador-auto-pro/form-layout.css'
+      - 'mapa-comissoes/tests/form-layout.test.cjs'
+      - 'mapa-comissoes/tests/browser/form-layout.cjs'
+permissions:
+  contents: write
+concurrency:
+  group: aap-centred-layout-validation
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/centered-form-20261023
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Add only the scoped stylesheet link and short placeholder
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('mapa-comissoes/comparador-auto-pro/index.html')
+          text=p.read_text()
+          link='  <link rel="stylesheet" href="./form-layout.css?v=20261023-centered-v1">'
+          if link not in text:
+              assert text.count('</head>')==1
+              text=text.replace('</head>',link+'\n</head>',1)
+          text=text.replace('placeholder="Link, matrícula ou descreve a viatura"','placeholder="Matrícula ou link"')
+          p.write_text(text)
+          PY
+      - name: Existing comparator regressions
+        run: |
+          npm ci --prefix mapa-comissoes/tests/db-runtime --ignore-scripts --no-audit --no-fund
+          node --test mapa-comissoes/tests/*.cjs mapa-comissoes/comparador-auto-pro/*.test.mjs
+      - name: Install isolated, pinned browser runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/aap-layout-browser" --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          "$RUNNER_TEMP/aap-layout-browser/node_modules/.bin/playwright" install --with-deps chromium webkit
+      - name: Measure real page layout on mobile and desktop
+        run: |
+          NODE_PATH="$RUNNER_TEMP/aap-layout-browser/node_modules" node mapa-comissoes/tests/browser/form-layout.cjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: aap-centred-layout-proof
+          path: layout-artifacts/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Commit validated HTML on the repair branch only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mapa-comissoes/comparador-auto-pro/index.html
+          if ! git diff --cached --quiet; then
+            git commit -m 'Load validated centred form layout and clearer placeholder'
+            git push origin HEAD:refs/heads/fix/centered-form-20261023
+          fi
