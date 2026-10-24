@@ -166,6 +166,7 @@ const HISTORY_PAGE_SIZE=40;
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
   currentResult=null;publishAssessment(null);
+  setAnalysisButtonState("idle");
   q("result").classList.add("hidden");
   cancelVoiceInput();stopTeachingSpeech();screenWake.setEnabled(false);
   q("refineDialog")?.classList.add("hidden");
@@ -1031,6 +1032,8 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
   publishAssessment(currentResult);
+  if(activeOperation?.isAssessment)activeOperation.resultReady=true;
+  else if(!activeOperation)setAnalysisButtonState("complete");
 }
 
 function conditionCostContext(market={}){
@@ -1391,6 +1394,15 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
   const {error}=await db.from("cap_analyses").update(payload).eq("id",analysisId);
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
+function setAnalysisButtonState(state){
+  const button=q("analyzeBtn");if(!button)return;
+  button.dataset.state=state;
+  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":"Iniciar avaliação";
+  button.setAttribute("aria-busy",String(state==="running"));
+}
+function markAnalysisInputChanged(){
+  if(!activeOperation)setAnalysisButtonState("idle");
+}
 function setOperationBusy(busy){
   for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","refineMicBtn","teachingMicBtn","teachingSendBtn","teachingFeedbackSave","teachingUndoBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
@@ -1401,14 +1413,21 @@ function setOperationBusy(busy){
 function beginOperation(kind,analysisId=null){
   if(currentHistoryRevision&&!["history","learning","learning-undo","conversation"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
-  const op={id:++operationSequence,kind,analysisId,owner:session?.user?.id,requestKey:crypto.randomUUID(),jobId:null};
-  activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);return op;
+  const isAssessment=["analysis","resume","refine","market-refresh","auction-location","condition-costs","recalculate"].includes(kind);
+  const op={id:++operationSequence,kind,analysisId,owner:session?.user?.id,requestKey:crypto.randomUUID(),jobId:null,isAssessment,resultReady:false};
+  activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);
+  if(isAssessment)setAnalysisButtonState("running");
+  return op;
 }
 function assertOperation(op){
   if(activeOperation!==op||(op.owner&&op.owner!==session?.user?.id))throw new Error("Esta operação já não é a análise ativa.");
 }
 function finishOperation(op){
-  if(activeOperation===op){activeOperation=null;setOperationBusy(false);if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;}
+  if(activeOperation===op){
+    activeOperation=null;setOperationBusy(false);
+    if(op.isAssessment)setAnalysisButtonState(op.resultReady?"complete":"idle");
+    if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;
+  }
 }
 function mergeDeal(settings){
   const src=settings&&typeof settings==="object"?settings:{};
@@ -1618,6 +1637,7 @@ function mergeAuto1AuthenticatedFacts(subject,reader){
   return subject;
 }
 function setImageStatus(name){
+  markAnalysisInputChanged();
   selectedImageName=name||"";
   if(selectedImageData){
     q("attachmentName").textContent=selectedImages.length+"/"+MAX_IMAGES+" fotografias prontas para a IA · usa o clipe para acrescentar";
@@ -1924,6 +1944,7 @@ window.addEventListener("pagehide",()=>{cancelVoiceInput();stopTeachingSpeech();
 document.addEventListener("visibilitychange",()=>{if(document.hidden)stopTeachingSpeech();});
 
 q("vehiclePhoto").addEventListener("change",ev=>attachImageFiles(ev.target.files));
+q("analyzeForm").addEventListener("input",markAnalysisInputChanged);
 q("vehicleUrl").addEventListener("input",ev=>{
   // Ao escrever bm55dn, apresentar logo BM-55-DN, sem exigir hífens ou Shift.
   const formatted=formatVehiclePlate(ev.target.value);
@@ -1940,6 +1961,7 @@ q("vehicleUrl").addEventListener("paste",ev=>{
 
   const text=String(ev.clipboardData?.getData("text/plain")||"").trim();
   if(!text)return;
+  markAnalysisInputChanged();
   try{
     const parsed=parseVehicleInput(text);
     if(parsed.mode==="url"&&parsed.url){
