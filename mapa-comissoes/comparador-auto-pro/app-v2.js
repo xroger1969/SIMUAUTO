@@ -593,6 +593,8 @@ function renderTagList(id,items){
 }
 function renderVehicleReadout(vehicle,context=currentMarketData){
   const v=vehicle||{};
+  const evRange=globalThis.ElectricRange?.confirmedRange(v)||null;
+  renderElectricRange(v);
   const reader=context?.reader||null;
   const market=context?.market||null;
   const page=reader?.page||{};
@@ -645,7 +647,8 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Combustível",v.fuel],
     ["Potência",v.power_cv!=null?v.power_cv+" cv":null],
     ["Bateria",v.battery_kwh!=null?v.battery_kwh+" kWh":null],
-    ["Autonomia",v.range_km!=null?v.range_km+" km":null],
+    ["Autonomia indicada no anúncio",v.range_km!=null?v.range_km+" km":null],
+    ...(globalThis.ElectricRange?.isElectric(v)?[["Autonomia WLTP combinada",evRange?evRange.combined_km+" km":null]]:[]),
     ["Cilindrada",v.engine_cc!=null?Number(v.engine_cc).toLocaleString("pt-PT")+" cc":null],
     ["Potência (kW)",v.power_kw!=null?v.power_kw+" kW":null],
     ["Peso bruto",v.weight_kg!=null?v.weight_kg+" kg":null],
@@ -683,6 +686,24 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     if(notes)parts.push(notes);
     if(page.text_truncated===true)parts.push("A página tinha mais texto do que o limite de leitura; a ficha acima não deve ser tratada como leitura integral.");
     quality.textContent=parts.join(" · ")||"Qualidade dos dados ainda não classificada.";
+  }
+}
+
+function renderElectricRange(vehicle={}){
+  const panel=q("electricRangePanel"),api=globalThis.ElectricRange;
+  if(!panel||!api)return;
+  const electric=api.isElectric(vehicle),range=api.confirmedRange(vehicle);
+  panel.classList.toggle("hidden",!electric);
+  q("electricRangeValue").textContent=range?range.combined_km+" km":"Por confirmar";
+  q("electricRangeVariant").textContent=range
+    ?range.source_variant||[vehicle.trim,range.reference_battery_kwh?range.reference_battery_kwh+" kWh":null].filter(Boolean).join(" · ")
+    :"Versão e bateria por confirmar na fonte.";
+  const source=q("electricRangeSource");
+  source.hidden=!range;
+  if(range){
+    source.href=api.safeUrl(range.source_url);source.title=range.source_title||"Consultar a fonte WLTP";
+  }else{
+    source.removeAttribute("href");source.removeAttribute("title");
   }
 }
 
@@ -2518,6 +2539,8 @@ async function refineEvaluation(text,{aiData=null,alreadyShown=false}={}){
     for(const [key,value] of Object.entries(market.subject||{})){
       if(value!==null&&value!==undefined&&value!=="")subject[key]=value;
     }
+    // A null technical result must clear the range of the previous version.
+    subject.ev_range=market.subject?.ev_range||null;
     const entry=lastAnalysisContext.entry,reader=lastAnalysisContext.reader;
     const missing=missingVehicleFields(subject,market);
     const blocking=blockingVehicleFields(missing);
@@ -2647,7 +2670,7 @@ async function refreshMarketSnapshot(){
     const market=await runMarketAnalysis(payload,operation);
     market.condition_overrides=currentMarketData?.market?.condition_overrides||{};
     assertOperation(operation);
-    const subject=currentVehicle;
+    const subject={...currentVehicle,ev_range:market.subject?.ev_range||null};
     const memories=relevantMemories(await loadMemories().catch(()=>[]),subject);
     const result=evaluatePurchase({
       subject,comparables:Array.isArray(market.comparables)?market.comparables:[],

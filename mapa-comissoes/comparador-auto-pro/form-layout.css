@@ -27,3 +27,12 @@
   #analyzeForm .search-actions{grid-template-columns:minmax(0,1fr);gap:10px}
   #analyzeForm .search-actions .btn{width:100%;min-height:52px;border-radius:16px;font-size:16px}
 }
+
+/* Keep the homologated range visible while the full vehicle sheet stays closed. */
+.ev-range-panel{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 16px;padding:18px 20px;border:1px solid #ccd7e4;border-radius:17px;background:#f6f8fc;color:#182638}
+.ev-range-panel.hidden{display:none}
+.ev-range-panel>div{min-width:0;display:grid;gap:5px}
+.ev-range-panel span{font-size:13px;font-weight:650;color:#4b6179}
+.ev-range-panel strong{font-size:26px;line-height:1.25}
+.ev-range-panel small{font-size:12px;line-height:1.45;color:#526276;overflow-wrap:anywhere}
+.ev-range-panel a{flex:none;color:#215daa;font-size:14px;font-weight:650}
