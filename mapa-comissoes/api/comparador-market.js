@@ -1,4 +1,5 @@
 const crypto=require("node:crypto");
+const {rangeSchema,normalizeRange,confirmedRange}=require("../comparador-auto-pro/electric-range.js");
 const {lookupRegistration,normalizeRegistration,displayRegistration}=require("../lib/registration");
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
@@ -22,7 +23,7 @@ function inputSignature(body={}){
     images:images.map(image=>sha256(image)),
     corrected_identity:body.previous_subject?identityCacheFields(body.previous_subject):null
   };
-  return "input-v9-eligible-market-20261022:"+sha256(JSON.stringify(signaturePayload));
+  return "input-v10-wltp-20261024:"+sha256(JSON.stringify(signaturePayload));
 }
 
 function canonicalUrl(raw){
@@ -204,7 +205,7 @@ function marketCacheKey(subject={},context={}){
   const identity=identityCacheFields(subject);
   if(!identity.make||!identity.model)return null;
   // A matrícula identifica o carro, mas não anula correções da versão ou dos km.
-  return "market-v6-eligible-identity-20261022|"+sha256(JSON.stringify(identity));
+  return "market-v7-wltp-20261024|"+sha256(JSON.stringify(identity));
 }
 function marketSelection(result={},currentSubject=null){
   if(result.valuation_blocked===true)return {rows:[],excluded:[],searchTier:0};
@@ -359,6 +360,9 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
   const sourceUrls=new Set(sources.map(s=>s.url));
   const observed=nowIso();
   parsed.condition_report=normalizeConditionReport(parsed.condition_report,sources,observed);
+  // Only fresh, sourced technical research can enrich the fixed vehicle identity.
+  parsed.subject.ev_range=parsed.valuation_blocked?null:normalizeRange(parsed.ev_range,parsed.subject,sources,observed);
+  delete parsed.ev_range;
 
   parsed.comparables=parsed.comparables.flatMap(c=>{
     const url=canonicalUrl(c.url);
@@ -465,6 +469,8 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
   subject.mileage_km=currentSubject?.mileage_estimated?null:(currentSubject?.mileage_km??null);
   subject.mileage_estimated=false;subject.mileage_estimate=null;
   subject.mileage_source=currentSubject?.mileage_source||null;
+  // Never trust an ev_range supplied by the browser; reuse only the server snapshot.
+  subject.ev_range=confirmedRange({...subject,ev_range:base.subject?.ev_range});
   return estimateMileage({
     ...base,
     subject,
@@ -546,9 +552,10 @@ function plateOnlyIdentityText(context={}){
 const marketSchema={
   type:"object",
   additionalProperties:false,
-  required:["subject","comparables","risk_flags","market_comment","data_quality","auction_context","condition_report"],
+  required:["subject","comparables","risk_flags","market_comment","data_quality","auction_context","condition_report","ev_range"],
   properties:{
     condition_report:conditionSchema,
+    ev_range:rangeSchema,
     subject:{
       type:"object",additionalProperties:false,
       required:["registration","make","model","generation","trim","body_type","fuel","battery_kwh","power_cv","drivetrain","transmission","year","first_registration","mileage_km","vat_deductible","price","equipment","origin","color","doors","seats","engine_cc","range_km","warranty_months","seller_name","location","ad_summary","ad_highlights"],
@@ -621,6 +628,11 @@ const instructions=[
   "Em subject.ad_summary resume fielmente a informação da VIATURA ANALISADA que está no anúncio/página/fotografias. Não uses comparáveis para preencher este resumo e não inventes dados ausentes.",
   "Em subject.ad_highlights regista até 16 detalhes adicionais realmente encontrados no anúncio (estado/histórico, garantia, vendedor/localização, equipamento relevante, observações comerciais). Não repitas marca/modelo/preço/km só para encher.",
   "Preenche color, doors, seats, engine_cc, range_km, warranty_months, seller_name e location apenas quando houver evidência no anúncio analisado. Caso contrário usa null.",
+  "AUTONOMIA ELÉTRICA: na fase de mercado, para um veículo 100% elétrico, consulta documentação oficial do fabricante ou homologação para identificar a autonomia WLTP COMBINADA da configuração analisada, mesmo quando não consta do anúncio. Devolve-a no campo de topo ev_range. Na fase de identificação devolve ev_range=null; não pesquises a autonomia nessa fase.",
+  "ev_range é uma referência de homologação, não a autonomia atual da bateria usada. Confirma ano/geração, versão, bateria, potência, tração e jantes/equipamento quando afetem a homologação. Se não houver uma única configuração aplicável, usa null; não atribuas o máximo de uma gama ao carro. Nunca converter WLTP urbano, NEDC, EPA, autonomia do painel ou estimativa de uso real em WLTP combinado.",
+  "Em ev_range.vehicle identifica a versão analisada a que a documentação se aplica: conserva os nomes comerciais e o ano do contexto se forem efetivamente compatíveis; bateria/potência da referência devem corresponder à mesma configuração. version_match=exact só com correspondência demonstrada. source_variant descreve sucintamente bateria/versão/jantes relevantes. source_type=manufacturer ou homologation só para documentação oficial da marca ou entidade de homologação, não anúncios ou bases comerciais.",
+  "ev_range.source_url deve ser uma página ou documento que acabaste de consultar na pesquisa web. evidence é um excerto curto com WLTP e o valor combinado em km. Não uses conhecimento de memória nem inventes URLs. Se a fonte reportar só uma gama ou não permitir distinguir a versão, ev_range=null. Conserva range_km apenas como autonomia indicada no anúncio, sem a promover a WLTP.",
+
   "Se o contexto indicar text_truncated=true, reconhece que a leitura textual foi parcial; nunca afirmes que leste o anúncio completo.",
   "Pesquisa obrigatoriamente a web antes de devolver comparáveis.",
   "Os quilómetros são opcionais. Se mileage_input_km não for null, são os quilómetros indicados pelo utilizador: preserva-os mesmo ao cruzar a matrícula/Spottd. Se faltarem quilómetros, pesquisa à mesma anúncios ativos em Portugal (Standvirtual, PiscaPisca, OLX e sites de stands) da mesma marca, modelo, combustível e ano próximo. Recolhe preços, quilómetros e URLs reais. Mantém subject.mileage_km=null se desconhecidos: o servidor calculará a média e o intervalo dos comparáveis elegíveis, com prioridade a profissionais. Nunca peças quilómetros como condição para pesquisar e nunca inventes uma média sem anúncios.",
@@ -651,7 +663,7 @@ const instructions=[
   "Na fase de mercado, PARA QUALQUER ORIGEM OU TIPO DE VIATURA, pesquisa obrigatoriamente tabelas públicas atuais de oficinas para cada dano confirmado visualmente ou pelo técnico, e preços de peças/reparações/manutenção compatíveis com marca/modelo/ano/motorização. Inclui pintura, chapa, plásticos, iluminação, pneus, interior, mecânica e manutenção documentada, conforme necessário. Dá prioridade a preços normais; identifica promoções, prazos, primeiro/segundo painel, IVA e exclusões. Abre a página da fonte: excertos podem estar desatualizados. Se tabela e FAQ divergirem, regista intervalo indicativo, sem inventar preço único. Os 80–100 EUR são hipótese provisória sem preço pesquisado, não tabela de mercado nem teto de pintura. Dá prioridade a oficinas e fornecedores em Portugal, preços públicos atuais e serviço equivalente. Cada cost requer source_url realmente consultada, source_title e fitment_note com compatibilidade/limitações. Nunca inventes médias nacionais, orçamentos, referências OEM, mão de obra ou preços de peças; uma fonte é referência individual, não média de mercado.",
   "cost contém valores UNITÁRIOS em euros: parts_* para peças e labour_* para serviço/mão de obra (incluindo tinta e consumíveis se for pintura). O custo total é a soma dos dois. Usa 0 só quando explicitamente incluído/sem custo; null se desconhecido. Se o preço total de serviço inclui peças, regista parts=0 e o preço completo em labour. Se houver só preço da peça, deixa labour null. price_basis=gross se inclui IVA; net se exclui; unknown se não for verificável. Valores incertos ficam null. Um preço «desde» só confirma o mínimo: deixa o máximo null e explica que não existe teto confirmado. Preços online são referências, não orçamentos garantidos.",
   "previous_condition_report contém observações da MESMA viatura já extraídas de fotografias anteriores. Ao receber mais fotografias, preserva danos anteriores e acrescenta danos novos, sem contar duas vezes o mesmo componente; quando existe prova melhor atualiza ação/gravidade sem apagar um dano confirmado. Na fase de mercado preserva as observações e enriquece os preços correspondentes. Na identificação não pesquises preços e deixa os custos null. Não cries reserva monetária em risk_flags para um dano já incluído em condition_report: usa reserve_eur=0 e related_component com o mesmo identificador; as reservas genéricas não substituem orçamentos.",
-  "Se market_reference existir, os comparáveis de mercado já estão fixados. Não repitas a pesquisa de anúncios; pesquisa só os preços das intervenções da viatura analisada. O servidor preserva o mercado original e atualiza apenas a condição/custos.",
+  "Se market_reference existir, os comparáveis de mercado já estão fixados. Não repitas a pesquisa de anúncios; pesquisa os preços das intervenções e, para elétricos, a autonomia WLTP combinada oficial da versão analisada. O servidor preserva o mercado original e atualiza a condição/custos e esta referência técnica.",
   "Preenche auction_context para a VIATURA ANALISADA, não para os comparáveis. is_auction=true apenas quando a origem da oportunidade é claramente um leilão/plataforma de remarketing. Standvirtual nunca é tratado como leilão.",
   "Em auction_context.vehicle_location usa PT apenas com evidência de que a viatura de leilão já se encontra fisicamente em Portugal; usa foreign se estiver fora de Portugal; usa unknown se não conseguires confirmar. Preenche origin_country com o código ISO do país quando estiver visível. Uma bandeira/indicação explícita de França=FR, Alemanha=DE, Bélgica=BE, Espanha=ES, Itália=IT, Países Baixos=NL, etc. é evidência suficiente de localização estrangeira. Não deduzas a localização apenas porque subject.origin é imported/national.",
   "Para links AUTO1 trata a oportunidade como leilão/remarketing. Se o anúncio ou fotografia mostrar bandeira/país estrangeiro, define vehicle_location=foreign e origin_country para esse país; se mostrar Portugal, define PT. Para Standvirtual define is_auction=false e vehicle_location=PT e origin_country=PT.",
