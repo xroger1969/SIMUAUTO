@@ -6,7 +6,7 @@ const root=path.join(__dirname,'../comparador-auto-pro');
 const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
 const css=fs.readFileSync(path.join(root,'form-layout.css'),'utf8');
 test('centred form rules load after existing themes with a dedicated cache version',()=>{
-  const layout=html.indexOf('form-layout.css?v=20261023-centered-v1');
+  const layout=html.indexOf('form-layout.css?v=20261024-button-states-v1');
   assert.ok(layout>html.indexOf('tax-simulator.css?')&&layout>html.indexOf('light-panels.css?'));
 });
 test('empty mobile page cannot reinstate the old viewport-sized spacer',()=>{

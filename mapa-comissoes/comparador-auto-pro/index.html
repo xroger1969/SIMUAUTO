@@ -36,7 +36,7 @@
   <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
   <link rel="stylesheet" href="./light-panels.css?v=20261023-supervised-v1">
   <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
-  <link rel="stylesheet" href="./form-layout.css?v=20261023-centered-v1">
+  <link rel="stylesheet" href="./form-layout.css?v=20261024-button-states-v1">
   <link rel="stylesheet" href="./teaching-chat.css?v=20261023-voice-v2-screen-v1">
 </head>
 <body>
@@ -129,7 +129,7 @@
           <input id="vehicleMargin" type="number" inputmode="decimal" min="0" max="100000" step="50" placeholder="Automática · mínimo 3 500 €">
         </div>
         <div class="search-actions">
-          <button class="btn primary" type="submit" id="analyzeBtn">Analisar compra</button>
+          <button class="btn primary" type="submit" id="analyzeBtn" data-state="idle" aria-busy="false" aria-live="polite" aria-atomic="true">Iniciar avaliação</button>
           <button class="btn ghost" type="button" id="startNewAnalysisBtn">Nova avaliação</button>
         </div>
       </form>
@@ -519,7 +519,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261022-commercial-cohort-v2"></script>
-  <script type="module" src="./app-v2.js?v=20261023-eni-sync-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261024-button-states-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261023-eni-sync-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->

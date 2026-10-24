@@ -11,6 +11,8 @@
 #analyzeForm .mileage-input-group input{min-width:0;font-size:16px;line-height:1.4}
 #analyzeForm input::placeholder{color:#64748b;opacity:1}
 #analyzeForm .search-actions .btn{display:flex;align-items:center;justify-content:center;min-width:0;min-height:52px;text-align:center}
+#analyzeBtn[data-state="running"]{background:#facc15;color:#422006;border-color:#eab308;box-shadow:0 8px 24px #eab30830;opacity:1;cursor:wait}
+#analyzeBtn[data-state="complete"]{background:#15803d;color:#fff;border-color:#16a34a;box-shadow:0 8px 24px #16a34a30}
 #app > .hero .hint{overflow-wrap:anywhere}
 @media(max-width:560px){
   /* Override the older high-specificity empty-screen rules, including their !important spacing. */
