@@ -37,7 +37,7 @@
       if(a[field]&&(!b[field]||Math.abs(a[field]-b[field])>(field==="battery_kwh"?.6:Math.max(3,a[field]*.03))))return false;
     }
     // A model name alone cannot select a battery/range variant.
-    return !!((a.battery_kwh&&b.battery_kwh)||(a.trim&&b.trim&&a.power_cv&&b.power_cv));
+    return !!(a.trim&&a.trim===b.trim&&((a.battery_kwh&&b.battery_kwh)||(a.power_cv&&b.power_cv)));
   }
   function normalizeRange(candidate,subject,sources=[],observedAt=new Date().toISOString()){
     if(!candidate||candidate.cycle!=="WLTP_COMBINED"||candidate.version_match!=="exact")return null;
@@ -46,7 +46,11 @@
     const url=safeUrl(candidate.source_url);
     if(!url||!sources.some(source=>safeUrl(source?.url||source?.link)===url))return null;
     const evidence=String(candidate.evidence||"").trim();
-    if(!/wltp/i.test(evidence)||evidence.length<12||!evidence.includes(String(candidate.combined_km)))return null;
+    if(!/wltp/i.test(evidence)||evidence.length<12)return null;
+    // Reject contradictory cycles even if the model labels the field as combined.
+    if(/\b(?:nedc|epa|city|urban[oa]?|urbain[e]?|urbano|stadt|stads|ville)\b/i.test(evidence))return null;
+    const statedKm=[...evidence.matchAll(/\b(\d{2,4}(?:[.,]\d+)?)\s*(?:km|quil[oó]metros?|kilometres?|kilometers?)\b/gi)];
+    if(!statedKm.some(match=>Number(match[1].replace(",","."))===candidate.combined_km))return null;
     return {combined_km:candidate.combined_km,cycle:"WLTP_COMBINED",source_url:url,
       source_title:String(candidate.source_title||"Fonte WLTP").slice(0,240),
       source_type:candidate.source_type,source_variant:String(candidate.source_variant||"").slice(0,240),

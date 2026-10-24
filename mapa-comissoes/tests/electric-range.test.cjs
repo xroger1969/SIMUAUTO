@@ -30,7 +30,7 @@ test("unknown battery can be resolved by the documented year, exact trim and pow
   assert.equal(subject.battery_kwh,null,"Research does not silently overwrite the input identity");
 });
 test("model name alone, ambiguous versions and incompatible versions remain unconfirmed",()=>{
-  for(const change of [{year:2023},{battery_kwh:72.6},{power_cv:177},{trim:"Long Range"},{fuel:"petrol"},{fuel:"phev"},{trim:null,battery_kwh:null,power_cv:null}]){
+  for(const change of [{year:2023},{battery_kwh:72.6},{power_cv:177},{trim:"Long Range"},{trim:null},{fuel:"petrol"},{fuel:"phev"},{trim:null,battery_kwh:null,power_cv:null}]){
     assert.equal(normalizeRange(candidate(),{...vehicle,...change},sources),null,JSON.stringify(change));
   }
   assert.equal(normalizeRange({...candidate(),version_match:"ambiguous"},vehicle,sources),null);
@@ -47,6 +47,11 @@ test("urban WLTP, NEDC, EPA and unsourced values cannot become combined WLTP",()
 test("unsafe source URLs are rejected even if listed as a consulted source",()=>{
   for(const source_url of ["javascript:alert(1)","data:text/html,test","https://name:password@example.com/spec"]){
     assert.equal(normalizeRange({...candidate(),source_url},vehicle,[{url:source_url}]),null);
+  }
+});
+test("a misleading cycle label cannot override urban evidence or a different numeric range",()=>{
+  for(const evidence of ["WLTP city / urban range: 263 km.","Autonomia urbana WLTP: 263 km.","NEDC 335 km; WLTP 263 km.","EPA range: 263 km; WLTP not available.","Combined WLTP range: 1263 km."]){
+    assert.equal(normalizeRange({...candidate(),evidence},vehicle,sources),null,evidence);
   }
 });
 test("a confirmed range cannot survive changes to the vehicle configuration",()=>{
