@@ -729,8 +729,8 @@ function missingVehicleFields(vehicle,market={}){
 function blockingVehicleFields(missing=[]){
   return missing.filter(item=>item.key==="registration"||item.key==="make_model");
 }
-function followupQuestion(vehicle,missing){
-  if(missing.some(item=>item.key==="registration"))return "Não consegui validar a matrícula com a viatura identificada. Confirma a matrícula e a marca/modelo, ou envia uma fotografia mais nítida. A avaliação está bloqueada até esclarecer esta identificação.";
+function followupQuestion(vehicle,missing,market={}){
+  if(missing.some(item=>item.key==="registration"))return (market.risk_flags||[]).find(r=>r.code==="registration_unconfirmed")?.label||"Não consegui validar a matrícula com a viatura identificada. Confirma a matrícula e a marca/modelo, ou envia uma fotografia mais nítida. A avaliação está bloqueada até esclarecer esta identificação.";
   const labels=missing.map(item=>item.label);
   const title=[vehicle?.make,vehicle?.model,vehicle?.trim].filter(confirmedText).join(" ");
   if(missing.some(item=>item.key==="make_model")){
@@ -754,10 +754,10 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
     ?"Podes melhorar a avaliação"
     :missing.some(item=>item.key==="make_model")
       ?"Ajuda-me a identificar melhor a viatura"
-      :"Faltam "+labels.length+" dados para fechar a avaliação";
+      :labels.length===1?"Falta 1 dado para fechar a avaliação":"Faltam "+labels.length+" dados para fechar a avaliação";
   q("vehicleFollowupText").textContent=optional
     ?"Já calculei uma avaliação provisória. Para aumentar a confiança, confirma "+labels.join(", ")+"."
-    :followupQuestion(vehicle,missing);
+    :followupQuestion(vehicle,missing,currentMarketData||{});
   if(q("vehicleFollowupBtn"))q("vehicleFollowupBtn").textContent=optional?"Atualizar avaliação":"Continuar análise";
   const tags=q("vehicleFollowupMissing");tags.replaceChildren();
   labels.forEach(label=>{const tag=document.createElement("span");tag.textContent=label;tags.appendChild(tag)});

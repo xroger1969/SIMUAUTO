@@ -5,9 +5,27 @@ const path=require('node:path');
 const identity=require('../comparador-auto-pro/commercial-identity.js');
 const {estimateMileage,mergeRegistration}=require('../api/comparador-market.js')._test;
 const fixture=require('./fixtures/al47ic-market.json');
+const bmwPhoto=require('./fixtures/bmw225e-photo-identity.json');
 const engine=import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(path.resolve(__dirname,'../comparador-auto-pro/valuation.js'),'utf8')).toString('base64'));
 const urls=rows=>rows.map(row=>row.comp?.url||row.url).sort();
 const marketInput=()=>({subject:structuredClone(fixture.subject),comparables:structuredClone(fixture.comparables),risk_flags:[],data_quality:{}});
+
+test('BMW photo and Spottd identity reaches the pricing engine using a synthetic compatible advert',async()=>{
+  const {evaluatePurchase}=await engine;
+  const subject=mergeRegistration(bmwPhoto.subject,bmwPhoto.registration_data);
+  const comparable={...subject,registration:null,model:'Serie-2 Active Tourer (U06)',trim:'225 e xDrive',mileage_km:90000,
+    price:30000,url:'https://stand.example/synthetic-bmw',seller_type:'professional',country:'PT',availability:'available',price_basis:'gross'};
+  const result=evaluatePurchase({subject,comparables:[comparable]});
+  assert.equal(result.market.comparablesUsed,1);
+  assert.ok(result.purchase.effectiveCeiling>0);
+  assert.ok(result.purchase.effectiveCeiling<result.market.marketValue);
+  assert.equal(result.purchase.eligible,false,'One synthetic reference must remain provisional');
+  assert.equal(result.subject.price,null,'The hidden auction bid must never be fabricated');
+  for(const patch of [{model:'Série 2 Gran Tourer'},{fuel:'petrol'},{generation:'F45'},{drivetrain:'fwd'}]){
+    const bad=evaluatePurchase({subject,comparables:[{...comparable,...patch}]});
+    assert.equal(bad.market.comparablesUsed,0,JSON.stringify(patch));
+  }
+});
 
 test('real AL47IC snapshot uses the same eligible cohort for estimated mileage and final prices',async()=>{
   const {evaluatePurchase}=await engine;

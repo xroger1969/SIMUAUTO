@@ -81,6 +81,26 @@ Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSigna
 
 O workflow `.github/workflows/comparador-auto-pro-check.yml` testa exclusivamente esta árvore ativa, incluindo sintaxe, motor de valorização, memória, inputs, segurança, voz e hooks críticos da interface.
 
+### Fotografias BCA e identificação BMW — 25/10/2026
+
+A identificação normaliza «Série-2 Active Tourer», «2 Series Active Tourer» e
+«225e xDrive Active Tourer», separando modelo, versão e geração. Active Tourer
+e Gran Tourer continuam distintos; uma Série 2 sem carroçaria confirmada não
+é automaticamente equiparada. Matrículas, versões e gerações contraditórias
+continuam a pedir confirmação, mostrando as duas identificações ao utilizador.
+
+«Híbrido plug-in a gasolina» e «PHEV Gasolina» usam o mesmo combustível na
+seleção de anúncios. Num BMW PHEV com a mesma versão explicitamente confirmada
+pela Spottd, a comparação usa a potência da Spottd e conserva a potência lida
+nas fotografias e a proveniência, evitando comparar apenas potência térmica
+com potência de sistema. Não se aplica esta regra a versões diferentes ou
+genéricas. Um preço tapado continua desconhecido e não impede a pesquisa.
+
+A regressão anonimizada `tests/fixtures/bmw225e-photo-identity.json` reproduz
+a identificação que bloqueou em produção e percorre identificação, pesquisa,
+seleção e cálculo com um anúncio sintético. Esse anúncio não é uma cotação
+de mercado. O SOH documentado e os quilómetros da viatura são conservados.
+
 ## Correções da auditoria de 22/10/2026
 
 - `commercial-identity.js` conserva a identidade bruta e normaliza a identidade comercial usada pelo servidor e pelo cálculo. Modelo e versão Tesla são separados; códigos técnicos numéricos não substituem versões comerciais. Combustível, tração, geração e bateria incompatíveis continuam excluídos.

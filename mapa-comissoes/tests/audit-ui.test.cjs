@@ -110,7 +110,7 @@ test('history exposes an old pending job without a recent-time cutoff',async()=>
 
 
 test('real page loads the shared identity module before the current valuation engine',()=>{
-  const shared=html.indexOf('src="./commercial-identity.js?v=20261022-commercial-cohort-v2"');
+  const shared=html.indexOf('src="./commercial-identity.js?v=20261025-bmw-tourer-v3"');
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
   assert.match(app,/valuation\.js\?v=20261023-supervised-v1/);

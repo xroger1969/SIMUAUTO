@@ -1,0 +1,32 @@
+{
+  "description": "Anonymised identity fields from the blocked BCA photo assessment, 2026-10-25. No live market prices or VIN.",
+  "subject": {
+    "registration": "AA-00-AA",
+    "make": "BMW",
+    "model": "Série 2 Active Tourer",
+    "trim": "225e xDrive",
+    "generation": "U06",
+    "year": 2023,
+    "first_registration": "2023-04-18",
+    "mileage_km": 86373,
+    "fuel": "hibrido plug-in a gasolina",
+    "power_cv": 136,
+    "battery_kwh": 16.3,
+    "drivetrain": "xDrive",
+    "transmission": "Automática",
+    "vat_deductible": true,
+    "price": null
+  },
+  "registration_data": {
+    "registration": "AA-00-AA",
+    "provider": "spottd",
+    "make": "BMW",
+    "model": "225e xDrive Active Tourer",
+    "trim": "U2AT",
+    "fuel": "ELEC/GASOLIN",
+    "year": 2023,
+    "registration_date_pt": "2023-04",
+    "power_cv": 245,
+    "power_kw": 180
+  }
+}
