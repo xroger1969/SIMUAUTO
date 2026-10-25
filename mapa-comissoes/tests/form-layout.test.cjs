@@ -24,6 +24,6 @@ test('entry icons participate in layout instead of overlapping input text',()=>{
 });
 test('all existing input, reset, history and ENI hooks remain available',()=>{
   for(const id of ['vehicleUrl','vehicleMileage','vehicleMargin','vehiclePhoto','micBtn','resetSearchBtn','analyzeBtn','startNewAnalysisBtn','historyBtn','historySnapshotNotice','taxSimulator'])assert.ok(html.includes('id="'+id+'"'),id);
-  assert.match(html,/placeholder="Matrícula ou link"/);
+  assert.match(html,/placeholder="AA — 00 — AA"/);
   assert.match(html,/aria-label="Link, matrícula ou descrição da viatura"/);
 });

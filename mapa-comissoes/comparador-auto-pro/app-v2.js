@@ -1418,14 +1418,14 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
 function setAnalysisButtonState(state){
   const button=q("analyzeBtn");if(!button)return;
   button.dataset.state=state;
-  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":"Iniciar avaliação";
+  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":"Analisar viatura";
   button.setAttribute("aria-busy",String(state==="running"));
 }
 function markAnalysisInputChanged(){
   if(!activeOperation)setAnalysisButtonState("idle");
 }
 function setOperationBusy(busy){
-  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","refineMicBtn","teachingMicBtn","teachingSendBtn","teachingFeedbackSave","teachingUndoBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
+  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","refineMicBtn","teachingMicBtn","teachingSendBtn","teachingFeedbackSave","teachingUndoBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehicleMargin","plateModeBtn","linkModeBtn","photosModeBtn","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
@@ -1880,7 +1880,7 @@ function renderVoiceState({state,elapsedSeconds=0}){
   mic.classList.toggle("recording",recording&&voiceTarget==="vehicle");
   mic.setAttribute("aria-label",recording&&voiceTarget==="vehicle"?"Terminar ditado":"Ditar por voz");
   mic.disabled=!!activeOperation||waiting||(busy&&voiceTarget!=="vehicle");
-  for(const id of ["analyzeBtn","refineBtn","teachingSendBtn","teachingFeedbackSave"]){
+  for(const id of ["analyzeBtn","refineBtn","teachingSendBtn","teachingFeedbackSave","plateModeBtn","linkModeBtn","photosModeBtn"]){
     if(q(id))q(id).disabled=!!activeOperation||busy;
   }
   const message=state==="requesting"?"A pedir autorização ao iPhone para usar o microfone…":recording?"A gravar · "+elapsedSeconds+" s · toca em Terminar e enviar para obter a resposta.":state==="transcribing"?"A gravação terminou. A transcrever a voz…":"";
@@ -1894,6 +1894,11 @@ function renderVoiceState({state,elapsedSeconds=0}){
   if(state==="transcribing"&&inConversation)q("refineDialogState").textContent="A transcrever a gravação…";
   q("teachingVoiceCancel").hidden=!inConversation||!busy;
   q("teachingVoiceCancel").textContent=state==="transcribing"?"Cancelar envio":"Cancelar gravação";
+  const vehicleStatus=q("vehicleVoiceStatus");
+  if(vehicleStatus){
+    vehicleStatus.hidden=voiceTarget!=="vehicle"||state==="idle";
+    vehicleStatus.textContent=message.replace("Terminar e enviar", "Voz");
+  }
   if(voiceTarget==="vehicle"&&state!=="idle"&&elapsedSeconds===0)toast(message);
 }
 function getVoiceInput(){

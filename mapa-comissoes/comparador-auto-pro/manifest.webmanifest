@@ -5,8 +5,8 @@
   "start_url": "/comparador-auto-pro/",
   "scope": "/comparador-auto-pro/",
   "display": "standalone",
-  "background_color": "#061426",
-  "theme_color": "#10243a",
+  "background_color": "#0b0c10",
+  "theme_color": "#0b0c10",
   "icons": [
     {
       "src": "/api/comparador-app-icon?v=20261004-2",

@@ -1,0 +1,183 @@
+/* Black-and-orange cockpit selected by the owner. Layout follows the approved mobile reference. */
+:root{--bg:#0b0c10;--panel:#121419;--panel2:#191b22;--line:#2b2e38;--text:#f1f2f6;--muted:#9da1af;--blue:#ff6728;--blue2:#ff8a59;--shadow:none;--accent:#ff6728}
+html,body.cockpit-theme{background:#0b0c10!important;color-scheme:dark}
+body.cockpit-theme:before{display:none}
+body.cockpit-theme{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,a,input,summary{touch-action:manipulation}
+:focus-visible{outline:2px solid #ff8a59;outline-offset:4px}
+button:disabled{cursor:wait;opacity:.55}
+#app{width:min(1100px,100%);padding:24px 32px max(26px,env(safe-area-inset-bottom));margin:auto;min-height:100dvh;overflow:clip;display:block}
+#app .cockpit-topbar{padding:0;gap:12px;align-items:center;position:relative;z-index:5;min-height:40px;flex-wrap:nowrap}
+.cockpit-topbar .brand{display:block;min-width:0}
+.cockpit-topbar .brand strong{font-size:25px;letter-spacing:-.8px;font-weight:750;white-space:nowrap}
+.cockpit-topbar .brand span{color:var(--accent)}
+.cockpit-topbar .top-actions{gap:28px;flex-wrap:nowrap;flex:none}
+.cockpit-topbar .status-dot{display:flex;align-items:center;gap:8px;padding:0;border:0;background:none;color:#b2b5c2;font-size:14px;white-space:nowrap}
+.cockpit-topbar .status-dot:before{content:"";width:8px;height:8px;background:#25cd66;border-radius:50%}
+.cockpit-theme svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.account-menu{position:relative}
+.account-menu>summary{list-style:none;width:34px;height:34px;border:1px solid #30333d;border-radius:50%;display:grid;place-items:center;color:#adb2c1;background:#1d2029}
+.account-menu>summary::-webkit-details-marker{display:none}
+.account-menu>summary svg{width:22px;height:22px;stroke-width:1.4}
+.account-popover{position:absolute;right:0;top:44px;width:190px;border:1px solid #363a45;background:#16181f;border-radius:12px;padding:8px;box-shadow:0 16px 40px #0009;display:grid;gap:4px;z-index:10}
+.account-popover .btn,.account-popover a{display:block;padding:12px;text-align:left;border:0;border-radius:6px;color:#e4e7ed;background:none;font-size:14px;text-decoration:none}
+.account-popover :is(button,a):hover{background:#262934}
+#app > .hero.cockpit-hero,#app:has(#result.hidden):has(#progressPanel.hidden) > .hero.cockpit-hero{width:100%;max-width:none;margin:0;min-height:0!important;padding:0!important;flex:0 0 auto!important;display:block;position:relative;border:0!important;border-radius:0!important;background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;box-shadow:none!important;overflow:visible!important}
+.cockpit-hero:after{display:none}
+.cockpit-cover{position:relative;height:380px;margin-inline:-32px;isolation:isolate;overflow:hidden}
+.cockpit-car{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 46%;z-index:-2;pointer-events:none}
+.cockpit-cover:after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,#0b0c10,transparent 23%),linear-gradient(90deg,#0b0c10 2%,#0b0c1050 35%,transparent 65%);z-index:-1;pointer-events:none}
+.cockpit-intro{padding:130px 32px 0}
+.cockpit-intro .eyebrow{font-size:11px;letter-spacing:.32em;font-weight:550;color:#aaadbb}
+.cockpit-dash{display:block;width:22px;height:3px;background:var(--accent);border-radius:2px;margin:16px 0 12px}
+#app .cockpit-intro h1{font-size:60px!important;line-height:.98;font-weight:800;letter-spacing:-2.8px;color:#eceef5;max-width:none;margin:0;text-shadow:none}
+.cockpit-intro h1 span{color:var(--accent)}
+#analyzeForm{display:grid;grid-template-columns:minmax(0,1fr);gap:0;margin:0;width:100%}
+.input-modes{display:grid;grid-template-columns:1.12fr .95fr .95fr .95fr;width:100%;min-width:0;border:1px solid #2b2d36;background:#111218;border-radius:10px;overflow:hidden}
+.input-modes .mode-button{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;min-width:0;min-height:64px;padding:10px 8px;border:0;background:transparent;color:#c0c3ce;font-size:16px;white-space:nowrap;border-radius:0}
+.mode-button+.mode-button:before{content:"";position:absolute;left:0;top:25%;height:50%;width:1px;background:#2a2d35}
+.input-modes .mode-button[aria-pressed="true"]{background:var(--accent);color:#fff;border-radius:9px;font-weight:600}
+.input-modes .mode-button[aria-pressed="true"]:before,.input-modes .mode-button[aria-pressed="true"]+.mode-button:before{display:none}
+.input-modes .mode-button.recording{background:#a42a29;color:#fff}
+.cockpit-entry{margin-top:28px;min-width:0}
+.cockpit-entry>label{display:block;text-transform:uppercase;letter-spacing:.14em;font-size:12px;color:#8c919f;font-weight:650;margin-bottom:6px}
+#analyzeForm .vehicle-input-shell{min-height:90px;border:0;border-bottom:1px solid #8c909c;border-radius:0;background:transparent;box-shadow:none;color-scheme:dark;position:relative;display:flex;align-items:center}
+#analyzeForm .vehicle-input-shell:focus-within{border-color:var(--accent);box-shadow:0 1px var(--accent)}
+#analyzeForm .vehicle-input-shell>input{min-width:0;width:100%;flex:1 1 0;border:0;border-radius:0;box-shadow:none;background:transparent;color:#f2f3f7;font-size:68px;font-weight:500;letter-spacing:.015em;padding:10px 0;min-height:90px;line-height:1.1;text-transform:uppercase;text-overflow:clip;outline:none}
+#analyzeForm .vehicle-input-shell>input::placeholder{color:#858995;opacity:1}
+#analyzeForm:not([data-input-mode="plate"]) .vehicle-input-shell>input{font-size:22px;letter-spacing:0;text-transform:none}
+#analyzeForm .input-tools{position:static;transform:none;inset:auto;display:flex;flex:none;margin:0}
+#analyzeForm .input-tool{width:36px;height:44px;min-width:36px;flex:0 0 36px;display:grid;place-items:center;padding:8px;border:0;background:transparent;color:#aeb1bc}
+#analyzeForm .vehicle-input-shell:has(input:placeholder-shown) .input-tools{display:none}
+.vehicle-voice-status{font-size:13px;color:#ffc4a6;margin-top:12px;line-height:1.5}
+.cockpit-options{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin:24px 0 14px;border:1px solid #2b2e37;border-radius:7px;background:linear-gradient(105deg,#14161c,#101216);align-items:start}
+.cockpit-option{min-width:0}
+.cockpit-option+ .cockpit-option{border-left:1px solid #2b2e37}
+.cockpit-option>summary{min-height:72px;list-style:none;display:flex;align-items:center;gap:12px;padding:13px 16px;color:#d8dbe4}
+.cockpit-option>summary::-webkit-details-marker{display:none}
+.cockpit-option>summary>svg:first-child{width:29px;height:29px;color:#c7cbd7;stroke-width:1.35}
+.cockpit-option>summary>svg:last-child{margin-left:auto;width:13px;height:18px}
+.cockpit-option>summary>span{min-width:0}
+.cockpit-option strong,.cockpit-option small{display:block;font-size:14px;line-height:1.4;font-weight:500}
+.cockpit-option small{color:#969baa;margin-top:2px;font-size:13px}
+.cockpit-option[open]>summary>svg:last-child{transform:rotate(90deg)}
+#analyzeForm .cockpit-option .mileage-input-group{background:transparent;border:0;border-radius:0;padding:8px 12px 16px;color:#e2e4eb;width:100%;margin:0;color-scheme:dark}
+#analyzeForm .cockpit-option .mileage-input-group label{font-size:12px;line-height:1.5}
+#analyzeForm .cockpit-option .mileage-input-group label span{font-size:11px;color:#969baa}
+#analyzeForm .cockpit-option input{border:1px solid #464a59;background:#0b0c10;color:#f1f2f6;font-size:16px;min-height:46px;width:100%;padding:10px}
+#analyzeForm .cockpit-option small{font-size:12px;color:#969baa}
+#analyzeForm .search-actions{display:block;margin:0;width:100%}
+#analyzeForm #analyzeBtn{position:relative;width:100%;min-height:74px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#090b0e;font-size:23px;font-weight:800;box-shadow:none;opacity:1;padding:16px 48px;display:flex;align-items:center;justify-content:center;letter-spacing:-.4px}
+#analyzeBtn:after{content:"⟶";position:absolute;right:22px;top:50%;transform:translateY(-50%);font-size:34px;font-weight:400;line-height:1}
+#analyzeForm #analyzeBtn[data-state="running"]{background:#facc15;color:#422006;border-color:#eab308;cursor:wait}
+#analyzeForm #analyzeBtn[data-state="complete"]{background:#15803d;color:#fff;border-color:#16a34a}
+#analyzeBtn[data-state="running"]:after{content:"";width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cockpit-spin 1s linear infinite}
+#analyzeBtn[data-state="complete"]:after{content:"✓";font-size:24px}
+@keyframes cockpit-spin{to{transform:translateY(-50%) rotate(360deg)}}
+.cockpit-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}
+#app .cockpit-tile{min-width:0;min-height:108px;width:100%;display:flex;align-items:center;gap:14px;padding:20px 18px!important;border:1px solid #2c2f38;border-radius:10px;background:linear-gradient(120deg,#16181e,#111318);color:#dee0e9;text-align:left;font-size:16px!important}
+#app #historyBtn:after{display:none}
+.cockpit-tile>svg:first-child{width:34px;height:38px;stroke-width:1.3}
+.cockpit-tile>svg:last-child{width:13px;height:16px;margin-left:auto}
+.cockpit-tile strong{display:block;font-size:17px;font-weight:600;line-height:1.2}
+.cockpit-tile small{display:block;font-size:13px;color:#969baa;line-height:1.4;margin-top:7px;font-weight:400}
+.cockpit-screen{border-top:1px solid #2b2e37;margin-top:26px;padding:22px 3px 0;display:flex;align-items:center;gap:14px;color:#dcdee7}
+.cockpit-screen>svg{width:27px;height:32px}
+.cockpit-screen strong,.cockpit-screen small{display:block;font-size:14px;font-weight:500}
+.cockpit-screen small{font-size:12px;color:#969baa;margin-top:4px}
+#screenAwakeBtn{position:relative;flex:none;margin-left:auto;width:45px;height:26px;min-height:26px;min-width:45px;padding:0!important;border:1px solid #424651;border-radius:30px;background:#353944;color:transparent;overflow:hidden;font-size:0!important;box-shadow:none}
+#screenAwakeBtn:after{content:"";position:absolute;width:21px;height:21px;border-radius:50%;top:1.5px;left:2px;background:#eef0f8;transition:transform .2s}
+#screenAwakeBtn[aria-pressed="true"]{background:var(--accent)!important;border-color:var(--accent)!important;color:transparent!important}
+#screenAwakeBtn[aria-pressed="true"]:after{transform:translateX(18px)}
+#taxSimulator:not([open]){display:none}
+.cockpit-theme .btn.primary{background:var(--accent);border-color:var(--accent);color:#0b0c10;box-shadow:none}
+.cockpit-theme .btn.ghost{background:#191b23;border-color:#353943;color:#e8eaf2}
+.cockpit-theme .logo{background:var(--accent);color:#0b0c10;box-shadow:none}
+.cockpit-theme .auth-gate{background:linear-gradient(0deg,#0b0c10,#0b0c10b8),url('./assets/cockpit-car.webp') 60% top/cover no-repeat}
+.cockpit-theme .auth-card{background:#121419;border-color:#343741;border-radius:14px}
+.cockpit-theme .auth-card :is(input){background:#0b0c10;border-color:#404451;color:#f1f2f6;font-size:16px;min-height:48px}
+.cockpit-theme .auth-card .eyebrow{color:#ff9d70}
+/* Carry the palette through the existing results and dialogs while retaining semantic signals. */
+.cockpit-theme .result{--muted:#adb0bc;--line:#343740}
+.cockpit-theme :is(.tax-simulator,.tax-simulator>summary,.history-dialog-card,.history-item,.refine-dialog-card,.panel,.progress-panel,.attachment-status){background:#14161c;color:#e5e7ef;border-color:#343740}
+.cockpit-theme .result :is(.vehicle-readout,.decision-card,.commercial-panel,.kpis article,.condition-details,.vehicle-followup,.assumptions-details,.refine-bar,.valuation-share-bar,.mileage-reference){background:#14161c;color:#e5e7ef;border-color:#343740;color-scheme:dark}
+.cockpit-theme .result :is(.ad-summary-block,.vehicle-fact,.readout-columns>div,.commercial-numbers>div,.comp,.condition-item){background:#1a1d24;color:#e5e7ef;border-color:#373a45}
+.cockpit-theme .result :is(p,small,label,.copy,.commercial-note,.commercial-disclaimer,.condition-muted,.condition-item small,.condition-item label,.ad-summary-block p,.vehicle-data-quality,.readout-empty,.assumptions-help,.excluded-list,.refine-mark,.decision-card span,.decision-card small,.decision-card .purchase-before span,.decision-card .purchase-comparison-note){color:#acb0be}
+.cockpit-theme .result :is(.readout-label,.eyebrow,.vehicle-fact span,.commercial-numbers span,.kpis span,.kpis small){color:#aaafbe}
+.cockpit-theme .result :is(.vehicle-followup-copy>strong,.commercial-heading>strong,.condition-item-head span,.condition-details>summary span,.purchase-before strong,.decision-side strong){color:#e5e7ef}
+.cockpit-theme .result :is(input,select),.cockpit-theme .tax-simulator :is(input,select){background:#0b0c10;color:#edf0f7;border-color:#454958;color-scheme:dark}
+.cockpit-theme .result :is(.btn.ghost,.valuation-print-link){background:#1a1d24;color:#edf0f7;border-color:#454958}
+.cockpit-theme .result :is(.comp a,.condition-item a,.comp em){color:#ffae85}
+.cockpit-theme .result .btn.primary{color:#0b0c10}
+.cockpit-theme .result .quality-note{color:#acb0be!important}
+.cockpit-theme .tax-simulator :is(.tax-sim-principal,.tax-sim-details,.tax-sim-result,.tax-sim-breakdown>div){background:#1c1e26;border-color:#393d48;color:#e5e7ef}
+.cockpit-theme .tax-simulator :is(label,small,p,.tax-sim-principal span,.tax-sim-summary,.tax-sim-breakdown span){color:#b9beca}
+.cockpit-theme .tax-simulator :is(strong,.tax-sim-heading){color:#eceef5}
+.cockpit-theme .ev-range-panel{background:#181b22;border-color:#353944;color:#edf0f7}
+.cockpit-theme .ev-range-panel :is(span,small){color:#b1b8c5}
+.cockpit-theme .ev-range-panel a{color:#ffae85}
+@media(min-width:800px){
+ #app{padding-top:30px}
+ #analyzeForm,.cockpit-shortcuts,.cockpit-screen{max-width:720px;margin-left:auto;margin-right:auto}
+ .cockpit-cover{height:380px}
+ .cockpit-intro{padding:128px 50px 0}
+ .cockpit-car{object-position:center 45%}
+}
+@media(max-width:560px){
+ #app{padding:max(10px,env(safe-area-inset-top)) 20px max(22px,env(safe-area-inset-bottom));width:100%;min-height:100dvh}
+ #app .cockpit-topbar{min-height:36px;gap:8px;padding:0}
+ .cockpit-topbar .brand strong{font-size:clamp(15px,4.45vw,21px);letter-spacing:-.5px}
+ .cockpit-topbar .top-actions{gap:clamp(10px,4vw,22px)}
+ .cockpit-topbar .status-dot{font-size:12px;gap:6px}
+ .cockpit-topbar .status-dot:before{width:7px;height:7px}
+ .account-menu>summary{width:29px;height:29px}
+ .account-menu>summary svg{width:18px;height:18px}
+ .cockpit-cover{height:calc(68vw);max-height:315px;margin-inline:-20px}
+ .cockpit-car{object-fit:cover;object-position:center center}
+ .cockpit-intro{padding:calc(24vw) 20px 0}
+ .cockpit-intro .eyebrow{font-size:9px;letter-spacing:.3em}
+ .cockpit-dash{width:20px;margin:12px 0}
+ #app .cockpit-intro h1{font-size:clamp(36px,9.4vw,49px)!important;letter-spacing:-1.65px;line-height:1}
+ .input-modes{border-radius:8px}
+ .input-modes .mode-button{min-height:46px;font-size:12px;gap:7px;padding:7px 4px}
+ .mode-button svg{width:19px;height:21px}
+ .cockpit-entry{margin-top:24px}
+ .cockpit-entry>label{font-size:10px;letter-spacing:.15em;margin-bottom:8px}
+ #analyzeForm .vehicle-input-shell,#analyzeForm .vehicle-input-shell>input{min-height:61px}
+ #analyzeForm .vehicle-input-shell>input{font-size:clamp(34px,11.1vw,57px);letter-spacing:.02em;padding:5px 0 10px}
+ #analyzeForm:not([data-input-mode="plate"]) .vehicle-input-shell>input{font-size:18px;letter-spacing:0}
+ #analyzeForm .input-tool{width:30px;min-width:30px;flex-basis:30px;padding:5px}
+ .cockpit-options{margin:22px 0 12px}
+ .cockpit-option>summary{min-height:54px;gap:10px;padding:10px 12px}
+ .cockpit-option>summary>svg:first-child{width:23px;height:25px}
+ .cockpit-option>summary>svg:last-child{width:10px;height:14px}
+ .cockpit-option strong{font-size:12px}
+ .cockpit-option small{font-size:11px}
+ #analyzeForm #analyzeBtn{min-height:58px;font-size:20px;border-radius:9px;padding:12px 40px}
+ #analyzeBtn:after{right:20px;font-size:29px}
+ .cockpit-shortcuts{margin-top:20px;gap:12px}
+ #app .cockpit-tile{min-height:83px;padding:15px 12px!important;gap:10px;border-radius:9px}
+ .cockpit-tile>svg:first-child{width:28px;height:32px}
+ .cockpit-tile>svg:last-child{width:10px;height:14px}
+ .cockpit-tile strong{font-size:14px}
+ .cockpit-tile small{font-size:11px;margin-top:5px}
+ .cockpit-screen{margin-top:22px;padding:18px 3px 0;gap:12px}
+ .cockpit-screen>svg{width:25px;height:27px}
+ .cockpit-screen strong{font-size:13px}
+ .cockpit-screen small{font-size:11px}
+}
+@media(max-width:370px){
+ #app{padding-left:14px;padding-right:14px}
+ .cockpit-cover{margin-inline:-14px}
+ .cockpit-intro{padding-left:14px}
+ .cockpit-topbar .top-actions{gap:9px}
+ .input-modes .mode-button{gap:4px;font-size:11px}
+ .cockpit-option>summary{padding:10px 8px;gap:6px}
+ .cockpit-option>summary>svg:first-child{width:20px}
+ #app .cockpit-tile{padding:13px 9px!important;gap:7px}
+ .cockpit-tile>svg:first-child{width:23px}
+ .cockpit-tile strong{font-size:13px}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}#screenAwakeBtn:after{transition:none}#analyzeBtn[data-state="running"]:after{animation:none}}
+
+@media(min-width:371px) and (max-width:420px){#app .cockpit-tile{gap:6px;padding:13px 10px!important}.cockpit-tile>svg:first-child{width:25px}.cockpit-tile small{font-size:10.5px}}
