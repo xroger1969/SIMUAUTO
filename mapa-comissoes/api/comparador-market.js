@@ -4,7 +4,7 @@ const {lookupRegistration,normalizeRegistration,displayRegistration}=require("..
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
-const {normalizeVehicleIdentity,selectEligibleComparables,sameModel}=require("../comparador-auto-pro/commercial-identity.js");
+const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,canonicalFuel,derivativeCode}=require("../comparador-auto-pro/commercial-identity.js");
 const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -155,13 +155,6 @@ function canonicalMake(value){
   const make=normalizeIdentity(value);
   return ({vw:"volkswagen","mercedes benz":"mercedes","mercedesbenz":"mercedes"})[make]||make;
 }
-function canonicalFuel(value){
-  const fuel=normalizeIdentity(value);
-  return ({eletrico:"electric",electrico:"electric",gasolina:"petrol",gasoleo:"diesel",
-    hibrido:"hybrid","hibrido plug in":"phev","plug in hybrid":"phev",
-    "gasolina plug in":"phev","gasolina plugin":"phev",
-    "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev"})[fuel]||fuel;
-}
 function modelCompatible(a,b,make){
   if(!normalizeIdentity(a)||!normalizeIdentity(b))return true;
   return sameModel(normalizeVehicleIdentity({make,model:a}),normalizeVehicleIdentity({make,model:b}));
@@ -169,7 +162,17 @@ function modelCompatible(a,b,make){
 function registrationCompatible(subject,registration){
   const a=canonicalMake(subject?.make),b=canonicalMake(registration?.make);
   if(a&&b&&a!==b)return false;
+  if(a==="bmw"&&b==="bmw"){
+    const s=normalizeVehicleIdentity(subject),r=normalizeVehicleIdentity(registration);
+    const sc=derivativeCode(s),rc=derivativeCode(r);
+    if(sc&&rc&&sc!==rc)return false;
+    if(s.generation&&r.generation&&normalizeIdentity(s.generation)!==normalizeIdentity(r.generation))return false;
+  }
   return modelCompatible(subject?.model,registration?.model,subject?.make||registration?.make);
+}
+function registrationConflictMessage(subject,registration){
+  const title=v=>[v?.make,v?.model,v?.trim].filter(Boolean).join(" ");
+  return "A identificação fornecida ("+title(subject)+") difere da consulta da matrícula ("+title(registration)+"). Confirma a matrícula, o modelo e a versão antes de continuar.";
 }
 function missingIdentity(subject={}){
   const known=v=>v!==null&&v!==undefined&&String(v).trim()!==""&&!/^(unknown|desconhecido|por confirmar|n\/a)$/i.test(String(v).trim());
@@ -238,6 +241,19 @@ function mergeRegistration(subject,registration){
   }
   if((!result.origin||result.origin==="unknown")&&registration.origin)result.origin=registration.origin;
   if(registration.provider==="spottd"){
+    // A PHEV report may expose combustion-engine power only. Use the verified
+    // provider value for the same explicit BMW derivative, retaining both readings.
+    const derivative=derivativeCode(subject);
+    if(canonicalMake(subject.make)==="bmw"&&canonicalFuel(subject.fuel)==="phev"
+      &&derivative&&derivative===derivativeCode(commercial)&&registrationCompatible(subject,registration)
+      &&Number(commercial.power_cv)>0&&Number(commercial.power_kw)>0){
+      if(result.power_cv!==null&&result.power_cv!==undefined&&Number(result.power_cv)!==Number(commercial.power_cv)){
+        result.power_cv_observed=result.power_cv_observed??result.power_cv;
+      }
+      result.power_cv=Number(commercial.power_cv);
+      result.power_kw=Number(commercial.power_kw);
+      result.power_cv_source="spottd";
+    }
     // O ano de fabrico verificado por matrícula prevalece sobre o ano deduzido
     // da matrícula portuguesa, da fotografia ou de uma pesquisa da IA.
     const built=Number(registration.year);
@@ -319,19 +335,24 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
       if(registrationCompatible(parsed.subject,lookedUp)){
         registration=lookedUp;
       }else{
-        registrationConflictWarning="A matrícula validada não coincide com a marca/modelo identificados visualmente. Confirma a matrícula ou envia outra fotografia.";
+        registrationConflictWarning=registrationConflictMessage(parsed.subject,lookedUp);
       }
     }catch(error){
       registrationLookupWarning="A matrícula "+displayRegistration(plateToValidate)+" não pôde ser confirmada automaticamente. A avaliação continua com as restantes fontes. "+String(error?.message||error);
     }
   }
   if(registration&&!registrationCompatible(parsed.subject,registration)){
-    registrationConflictWarning="A matrícula não coincide com a marca/modelo identificados. Confirma a matrícula e a viatura antes de avaliar.";
+    registrationConflictWarning=registrationConflictMessage(parsed.subject,registration);
     registration=null;
   }
 
   const originalYear=Number(parsed.subject?.year);
   parsed.subject=normalizeVehicleIdentity(mergeRegistration(parsed.subject,registration));
+  if(parsed.subject.power_cv_observed&&parsed.subject.power_cv_source==="spottd"){
+    parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
+    const note="Potência usada na comparação: "+parsed.subject.power_cv+" cv (Spottd, mesma versão). A leitura das fotografias indica "+parsed.subject.power_cv_observed+" cv; ambas as leituras foram conservadas.";
+    if(!String(parsed.data_quality.notes||"").includes(note))parsed.data_quality.notes=[parsed.data_quality.notes,note].filter(Boolean).join(" ");
+  }
   if(registration?.provider==="spottd"&&Number.isInteger(originalYear)&&originalYear!==Number(parsed.subject.year)){
     parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
     parsed.data_quality.notes=[parsed.data_quality.notes,"Ano "+originalYear+" da leitura automática substituído por "+parsed.subject.year+" (ano de fabrico confirmado pela Spottd)."].filter(Boolean).join(" ");

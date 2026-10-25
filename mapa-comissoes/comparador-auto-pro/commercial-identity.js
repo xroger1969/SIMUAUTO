@@ -16,7 +16,9 @@ const fuel=v=>({
   hibrido:"hybrid",hybrid:"hybrid",
   "hibrido plug in":"phev","plug in hybrid":"phev",phev:"phev",
   "gasolina plug in":"phev","gasolina plugin":"phev",
-  "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev"
+  "hibrido plug in gasolina":"phev","gasolina hibrido plug in":"phev",
+  "hibrido plug in a gasolina":"phev","phev gasolina":"phev",
+  "hibrido plug in diesel":"phev","hibrido plug in a gasoleo":"phev"
 }[norm(v).replace(/[-_]+/g," ").replace(/\s+/g," ")]||norm(v));
 const sellerType=c=>{
   const t=norm(c?.seller_type||c?.sellerType);
@@ -45,6 +47,21 @@ function normalizeVehicleIdentity(vehicle={}){
     else if(modelTrim&&!norm(trim).includes(norm(modelTrim)))trim=modelTrim+" "+trim;
     // Provider homologation codes are not commercial versions.
     if(/^\d+$/.test(trim))trim="";
+  }
+  // BMW providers put the derivative in model (225e xDrive Active Tourer),
+  // while reports use Série-2 Active Tourer (U06) plus a separate version.
+  // Only collapse an explicit Tourer body; Série 2 alone remains ambiguous.
+  const bmwModel=norm(model).replace(/[-_]+/g," ").replace(/\b(2\d{2})\s+(xe|d|i|e)\b/g,"$1$2");
+  const tourer=make==="bmw"&&bmwModel.match(/\b(active|gran)\s+tourer\b/);
+  if(tourer&&/\b(?:(?:serie|series)\s*2|2\s*series|2\d{2}(?:xe|d|i|e))\b/.test(bmwModel)){
+    model="Série 2 "+(tourer[1]==="active"?"Active":"Gran")+" Tourer";
+    const modelDerivative=bmwModel.match(/\b2\d{2}(?:xe|d|i|e)\b/)?.[0];
+    if(modelDerivative&&(!derivativeCode({trim})||/^u2at$/i.test(trim))){
+      const equipmentTrim=/^u2at$/i.test(trim)?"":trim;
+      trim=[modelDerivative+(/\bxdrive\b/.test(bmwModel)?" xDrive":""),equipmentTrim].filter(Boolean).join(" ");
+    }
+    const generation=bmwModel.match(/\b(f45|f46|u06)\b/)?.[0];
+    if(generation&&!known(v.generation))v.generation=generation.toUpperCase();
   }
   const explicitDrive=known(v.drivetrain)?canonicalDrive(v.drivetrain):"";
   const joinedDrive=canonicalDrive(joined);
@@ -385,5 +402,5 @@ function selectEligibleComparables(subject,comparables,custom={}){
 
   return {subject:original,rows:valid.map(r=>({...r,adjustedPrice:adjustedPrice(original,r.comp,config),powerDiscrepancy:powerDiscrepancy(s,r.comp)})),excluded,broadenedMarket,searchTier:valid.length?searchTier:0,marketBasis:valid.length?marketBasis:"none"};
 }
-return {normalizeVehicleIdentity,selectEligibleComparables,canonicalUrl,sameModel,similarity,canonicalFuel:fuel,canonicalDrive,explicitVariantMatch};
+return {normalizeVehicleIdentity,selectEligibleComparables,canonicalUrl,sameModel,similarity,canonicalFuel:fuel,canonicalDrive,explicitVariantMatch,derivativeCode};
 });

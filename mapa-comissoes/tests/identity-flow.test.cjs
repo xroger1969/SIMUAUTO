@@ -6,6 +6,7 @@ const path=require('node:path');
 const base=path.resolve(__dirname,'..');
 const {registrationCompatible,mergeRegistration,missingIdentity,marketCacheKey,reuseMarketCache,reuseInputCache,inputSignature,cacheAllowed}=require('../api/comparador-market')._test;
 const subject={make:'Tesla',model:'Model Y',trim:'Long Range',year:2023,mileage_km:50000,fuel:'electric',price:30000};
+const bmwPhoto=require('./fixtures/bmw225e-photo-identity.json');
 function harness({vehicle=subject,provider={make:'BMW',model:'320d'},cache=[],stage='identify',extra={}}={}){
   let providerCalls=0,researchCalls=0,cacheWrites=0;
   const job={id:'00000000-0000-4000-8000-000000000001',response_id:'resp_1',context:{stage},status:'in_progress'};
@@ -100,6 +101,52 @@ test('reused market snapshot keeps current vehicle facts and original snapshot t
 test('photo mismatch blocks before any research is launched',async()=>{
   const h=harness({vehicle:{...subject,registration:'AA-00-AA'}});const r=await h.poll();
   assert.equal(r.result.valuation_blocked,true);assert.equal(r.result.comparables.length,0);assert.equal(h.counts().researchCalls,0);
+});
+test('BCA BMW photo identity matches Spottd and completes both stages without a price',async()=>{
+  const condition={assessed:true,battery_soh_pct:94.2,findings:[],summary:'Certificado da bateria'};
+  const h=harness({vehicle:bmwPhoto.subject,provider:bmwPhoto.registration_data,extra:{condition_report:condition,auction_context:{is_auction:true,vehicle_location:'PT'}}});
+  const first=await h.poll();
+  assert.equal(first.status,202);assert.equal(h.counts().researchCalls,1);
+  const car=h.job.context.previous_subject;
+  assert.equal(car.model,'Série 2 Active Tourer');assert.equal(car.trim,'225e xDrive');
+  assert.equal(car.fuel,'phev');assert.equal(car.power_cv,245);assert.equal(car.power_cv_observed,136);
+  assert.equal(car.power_cv_source,'spottd');assert.equal(car.mileage_km,86373);assert.equal(car.price,null);
+  assert.equal(h.job.context.previous_condition_report.battery_soh_pct,94.2);
+  // Synthetic advert tests selection only; it is not a market quotation.
+  const comp={...car,registration:null,model:'225 e xDrive Active Tourer',price:30000,url:'https://stand.example/bmw/1',seller_type:'professional',country:'PT',availability:'available',price_basis:'gross'};
+  h.output.output_text=JSON.stringify({subject:{...car,make:'Wrong market overwrite'},comparables:[comp]});
+  const second=await h.poll();
+  assert.equal(second.status,200);assert.notEqual(second.result.valuation_blocked,true);
+  assert.equal(second.result.market_selection.accepted_count,1);
+  assert.equal(second.result.subject.mileage_km,86373);assert.equal(second.result.subject.price,null);
+  assert.equal(second.result.condition_report.battery_soh_pct,94.2);
+  assert.equal(h.counts().providerCalls,1);
+});
+test('BMW aliases preserve body, derivative and generation boundaries for registration checks',()=>{
+  const {normalizeVehicleIdentity,canonicalFuel}=require('../comparador-auto-pro/commercial-identity');
+  const car=bmwPhoto.subject;
+  for(const model of ['Serie-2 active tourer','SERIE-2 ACTIVE TOURER (U06)','2 Series Active Tourer','225 e xDrive Active Tourer']){
+    assert.equal(registrationCompatible(car,{make:'BMW',model}),true,model);
+    const normalized=normalizeVehicleIdentity({make:'BMW',model});
+    assert.deepEqual(normalizeVehicleIdentity(normalized),normalized);
+  }
+  for(const patch of [{model:'Série 2 Gran Tourer'},{model:'Série 2 Coupé'},{model:'Série 2'},{model:'Série 3 Active Tourer'},
+    {model:'230e xDrive Active Tourer',trim:null},{model:'225xe Active Tourer',trim:null},{model:'Série 2 Active Tourer (F45)',trim:null},{make:'Audi'}]){
+    assert.equal(registrationCompatible(car,{...bmwPhoto.registration_data,...patch}),false,JSON.stringify(patch));
+  }
+  for(const text of ['hibrido plug-in a gasolina','PHEV Gasolina','Híbrido plug-in'])assert.equal(canonicalFuel(text),'phev');
+  assert.notEqual(canonicalFuel('híbrido'),'phev');assert.notEqual(canonicalFuel('gasolina'),'phev');
+  const equipment=normalizeVehicleIdentity({make:'BMW',model:'225e xDrive Active Tourer',trim:'M Sport'});
+  assert.equal(equipment.trim,'225e xDrive M Sport');
+  assert.equal(registrationCompatible(car,{make:'BMW',model:'230e xDrive Active Tourer',trim:'M Sport'}),false);
+});
+test('PHEV power reconciliation requires the same explicit derivative and a verified Spottd value',()=>{
+  const s=bmwPhoto.subject,r=bmwPhoto.registration_data;
+  for(const patch of [{model:'230e xDrive Active Tourer'},{model:'Série 2 Active Tourer'},
+    {provider:'mycarplate'},{power_kw:null},{power_cv:null}]){
+    assert.equal(mergeRegistration(s,{...r,...patch}).power_cv,136,JSON.stringify(patch));
+  }
+  assert.equal(mergeRegistration({...s,fuel:'petrol'},r).power_cv,136);
 });
 test('missing km launches market research so V2 can estimate it',async()=>{
   const h=harness({vehicle:{...subject,mileage_km:null}});const r=await h.poll();
