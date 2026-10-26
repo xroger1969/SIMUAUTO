@@ -870,7 +870,8 @@ function comparableElement(c){
   const el=document.createElement("div");el.className="comp";
   const evidence=c.evidence?.verified===true?" · verificado":" · por confirmar";
   el.innerHTML="<div><strong>"+esc(c.label||c.trim||"Comparável")+"</strong><small>"+esc((c.year||"")+" · "+(c.mileage_km!=null?Number(c.mileage_km).toLocaleString("pt-PT")+" km":"km por confirmar")+" · "+originLabel(c.origin)+" · "+sellerLabel(c.seller_type)+evidence)+"</small></div><div style='text-align:right'><b>"+esc(fmt(c.price))+"</b><br><em>"+esc((c.similarity??0)+"% semelhante")+"</em></div>";
-  if(c.url){try{const u=new URL(c.url);if(["https:","http:"].includes(u.protocol)){const a=document.createElement("a");a.href=u.toString();a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}}catch{}}
+  const destination=globalThis.CommercialIdentity.listingUrl(c.url);
+  if(destination){const a=document.createElement("a");a.href=destination;a.target="_blank";a.rel="noopener noreferrer";a.textContent="Consultar anúncio ↗";el.firstElementChild.appendChild(a)}
   return el;
 }
 function renderComparables(rows){
