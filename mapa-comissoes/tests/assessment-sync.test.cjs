@@ -203,3 +203,21 @@ test('a failed new search leaves no purchase, sale, costs or profit from the pre
   assert.equal(app.q('taxSimAfterIRS').textContent,'—');
   assert.match(app.q('emptyState').textContent,/Pesquisa indisponível/);
 });
+
+test('notice dismiss preserves input and visible restart clears the full assessment',async t=>{
+ const app=await boot();t.after(()=>app.dom.window.close());
+ const {q,h,w}=app;
+ await app.analyze(market(tesla,31450));
+ q('vehicleUrl').value='https://www.auto1.com/app/merchant/car/example';
+ h.needsPhotos({vehicle_code:'example'},q('vehicleUrl').value);
+ q('dismissNoticeBtn').click();
+ assert.ok(q('emptyState').classList.contains('hidden'));
+ assert.ok(q('auto1Connection').classList.contains('hidden'));
+ assert.match(q('vehicleUrl').value,/auto1/);
+ await app.analyze(market(tesla,31450));
+ q('clearAssessmentBtn').click();
+ assert.equal(q('vehicleUrl').value,'');
+ assert.equal(w.AutoProAssessment,null);
+ assert.ok(q('result').classList.contains('hidden'));
+ assert.equal(q('taxSimSale').value,'');
+});

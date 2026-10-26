@@ -2007,6 +2007,12 @@ q("removeImage").addEventListener("click",()=>{
 });
 q("resetSearchBtn").addEventListener("click",resetSearchInput);
 q("newSearchBtn").addEventListener("click",resetAnalysisView);
+q("clearAssessmentBtn")?.addEventListener("click",resetAnalysisView);
+q("dismissNoticeBtn")?.addEventListener("click",()=>{
+  q("emptyState").classList.add("hidden");
+  q("auto1Connection").classList.add("hidden");
+  q("vehicleUrl").focus({preventScroll:true});
+});
 q("startNewAnalysisBtn").addEventListener("click",resetAnalysisView);
 q("shareValuationBtn").addEventListener("click",shareValuationSummary);
 q("printValuationBtn").addEventListener("click",printValuationSummary);
