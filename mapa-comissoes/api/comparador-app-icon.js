@@ -2,76 +2,41 @@ const sharp = require("sharp");
 
 module.exports = async function handler(req, res) {
   try {
-    const heroUrl = "https://mapa-comercial-sand.vercel.app/comparador-auto-pro/assets/car-sunset.webp";
-    const heroResp = await fetch(heroUrl, {
-      headers: { "User-Agent": "Comparador-Auto-Pro-App-Icon/1.0" }
-    });
-    if (!heroResp.ok) throw new Error("hero fetch failed: " + heroResp.status);
-
-    const hero = Buffer.from(await heroResp.arrayBuffer());
-
-    const overlay = Buffer.from(`
-      <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#061426" stop-opacity=".34"/>
-            <stop offset="52%" stop-color="#061426" stop-opacity=".06"/>
-            <stop offset="100%" stop-color="#020811" stop-opacity=".52"/>
-          </linearGradient>
-          <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stop-color="#ffffff"/>
-            <stop offset="48%" stop-color="#dff6ff"/>
-            <stop offset="100%" stop-color="#35b9ff"/>
-          </linearGradient>
-          <linearGradient id="arc" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stop-color="#18d8ff"/>
-            <stop offset="100%" stop-color="#2f6bff"/>
-          </linearGradient>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="9" result="b"/>
-            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
-
-        <rect width="512" height="512" fill="url(#shade)"/>
-
-        <g transform="translate(42 46)" filter="url(#glow)">
-          <circle cx="150" cy="150" r="104" fill="rgba(7,28,55,.38)" stroke="url(#ring)" stroke-width="14"/>
-          <path d="M74 228 L27 276" stroke="url(#ring)" stroke-width="19" stroke-linecap="round"/>
-
-          <path d="M116 143
-                   C119 126 130 112 147 108
-                   L182 108
-                   C199 112 210 126 213 143
-                   L219 164
-                   C220 172 214 179 206 179
-                   L112 179
-                   C104 179 98 172 99 164
-                   Z"
-                fill="#f7fbff"/>
-          <rect x="112" y="153" width="94" height="20" rx="10" fill="#0c2440"/>
-          <path d="M127 143 L139 124 H185 L197 143 Z" fill="#0c2440"/>
-          <circle cx="123" cy="166" r="7" fill="#f7fbff"/>
-          <circle cx="194" cy="166" r="7" fill="#f7fbff"/>
-
-          <path d="M258 65 A168 168 0 0 1 327 145" fill="none" stroke="url(#arc)" stroke-width="17" stroke-linecap="butt"/>
-          <path d="M243 90 A136 136 0 0 1 293 151" fill="none" stroke="#1fd5ff" stroke-width="10" stroke-linecap="butt" opacity=".92"/>
-        </g>
-
-        <path d="M42 394 C145 339 242 336 352 359" fill="none" stroke="#5bdcff" stroke-width="9" stroke-linecap="round" opacity=".9" filter="url(#glow)"/>
-      </svg>
-    `);
-
-    const png = await sharp(hero)
-      .resize(512, 512, { fit: "cover", position: "right" })
-      .modulate({ saturation: 1.12, brightness: 0.97 })
+    const imageUrl = "https://mapa-comercial-sand.vercel.app/comparador-auto-pro/assets/cockpit-car.webp";
+    const response = await fetch(imageUrl, { headers: { "User-Agent": "Avaliador-Auto-Pro-Icon/2.0" } });
+    if (!response.ok) throw new Error("car image fetch failed: " + response.status);
+    const car = Buffer.from(await response.arrayBuffer());
+    const size = 1024;
+    const overlay = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+      <defs>
+        <linearGradient id="shade" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#08090d" stop-opacity=".92"/><stop offset=".55" stop-color="#08090d" stop-opacity=".13"/><stop offset="1" stop-color="#08090d" stop-opacity=".40"/></linearGradient>
+        <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffad5b"/><stop offset=".48" stop-color="#ff6a2b"/><stop offset="1" stop-color="#d83808"/></linearGradient>
+        <filter id="glow"><feGaussianBlur stdDeviation="11"/></filter>
+      </defs>
+      <rect width="1024" height="1024" fill="url(#shade)"/>
+      <rect x="12" y="12" width="1000" height="1000" rx="190" fill="none" stroke="#ff6a2b" stroke-width="15"/>
+      <g transform="translate(45 360)">
+        <circle cx="280" cy="210" r="194" fill="#090b10" fill-opacity=".82" stroke="#ff6a2b" stroke-width="31"/>
+        <path d="M414 355 L545 486" stroke="#ff6a2b" stroke-width="66" stroke-linecap="round"/>
+        <path d="M151 228 L172 172 Q188 139 231 139 H331 Q374 139 390 172 L412 228 L412 282 Q412 301 393 301 H169 Q150 301 150 282 Z" fill="#f7f7f8"/>
+        <path d="M208 204 L229 166 H334 L355 204 Z" fill="#15171c"/>
+        <path d="M183 254 H223 M339 254 H379" stroke="#ff6a2b" stroke-width="16" stroke-linecap="round"/>
+      </g>
+      <g fill="url(#orange)">
+        <rect x="520" y="888" width="54" height="85" rx="12"/><rect x="593" y="845" width="54" height="128" rx="12"/>
+        <rect x="666" y="803" width="54" height="170" rx="12"/><rect x="739" y="750" width="54" height="223" rx="12"/>
+        <path d="M514 871 Q668 845 821 709" fill="none" stroke="#ff6a2b" stroke-width="12" stroke-linecap="round"/>
+        <path d="M804 709 L842 684 L835 730 Z"/>
+      </g>
+    </svg>`);
+    const png = await sharp(car)
+      .resize(size, size, { fit: "cover", position: "right" })
       .composite([{ input: overlay, top: 0, left: 0 }])
+      .flatten({ background: "#08090d" })
       .png({ compressionLevel: 9 })
       .toBuffer();
-
     res.setHeader("Content-Type", "image/png");
-    res.setHeader("Content-Length", String(png.length));
-    res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800");
+    res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
     res.status(200).send(png);
   } catch (error) {
     res.status(500).json({ error: "icon_render_failed" });
