@@ -4,7 +4,7 @@ const {lookupRegistration,normalizeRegistration,displayRegistration}=require("..
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
-const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,canonicalFuel,derivativeCode}=require("../comparador-auto-pro/commercial-identity.js");
+const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,canonicalFuel,derivativeCode,listingUrl}=require("../comparador-auto-pro/commercial-identity.js");
 const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,8 +42,8 @@ function canonicalUrl(raw){
 function searchSources(data){
   const found=new Map(),seen=new Set();
   const add=source=>{
-    const url=canonicalUrl(source?.url||source?.link);
-    if(url&&!found.has(url))found.set(url,{url,title:clip(source?.title||source?.name,240)});
+    const url=listingUrl(source?.url||source?.link),key=canonicalUrl(url);
+    if(key&&!found.has(key))found.set(key,{url,title:clip(source?.title||source?.name,240)});
   };
   const visit=(node,depth=0)=>{
     if(!node||depth>9)return;
@@ -378,7 +378,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
   }
   const original=canonicalUrl(data.metadata?.cap_source_url||"");
   const sources=searchSources(data);
-  const sourceUrls=new Set(sources.map(s=>s.url));
+  const sourceUrls=new Set(sources.map(s=>canonicalUrl(s.url)));
   const observed=nowIso();
   parsed.condition_report=normalizeConditionReport(parsed.condition_report,sources,observed);
   // Only fresh, sourced technical research can enrich the fixed vehicle identity.
@@ -396,7 +396,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
       &&c.availability==="available";
     return [{
       ...normalizeVehicleIdentity(c),
-      url:url||c.url||null,
+      url:listingUrl(c.url)||c.url||null,
       evidence:{
         verified,
         observed_at:observed,
@@ -659,6 +659,7 @@ const instructions=[
   "Os quilómetros são opcionais. Se mileage_input_km não for null, são os quilómetros indicados pelo utilizador: preserva-os mesmo ao cruzar a matrícula/Spottd. Se faltarem quilómetros, pesquisa à mesma anúncios ativos em Portugal (Standvirtual, PiscaPisca, OLX e sites de stands) da mesma marca, modelo, combustível e ano próximo. Recolhe preços, quilómetros e URLs reais. Mantém subject.mileage_km=null se desconhecidos: o servidor calculará a média e o intervalo dos comparáveis elegíveis, com prioridade a profissionais. Nunca peças quilómetros como condição para pesquisar e nunca inventes uma média sem anúncios.",
   "A referência principal é retalho profissional em Portugal: Standvirtual, PiscaPisca, OLX Automóveis quando o vendedor for stand/comerciante, concessionários e sites próprios de stands.",
   "Abre páginas de anúncios sempre que possível. Cada comparável deve representar uma viatura disponível, ter URL real, preço observado e tipo de vendedor.",
+  "Copia o URL completo do anúncio encontrado, incluindo www, caminho e identificador, sem reconstruir nem simplificar o endereço. Confirma que o destino corresponde à viatura, vendedor, ano, quilómetros e preço citados; uma página inicial ou de pesquisa não é o anúncio.",
   "Define seller_type=professional apenas com evidência de stand, comerciante ou concessionário; private para particular; unknown se não conseguires confirmar.",
   "country=PT apenas se o anúncio estiver em Portugal. availability=available apenas se a página indicar que o anúncio está ativo. price_basis=gross apenas quando o preço apresentado ao público inclui IVA ou é claramente o preço final anunciado.",
   "observed_at deve refletir a data/hora desta pesquisa; nunca inventes uma data histórica.",

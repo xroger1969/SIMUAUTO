@@ -136,6 +136,19 @@ const sameModel=(s,c)=>{
   return addedVersion(a,b)||addedVersion(b,a);
 };
 
+// Navigation must retain the published host, path, query and fragment. In
+// particular, PiscaPisca's apex host redirects every path to the homepage.
+// Repair that known legacy host without guessing missing listing identifiers.
+function listingUrl(raw){
+  try{
+    const u=new URL(raw);
+    if(!["http:","https:"].includes(u.protocol)||u.username||u.password)return null;
+    if(u.hostname==="piscapisca.pt")u.hostname="www.piscapisca.pt";
+    return u.toString();
+  }catch{return null}
+}
+
+// Comparison key only: never use this normalized value as a navigation URL.
 function canonicalUrl(raw){
   try{
     const u=new URL(raw);
@@ -306,7 +319,7 @@ function selectEligibleComparables(subject,comparables,custom={}){
     const c=normalizeVehicleIdentity(raw);
     if(c.price_conditioned===true&&num(c.cash_price)>0)c.price=num(c.cash_price);
     let reason=null;
-    const url=canonicalUrl(c.url);
+    const url=canonicalUrl(c.url),destination=listingUrl(c.url);
     const fp=vehicleFingerprint(c);
 
     if(!(num(c.price)>0))reason="preço inválido";
@@ -332,7 +345,7 @@ function selectEligibleComparables(subject,comparables,custom={}){
       &&known(s.year)&&known(c.year)&&known(s.fuel)&&known(c.fuel)
       &&fuel(s.fuel)===fuel(c.fuel)){
       const yearDelta=Math.abs(num(s.year)-num(c.year));
-      const match={comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp};
+      const match={comp:{...c,url:destination},similarity:sim,adjustedPrice:adjustedPrice(s,c,config),fingerprint:fp};
       if(sim>=40&&yearDelta<=3)nearMatches.push(match);
       else if(sim>=20&&yearDelta<=5)wideMatches.push(match);
     }
@@ -343,7 +356,7 @@ function selectEligibleComparables(subject,comparables,custom={}){
 
     seenUrls.add(url);
     if(fp)seenFingerprints.add(fp);
-    rows.push({comp:{...c,url},similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
+    rows.push({comp:{...c,url:destination},similarity:sim,adjustedPrice:adjustedPrice(s,c,config)});
   }
 
   let broadenedMarket=false,searchTier=1;
@@ -352,7 +365,7 @@ function selectEligibleComparables(subject,comparables,custom={}){
     searchTier=nearMatches.length?2:3;
     const fallbackUrls=new Set(),fallbackFingerprints=new Set();
     for(const match of [...candidatePool].sort((a,b)=>b.similarity-a.similarity)){
-      const url=match.comp.url,fp=match.fingerprint;
+      const url=canonicalUrl(match.comp.url),fp=match.fingerprint;
       if(fallbackUrls.has(url)||(fp&&fallbackFingerprints.has(fp)))continue;
       fallbackUrls.add(url);if(fp)fallbackFingerprints.add(fp);
       rows.push({comp:match.comp,similarity:match.similarity,adjustedPrice:match.adjustedPrice});
@@ -402,5 +415,5 @@ function selectEligibleComparables(subject,comparables,custom={}){
 
   return {subject:original,rows:valid.map(r=>({...r,adjustedPrice:adjustedPrice(original,r.comp,config),powerDiscrepancy:powerDiscrepancy(s,r.comp)})),excluded,broadenedMarket,searchTier:valid.length?searchTier:0,marketBasis:valid.length?marketBasis:"none"};
 }
-return {normalizeVehicleIdentity,selectEligibleComparables,canonicalUrl,sameModel,similarity,canonicalFuel:fuel,canonicalDrive,explicitVariantMatch,derivativeCode};
+return {normalizeVehicleIdentity,selectEligibleComparables,canonicalUrl,listingUrl,sameModel,similarity,canonicalFuel:fuel,canonicalDrive,explicitVariantMatch,derivativeCode};
 });

@@ -42,6 +42,7 @@ async function boot(){
     return api;
   }};
   w.supabase={createClient:()=>db};
+  w.eval(script('commercial-identity.js'));
   w.createScreenWakeLock=()=>({enabled:false,setEnabled(value){this.enabled=value;},ensure:async()=>{}});
   w.evaluateBasePurchase=engine.evaluatePurchase;
   w.relevantMemories=()=>[];
