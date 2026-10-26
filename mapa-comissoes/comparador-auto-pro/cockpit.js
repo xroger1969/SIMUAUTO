@@ -33,7 +33,7 @@ entry.addEventListener('input',()=>{
 entry.addEventListener('paste',()=>queueMicrotask(()=>{
  if(/^https?:\/\//i.test(entry.value.trim()))setMode('link');
 }));
-for(const id of ['resetSearchBtn','startNewAnalysisBtn','newSearchBtn']){
+for(const id of ['resetSearchBtn','startNewAnalysisBtn','newSearchBtn','clearAssessmentBtn']){
  byId(id)?.addEventListener('click',()=>queueMicrotask(()=>{
   if(entry.disabled)return;
   syncOptions();setMode('plate');
