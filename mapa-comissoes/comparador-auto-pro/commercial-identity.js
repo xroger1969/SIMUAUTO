@@ -115,6 +115,13 @@ function modelKey(make,model){
   if(m==="volkswagen"||m==="vw")v=v.replace(/^id[.\s]?([3-7])(?=\s|$)/,"id $1");
   if(m==="bmw")v=v.replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
   if(m==="citroen")v=v.replace(/\bgrand c4 picasso\b/g,"c4 grand picasso");
+  if(["mercedes","mercedes benz","mercedes-benz","mercedesbenz"].includes(m)){
+    const mv=v.replace(/[-_]+/g," ").replace(/\s+/g," ");
+    // Portais portugueses alternam entre "Classe A", "A 180 d", "A180d"
+    // e o código de geração (W177/V177) no próprio campo modelo.
+    // Normalizar apenas a família Classe A; CLA/GLA/B/C continuam distintas.
+    if(/^(?:classe|class)\s+a(?:\s|$)/.test(mv)||/^a\s*\d{2,3}(?:\s*[a-z]{0,3})?(?:\s|$)/.test(mv))return "classe a";
+  }
   if(m==="smart"&&/^(?:fortwo|for two)(?:\s|$)/.test(v))return /\bcabrio\b|\bconvertible\b/.test(v)?"fortwo cabrio":"fortwo";
   if(m==="bmw"){
     const is4=/\bserie 4\b|\bseries 4\b|\b4\d{2}[a-z]{0,2}\b/.test(v);
