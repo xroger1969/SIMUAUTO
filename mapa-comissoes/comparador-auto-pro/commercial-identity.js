@@ -152,6 +152,7 @@ function modelFamilyKey(make,model){
       if(/\bactive tourer\b/.test(v))return "serie "+n+" active tourer";
       if(/\bgran tourer\b/.test(v))return "serie "+n+" gran tourer";
       if(/\bgran coupe\b/.test(v))return "serie "+n+" gran coupe";
+      if(/\bgt\b|\bgran turismo\b/.test(v))return "serie "+n+" gt";
       if(/\bcabrio\b|\bconvertible\b/.test(v))return "serie "+n+" cabrio";
       if(/\bcoupe\b/.test(v))return "serie "+n+" coupe";
       if(/\btouring\b|\bestate\b|\bbreak\b/.test(v))return "serie "+n+" touring";
