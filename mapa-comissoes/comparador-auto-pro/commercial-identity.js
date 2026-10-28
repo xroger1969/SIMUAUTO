@@ -353,7 +353,8 @@ function similarity(s,c){
   let score=0,total=0;
   const add=(weight,value)=>{total+=weight;score+=weight*clamp(value,0,1)};
 
-  const modelLevel=modelMatchLevel(s,c);\n  add(25,same(s.make,c.make)?(modelLevel===2?1:modelLevel===1?.78:0):0);
+  const modelLevel=modelMatchLevel(s,c);
+  add(25,same(s.make,c.make)?(modelLevel===2?1:modelLevel===1?.78:0):0);
   if(known(s.trim)&&known(c.trim))add(18,variantSimilarity(s,c));
   if(known(s.generation)&&known(c.generation))add(7,same(s.generation,c.generation)?1:0);
   if(known(s.fuel)&&known(c.fuel))add(10,fuel(s.fuel)===fuel(c.fuel)?1:0);
