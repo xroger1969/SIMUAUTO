@@ -216,6 +216,13 @@ function modelFamilyKey(make,model){
 function modelMatchLevel(s,c){
   s=normalizeVehicleIdentity(s);c=normalizeVehicleIdentity(c);
   if(!known(s?.model)||!known(c?.model))return 0;
+  // Na BMW, códigos como 225xe/225e ou 118d/118i identificam
+  // derivativos tecnicamente distintos. A família pode orientar a pesquisa,
+  // mas nunca transformar dois derivativos explícitos diferentes no mesmo modelo.
+  if(norm(s.make)==="bmw"&&norm(c.make)==="bmw"){
+    const sa=derivativeCode(s),cb=derivativeCode(c);
+    if(sa&&cb&&sa!==cb)return 0;
+  }
   const a=modelKey(s.make,s.model),b=modelKey(c.make,c.model);
   if(a===b)return 2;
   const addedVersion=(short,long)=>short.length>=3&&long.startsWith(short+" ")
