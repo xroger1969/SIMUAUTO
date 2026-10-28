@@ -4,7 +4,7 @@ const {lookupRegistration,normalizeRegistration,displayRegistration}=require("..
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
-const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,canonicalFuel,derivativeCode,listingUrl}=require("../comparador-auto-pro/commercial-identity.js");
+const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,modelFamilyKey,canonicalFuel,derivativeCode,listingUrl}=require("../comparador-auto-pro/commercial-identity.js");
 const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -713,8 +713,13 @@ function marketSearchPlan(subject={},step=0){
   const level=Math.max(0,Math.min(MAX_MARKET_RECOVERY_STEPS,Number(step)||0));
   const band=[1,3,4][level];
   const year=Number(identity.year),knownYear=Number.isInteger(year)&&year>=1950&&year<=new Date().getFullYear()+1;
+  const family=modelFamilyKey(identity.make,identity.model)||identity.model||null;
+  const aliases=[identity.model,family,
+    identity.trim&&family?[family,identity.trim].join(" "):null
+  ].filter(Boolean).filter((value,index,array)=>array.indexOf(value)===index).slice(0,4);
   return {step:level,name:["versão próxima","família normalizada","versões próximas compatíveis"][level],
-    make:identity.make||null,model:identity.model||null,trim:level===0?identity.trim||null:null,
+    make:identity.make||null,model:identity.model||null,family_model:family,search_aliases:aliases,
+    trim:level===0?identity.trim||null:null,
     fuel:identity.fuel||null,drivetrain:identity.drivetrain||null,generation:identity.generation||null,
     min_year:knownYear?year-band:null,max_year:knownYear?year+band:null,
     include_private:level===2,reason:level?"Etapa anterior sem anúncios elegíveis; alargar a pesquisa sem alterar a identidade da viatura.":"Pesquisa inicial"};
