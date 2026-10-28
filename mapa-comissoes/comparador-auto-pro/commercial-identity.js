@@ -117,9 +117,8 @@ function modelKey(make,model){
   if(m==="citroen")v=v.replace(/\bgrand c4 picasso\b/g,"c4 grand picasso");
   if(["mercedes","mercedes benz","mercedes-benz","mercedesbenz"].includes(m)){
     const mv=v.replace(/[-_]+/g," ").replace(/\s+/g," ");
-    // Portais portugueses alternam entre "Classe A", "A 180 d", "A180d"
-    // e o código de geração (W177/V177) no próprio campo modelo.
-    // Normalizar apenas a família Classe A; CLA/GLA/B/C continuam distintas.
+    // Portais alternam entre "Classe A", "A 180 d", "A180d" e códigos W/V.
+    // Canonicalizar a família sem confundir CLA/GLA/Classe B.
     if(/^(?:classe|class)\s+a(?:\s|$)/.test(mv)||/^a\s*\d{2,3}(?:\s*[a-z]{0,3})?(?:\s|$)/.test(mv))return "classe a";
   }
   if(m==="smart"&&/^(?:fortwo|for two)(?:\s|$)/.test(v))return /\bcabrio\b|\bconvertible\b/.test(v)?"fortwo cabrio":"fortwo";
@@ -131,17 +130,104 @@ function modelKey(make,model){
   }
   return v;
 }
-// Os portais por vezes colocam a cilindrada/versão no campo «modelo».
-// Aceitar essa extensão sem confundir famílias comerciais distintas.
-const sameModel=(s,c)=>{
+
+function modelFamilyKey(make,model){
+  const m=norm(make);
+  let v=modelKey(make,model);
+  if(!v)return "";
+
+  // Famílias com sintaxe própria: são tratadas antes do fallback genérico.
+  if(["mercedes","mercedes benz","mercedes-benz","mercedesbenz"].includes(m))return v;
+
+  if(m==="tesla"){
+    const hit=v.match(/^model\s*([3sxy])(?:\s|$)/);
+    if(hit)return "model "+hit[1];
+  }
+
+  if(m==="bmw"){
+    const series=v.match(/\b(?:serie|series)\s*([1-8])\b/);
+    const derivative=v.match(/\b([1-8])\d{2}(?:xe|xd|xi|d|i|e)?\b/);
+    const n=series?.[1]||derivative?.[1];
+    if(n){
+      if(/\bactive tourer\b/.test(v))return "serie "+n+" active tourer";
+      if(/\bgran tourer\b/.test(v))return "serie "+n+" gran tourer";
+      if(/\bgran coupe\b/.test(v))return "serie "+n+" gran coupe";
+      if(/\bcabrio\b|\bconvertible\b/.test(v))return "serie "+n+" cabrio";
+      if(/\bcoupe\b/.test(v))return "serie "+n+" coupe";
+      if(/\btouring\b|\bestate\b|\bbreak\b/.test(v))return "serie "+n+" touring";
+      return "serie "+n;
+    }
+    const x=v.match(/^x\s*([1-7])(?:\s|$)/);
+    if(x)return "x"+x[1];
+    const ix=v.match(/^i\s*(3|4|5|7|8|x\d?)(?:\s|$)/);
+    if(ix)return "i"+ix[1];
+  }
+
+  if(m==="audi"){
+    const hit=v.replace(/[-_]+/g," ").match(/^(rs|a|q|s)\s*([1-8])(?:\s|$)/);
+    if(hit)return hit[1]+hit[2];
+    if(/^tt(?:\s|$)/.test(v))return "tt";
+    if(/^r8(?:\s|$)/.test(v))return "r8";
+  }
+
+  if(m==="volkswagen"||m==="vw"){
+    const id=v.match(/^id\s*(3|4|5|7|buzz)(?:\s|$)/);
+    if(id)return "id "+id[1];
+  }
+
+  if(m==="mazda"){
+    const hit=v.replace(/[-_]+/g," ").match(/^(cx|mx)\s*(3|5|30|50|60|80|90)(?:\s|$)/);
+    if(hit)return hit[1]+hit[2];
+    const mazda=v.match(/^mazda\s*([236])(?:\s|$)/);
+    if(mazda)return "mazda "+mazda[1];
+  }
+
+  if(m==="volvo"){
+    const hit=v.replace(/[-_]+/g," ").match(/^(xc|ex|ec|v|s|c)\s*(30|40|60|70|90)(?:\s|$)/);
+    if(hit)return hit[1]+hit[2];
+  }
+
+  // Fallback: conservar o nome comercial e cortar apenas o que claramente
+  // parece motorização, geração, caixa, nível de equipamento ou carroçaria.
+  // Isto cobre formatos como "Kona 1.6 Hybrid", "Qashqai J11 1.5 dCi",
+  // "3008 1.5 BlueHDi", "Golf VII 2.0 TDI" ou "Focus Mk4".
+  const tokens=v.replace(/[-_/]+/g," ").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  const stopWord=new Set([
+    "tdi","tsi","tfsi","dci","hdi","bluehdi","crdi","cdi","cdti","multijet",
+    "puretech","ecoboost","hybrid","hibrido","phev","electric","electrico","ev",
+    "automatic","automatica","auto","manual","dsg","edc","cvt","steptronic",
+    "business","style","premium","progressive","executive","comfort","allure","active",
+    "edition","pack","trend","line","luxury","sport","sportback","variant","touring",
+    "estate","break","sw","coupe","cabrio","convertible"
+  ]);
+  const out=[];
+  for(const token of tokens){
+    const compact=token.replace(/[^a-z0-9.]/g,"");
+    const engineNumber=/^\d+(?:\.\d+)?$/.test(compact)&&out.length>0;
+    const generation=/^(?:mk\d+|gen\d+|[ivx]{1,4}|[a-z]{1,2}\d{2,3})$/.test(compact)&&out.length>0;
+    const power=/^\d{2,3}(?:cv|hp|kw)$/.test(compact)&&out.length>0;
+    if(out.length&&(engineNumber||generation||power||stopWord.has(compact)))break;
+    out.push(token);
+    if(out.length>=3)break;
+  }
+  return out.join(" ")||v;
+}
+
+function modelMatchLevel(s,c){
   s=normalizeVehicleIdentity(s);c=normalizeVehicleIdentity(c);
-  if(!known(s?.model)||!known(c?.model))return false;
+  if(!known(s?.model)||!known(c?.model))return 0;
   const a=modelKey(s.make,s.model),b=modelKey(c.make,c.model);
-  if(a===b)return true;
+  if(a===b)return 2;
   const addedVersion=(short,long)=>short.length>=3&&long.startsWith(short+" ")
     &&/^(?:\d|hybrid\b|hibrid\b|phev\b|crdi\b|tdi\b|bluehdi\b|puretech\b|prime\b|premium\b|style\b|comfort\b|edition\b|pack\b|trend\b|executive\b|n line\b|gt line\b|automatic\b|2wd\b|awd\b)/.test(long.slice(short.length+1));
-  return addedVersion(a,b)||addedVersion(b,a);
-};
+  if(addedVersion(a,b)||addedVersion(b,a))return 2;
+  const fa=modelFamilyKey(s.make,s.model),fb=modelFamilyKey(c.make,c.model);
+  return fa&&fb&&fa===fb?1:0;
+}
+
+// Compatibilidade binária usada pelos gates antigos; a pontuação distingue
+// correspondência exata (2) de apenas família comercial (1).
+const sameModel=(s,c)=>modelMatchLevel(s,c)>0;
 
 // Navigation must retain the published host, path, query and fragment. In
 // particular, PiscaPisca's apex host redirects every path to the homepage.
@@ -267,7 +353,7 @@ function similarity(s,c){
   let score=0,total=0;
   const add=(weight,value)=>{total+=weight;score+=weight*clamp(value,0,1)};
 
-  add(25,same(s.make,c.make)&&sameModel(s,c)?1:0);
+  const modelLevel=modelMatchLevel(s,c);\n  add(25,same(s.make,c.make)?(modelLevel===2?1:modelLevel===1?.78:0):0);
   if(known(s.trim)&&known(c.trim))add(18,variantSimilarity(s,c));
   if(known(s.generation)&&known(c.generation))add(7,same(s.generation,c.generation)?1:0);
   if(known(s.fuel)&&known(c.fuel))add(10,fuel(s.fuel)===fuel(c.fuel)?1:0);
@@ -422,5 +508,5 @@ function selectEligibleComparables(subject,comparables,custom={}){
 
   return {subject:original,rows:valid.map(r=>({...r,adjustedPrice:adjustedPrice(original,r.comp,config),powerDiscrepancy:powerDiscrepancy(s,r.comp)})),excluded,broadenedMarket,searchTier:valid.length?searchTier:0,marketBasis:valid.length?marketBasis:"none"};
 }
-return {normalizeVehicleIdentity,selectEligibleComparables,canonicalUrl,listingUrl,sameModel,similarity,canonicalFuel:fuel,canonicalDrive,explicitVariantMatch,derivativeCode};
+return {normalizeVehicleIdentity,selectEligibleComparables,canonicalUrl,listingUrl,sameModel,modelFamilyKey,modelMatchLevel,similarity,canonicalFuel:fuel,canonicalDrive,explicitVariantMatch,derivativeCode};
 });
