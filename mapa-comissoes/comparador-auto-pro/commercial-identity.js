@@ -222,6 +222,8 @@ function modelMatchLevel(s,c){
   if(norm(s.make)==="bmw"&&norm(c.make)==="bmw"){
     const sa=derivativeCode(s),cb=derivativeCode(c);
     if(sa&&cb&&sa!==cb)return 0;
+    const bare=v=>/^\d{3}$/.test(norm(v?.model).replace(/\s+/g,""));
+    if((sa&&!cb&&bare(c))||(cb&&!sa&&bare(s)))return 0;
   }
   const a=modelKey(s.make,s.model),b=modelKey(c.make,c.model);
   if(a===b)return 2;
