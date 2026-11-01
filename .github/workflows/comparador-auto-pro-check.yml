@@ -14,6 +14,7 @@ on:
       - "mapa-comissoes/lib/registration.js"
       - "mapa-comissoes/lib/condition-report.js"
       - "mapa-comissoes/lib/teaching.js"
+      - "mapa-comissoes/lib/model-config.js"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -26,6 +27,7 @@ on:
       - "mapa-comissoes/lib/registration.js"
       - "mapa-comissoes/lib/condition-report.js"
       - "mapa-comissoes/lib/teaching.js"
+      - "mapa-comissoes/lib/model-config.js"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -49,6 +51,7 @@ jobs:
           node --check mapa-comissoes/lib/registration.js
           node --check mapa-comissoes/lib/condition-report.js
           node --check mapa-comissoes/lib/teaching.js
+          node --check mapa-comissoes/lib/model-config.js
           node --check mapa-comissoes/comparador-auto-pro/app-v2.js
           node --check mapa-comissoes/comparador-auto-pro/voice-input.js
           node --check mapa-comissoes/comparador-auto-pro/valuation.js

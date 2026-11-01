@@ -6,6 +6,7 @@ const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
 const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,modelFamilyKey,canonicalFuel,derivativeCode,listingUrl}=require("../comparador-auto-pro/commercial-identity.js");
 const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
+const {configuredModel}=require("../lib/model-config");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clip=(v,n)=>String(v??"").slice(0,n);
@@ -412,7 +413,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
     ok:true,
     status:"completed",
     response_id:data.id||null,
-    model:data.model||process.env.OPENAI_MODEL||"gpt-6-sol",
+    model:data.model||null,
     usage:data.usage||null,
     registration_data:registration,
     search_sources:sources,
@@ -774,7 +775,8 @@ async function startResponse(context,imageDataUrls,metadata,identify){
       signal:AbortSignal.timeout(35000),
       headers:{"content-type":"application/json",authorization:"Bearer "+process.env.OPENAI_API_KEY,...(context.transition_id?{"Idempotency-Key":"cap-market-"+context.transition_id}:{})},
       body:JSON.stringify({
-        model:process.env.OPENAI_MODEL||"gpt-6-sol",
+        model:configuredModel(),
+        reasoning:{effort:"medium"},
         background:true,
         store:false,
         metadata:boundedResponseMetadata(metadata),

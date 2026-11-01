@@ -74,11 +74,15 @@ async function providerContext(context,identify,images=[]){
 test("identification receives no learning and the pool stays available for the later market stage",async()=>{
   const context={...boundedContext({dealer_memories:[rule("private pool marker")],previous_subject:subject},null),initial_started_at:new Date(now).toISOString()};
   const first=await providerContext(context,true,["data:image/jpeg;base64,YWJj"]);
+  assert.equal(first.request.model,"gpt-6-astra");
+  assert.equal(first.request.reasoning.effort,"medium");
   assert.deepEqual(first.context.dealer_memories,[]);
   assert.equal(Object.hasOwn(first.context,"memory_candidates"),false);
   assert.doesNotMatch(JSON.stringify(first.request),/private pool marker/);
   assert.equal(context.memory_candidates.length,1,"Provider filtering must not mutate the job context");
   const next=await providerContext({...context,stage:"market",previous_subject:subject},false);
+  assert.equal(next.request.model,first.request.model);
+  assert.equal(next.request.tool_choice,"required");
   assert.deepEqual(next.context.dealer_memories.map(item=>item.statement),["private pool marker"]);
   assert.equal(Object.hasOwn(next.context,"memory_candidates"),false);
 });

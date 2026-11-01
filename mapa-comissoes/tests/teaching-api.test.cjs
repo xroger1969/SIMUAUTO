@@ -118,6 +118,10 @@ test("conversation endpoint preserves authentication/quota and validates the pro
   assert.equal(result.payload.memory_rule.effect.margin_delta_eur,0);
   const call=result.calls.find(item=>item.url.endsWith("/responses"));
   const request=JSON.parse(call.options.body);
+  assert.equal(request.model,"gpt-6-astra");
+  assert.equal(request.reasoning.effort,"medium");
+  assert.equal(result.payload.requested_model,request.model);
+  assert.equal(result.payload.model,"test-model","Report the provider's actual model, not the configured label");
   assert.equal(request.store,false);
   assert.match(request.input,/Como é a procura/);
   assert.ok(request.text.format.schema.required.includes("feedback_proposal"));
