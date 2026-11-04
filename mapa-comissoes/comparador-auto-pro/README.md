@@ -276,3 +276,19 @@ expressos em km e condições do ensaio; não usa percentagens fixas do WLTP.
 Sem confirmação, apresenta «Por confirmar». As referências ficam no resultado
 estruturado e, por isso, nas revisões do histórico. Resultados antigos não são
 completados retroativamente; é necessária nova pesquisa.
+
+
+### Custos comerciais sem valores automáticos (2026-11-04)
+
+A avaliação comercial inicia os custos manuais e a reserva para imprevistos em
+zero em cada nova análise. Preferências antigas com custos não são importadas
+para novas viaturas. Margens e parâmetros da oficina continuam como preferências.
+Os montantes editados pertencem à avaliação e ficam na respetiva revisão.
+
+O motor deixou de descontar 0,6% da revenda e reservas geradas por alertas da IA.
+A reserva explícita é independente dos custos e aparece no resumo, ao lado da
+discriminação de preparação, transporte, garantia, stock e outros custos.
+As reparações identificadas continuam estimadas sem o antigo mínimo de 450 €.
+A regra específica de 1.200 € para importação de leilões mantém-se identificada.
+As revisões históricas conservam os valores originais; uma nova avaliação aplica
+as regras atuais.

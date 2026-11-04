@@ -29,7 +29,7 @@ function market(subject,price){
     evidence:{verified:true,source_url_verified:true,observed_at:new Date().toISOString()}})),risk_flags:[]};
 }
 
-async function boot(){
+async function boot(preferences=null){
   const [engine,input,tax]=await modules;
   const dom=new JSDOM(html,{url:'https://example.test/comparador-auto-pro/',runScripts:'outside-only',pretendToBeVisual:true});
   const w=dom.window,q=id=>w.document.getElementById(id);
@@ -38,7 +38,8 @@ async function boot(){
     signOut:async()=>{authChanged('SIGNED_OUT',null);}},from(table){
     const api={select(){return api;},eq(){return api;},order(){return api;},
       limit:async()=>delayedJobs||({data:pendingJob?[pendingJob]:[],error:null}),
-      maybeSingle:async()=>({data:table==='cap_revisions'?savedRevision:table==='cap_analyses'?pendingAnalysis:null,error:null})};
+      upsert:async()=>({error:null}),
+      maybeSingle:async()=>({data:table==='cap_revisions'?savedRevision:table==='cap_analyses'?pendingAnalysis:table==='cap_preferences'?{settings:preferences}:null,error:null})};
     return api;
   }};
   w.supabase={createClient:()=>db};
@@ -56,6 +57,7 @@ async function boot(){
     setMemories(handler){loadMemories=handler;},
     render:renderResult,needsInfo:renderNeedsVehicleInfo,readerOnly:renderReaderOnly,needsPhotos:renderAuto1NeedsPhotos,
     openHistory:openSavedRevision,resume:resumePendingAnalysis,
+    mergeDeal,resetCosts:resetDealCosts,get deal(){return DEAL;},setDeal(value){DEAL=mergeDeal(value);syncDealForm();},loadPreferences:loadDealPreferences,
     reset(){resetAnalysisView({announce:false,focus:false,scroll:false});},
     get busy(){return activeOperation!==null;},get result(){return currentResult;}
   };
@@ -71,7 +73,7 @@ async function boot(){
   function submit(plate){q('vehicleUrl').value=plate;q('analyzeForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));}
   async function analyze(data){h.setMarket(async()=>data);submit(data.subject.registration);await until(()=>!h.busy);assert.ok(h.result);return h.result;}
   function saved(result){savedRevision={id:'revision-one',analysis_id:'history-analysis',user_id:owner,created_at:'2026-10-01T12:00:00Z',
-    snapshot:{result,deal:{costs:{}},source:{domain:'Matrícula',url:'plate:'+result.subject.registration},research:{risk_flags:[]}}};}
+    snapshot:{result,deal:{costs:result.parameters.costs,risk_reserve:result.purchase.riskReserve},source:{domain:'Matrícula',url:'plate:'+result.subject.registration},research:{risk_flags:[]}}};}
   function pending(data){pendingJob={id:'job-one',analysis_id:'pending-analysis',context:{},created_at:'2026-10-01T12:00:00Z'};
     pendingAnalysis={source_url:'plate:'+data.subject.registration,source_domain:'Matrícula',reader:{},vehicle:data.subject};}
   return {dom,w,q,h,events,submit,analyze,saved,pending,delayJobs:promise=>{delayedJobs=promise;},expire:()=>authChanged('SIGNED_OUT',null)};
@@ -236,4 +238,47 @@ test('saving fiscal edits creates a separate result and history restores both am
  assert.equal(app.q('taxSimCosts').value,'0');
  await app.h.openHistory('revision-one');
  assert.equal(app.q('taxSimCosts').value,'250');assert.equal(app.q('taxSimReserve').value,'400');
+});
+
+
+test('commercial assessments start at zero, edits change the offer independently and the next car resets them',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  const legacy={costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},risk_reserve:79};
+  app.h.setDeal(legacy);
+  const data=market(ford,13500);data.risk_flags=[{label:'Verificar histórico',reserve_eur:900}];
+  const original=await app.analyze(data);
+  assert.equal(original.purchase.fixedCosts,0);assert.equal(original.purchase.riskReserve,0);
+  assert.equal(original.reconditioning.appliedGross,0);
+  assert.equal(original.purchase.effectiveCeiling,Math.floor(original.market.saleLikely-original.purchase.targetMargin));
+  for(const id of ['transportCostInput','reconditioningCostInput','warrantyCostInput','stockCostInput','otherCostInput','riskReserveInput'])assert.equal(app.q(id).value,'0',id);
+  assert.match(app.q('commercialCostBreakdown').textContent,/Sem custos/);
+  const apply=async()=>{app.q('assumptionsForm').dispatchEvent(new app.w.Event('submit',{bubbles:true,cancelable:true}));await until(()=>!app.h.busy);return app.h.result;};
+  app.q('transportCostInput').value='150';app.q('riskReserveInput').value='250';
+  const changed=await apply();
+  assert.equal(changed.purchase.fixedCosts,150);assert.equal(changed.purchase.riskReserve,250);
+  assert.equal(original.purchase.effectiveCeiling-changed.purchase.effectiveCeiling,400);
+  assert.match(app.q('commercialCostBreakdown').textContent,/Transporte/);
+  assert.match(app.q('commercialReserve').textContent,/250/);
+  app.q('riskReserveInput').value='0';
+  const noReserve=await apply();
+  assert.equal(noReserve.purchase.fixedCosts,150);assert.equal(noReserve.purchase.riskReserve,0);
+  assert.equal(noReserve.purchase.effectiveCeiling-changed.purchase.effectiveCeiling,250);
+  app.saved(changed);
+  await app.h.openHistory('revision-one');
+  assert.equal(app.q('transportCostInput').value,'150');assert.equal(app.q('riskReserveInput').value,'250');
+  assert.match(app.q('commercialReserve').textContent,/250/);
+  const next=await app.analyze(market(tesla,30000));
+  assert.equal(next.purchase.fixedCosts,0);assert.equal(next.purchase.riskReserve,0);
+});
+
+
+test('loading legacy account preferences keeps margin and workshop settings but clears old monetary assumptions',async t=>{
+  const app=await boot({margin_policy_version:1,target_margin:4500,minimum_margin:1500,
+    costs:{transport:150,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},risk_reserve:79,
+    reconditioning:{pricing_version:2,paint_mode:'trade',paint_min_eur:90,paint_max_eur:110}});
+  t.after(()=>app.dom.window.close());
+  await app.h.loadPreferences();
+  assert.equal(app.q('targetMarginInput').value,'4500');assert.equal(app.q('paintMaxInput').value,'110');
+  for(const value of Object.values(app.h.deal.costs))assert.equal(value,0);
+  assert.equal(app.h.deal.risk_reserve,0);
 });

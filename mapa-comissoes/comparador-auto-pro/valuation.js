@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-10-23-supervised-v1";
+export const ENGINE_VERSION="2026-11-04-zero-costs-v1";
 const identity=globalThis.CommercialIdentity;
 if(!identity)throw new Error("CommercialIdentity must load before the valuation engine");
 export const normalizeVehicleIdentity=identity.normalizeVehicleIdentity;
@@ -15,7 +15,6 @@ export const DEFAULT_CONFIG=Object.freeze({
   auctionImportCost:1200,
   negotiationDiscountPct:.02,
   fastSaleDiscountPct:.035,
-  riskReservePct:.006,
   kmAdjustmentPer1000:20,
   ageAdjustmentPerMonth:55,
   maxEvidenceAgeDays:7
@@ -422,9 +421,8 @@ export function evaluatePurchase(input,custom={}){
   const importCostAssumed=acquisition.needsLocationConfirmation?Math.max(0,num(config.auctionImportCost,1200)):acquisition.importCost;
   const fixedCosts=baseFixedCosts+importCostAssumed;
   const fixedCostsWithoutRepairs=fixedCosts-reconditioning.appliedEconomic;
-  const pricedComponents=new Set(reconditioning.items.filter(x=>x.high!==null&&(!x.partial||x.basis==="fallback")).map(x=>x.key));
-  const riskFlags=(input.risk_flags||[]).reduce((t,r)=>t+(pricedComponents.has(norm(r.related_component).replace(/[^a-z0-9]+/g,"_"))?0:Math.max(0,num(r.reserve_eur))),0);
-  const riskReserve=Number.isFinite(saleEconomic)?Math.round(Math.max(0,saleEconomic*config.riskReservePct+riskFlags)):0;
+  // Risk alerts remain informative; only the user's explicit reserve affects the offer.
+  const riskReserve=Math.round(Math.max(0,num(input.risk_reserve))*100)/100;
   const automaticTarget=automaticMargin(quoteSaleGross);
   const learnedTarget=learning.learnedMargin===null?automaticTarget:Math.max(3500,clamp(learning.learnedMargin,automaticTarget*.8,automaticTarget*1.3));
   const manualMargin=known(input.target_margin)&&Number.isFinite(Number(input.target_margin));

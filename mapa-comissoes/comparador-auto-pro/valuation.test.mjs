@@ -646,3 +646,16 @@ test('Volkswagen ID punctuation aliases preserve the model number',()=>{
   assert.equal(evaluatePurchase({subject:car,comparables:[ad]}).market.comparablesUsed,1);
 });
 
+
+
+test('commercial costs and reserve default to zero even with monetary AI risk flags',()=>{
+  const data={subject,comparables:[1,2,3].map(i=>professional(i)),target_margin:3500};
+  const zero=evaluatePurchase({...data,risk_flags:[{reserve_eur:900,severity:'high',label:'Histórico por confirmar'}]});
+  assert.equal(zero.purchase.fixedCosts,0);assert.equal(zero.purchase.riskReserve,0);
+  assert.equal(zero.purchase.effectiveCeiling,Math.floor(zero.market.saleLikely-3500));
+  const edited=evaluatePurchase({...data,costs:{transport:200},risk_reserve:350.50});
+  assert.equal(edited.purchase.fixedCosts,200);assert.equal(edited.purchase.riskReserve,350.50);
+  assert.equal(edited.purchase.effectiveCeiling,Math.floor(edited.market.saleLikely-3500-200-350.50));
+  const cleared=evaluatePurchase({...data,costs:{transport:200},risk_reserve:0});
+  assert.equal(cleared.purchase.fixedCosts,200);assert.equal(cleared.purchase.riskReserve,0);
+});

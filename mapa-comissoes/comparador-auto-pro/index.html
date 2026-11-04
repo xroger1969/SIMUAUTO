@@ -320,10 +320,12 @@
           <div><span>Revenda realista</span><strong id="commercialSale">—</strong></div>
           <div><span>Compra máxima para a margem</span><strong id="commercialCeiling">—</strong></div>
           <div><span>Custos totais previstos</span><strong id="commercialCosts">—</strong></div>
+          <div><span>Reserva para imprevistos</span><strong id="commercialReserve">—</strong></div>
           <div><span>Margem ao preço atual</span><strong id="commercialMargin">—</strong></div>
           <div><span>Margem objetivo</span><strong id="commercialTarget">—</strong></div>
           <div><span>Excesso face ao teto de compra</span><strong id="commercialGap">—</strong></div>
         </div>
+        <p class="commercial-note" id="commercialCostBreakdown"></p>
         <p class="commercial-note" id="commercialSaleRange">Intervalo de mercado por confirmar.</p>
         <p class="commercial-note" id="commercialEvidenceNote">Preços anunciados não são vendas comprovadas.</p>
         <details class="commercial-risk-details" open>
@@ -416,18 +418,19 @@
           <label>Margem comercial por defeito (€)<input id="targetMarginInput" type="number" min="0" step="50" placeholder="Automática"></label>
           <label>Margem mínima (€)<input id="minimumMarginInput" type="number" min="0" step="50"></label>
           <label>Transporte (€)<input id="transportCostInput" type="number" min="0" step="10"></label>
-          <label>Reserva mínima de preparação (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
+          <label>Preparação mínima indicada (€)<input id="reconditioningCostInput" type="number" min="0" step="10"></label>
           <label>Preço de pintura<select id="paintPriceModeInput"><option value="web">Preços publicados (prioritário)</option><option value="trade">Minha oficina (definir preço)</option></select></label>
           <label>Referência provisória mínima/painel (€ com IVA)<input id="paintMinInput" type="number" min="0" step="5"></label>
           <label>Referência provisória máxima/painel (€ com IVA)<input id="paintMaxInput" type="number" min="0" step="5"></label>
-          <label>Garantia/reserva (€)<input id="warrantyCostInput" type="number" min="0" step="10"></label>
+          <label>Garantia — custo previsto (€)<input id="warrantyCostInput" type="number" min="0" step="10"></label>
           <label>Financiamento de stock (€)<input id="stockCostInput" type="number" min="0" step="10"></label>
           <label>Comissão de leilão (€)<input id="auctionCostInput" type="number" min="0" step="10"></label>
           <label>Legalização/registo (€)<input id="registrationCostInput" type="number" min="0" step="10"></label>
+          <label>Reserva para imprevistos (€)<input id="riskReserveInput" type="number" min="0" step="0.01" value="0"></label>
           <label>Outros custos (€)<input id="otherCostInput" type="number" min="0" step="10"></label>
           <button class="btn ghost small" type="submit">Aplicar e guardar</button>
         </form>
-        <p class="assumptions-help">A preparação usa o maior valor entre a reserva mínima e o orçamento identificado, sem os somar. Os preços por painel e os custos corrigidos incluem IVA; os restantes custos mantêm a base económica do cálculo.</p>
+        <p class="assumptions-help">Cada avaliação começa com custos manuais e reserva a 0 €. As reparações identificadas são estimadas à parte; a preparação usa o maior valor entre o mínimo indicado e esse orçamento. A reserva só é descontada se a preencheres e não está incluída nos custos. A regra específica de importação de leilões mantém-se discriminada. Os preços por painel e os custos corrigidos incluem IVA; os restantes custos mantêm a base económica do cálculo.</p>
       </details>
 
       <details class="assumptions-details" id="learningPanel">
@@ -532,7 +535,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261026-listing-links-v1"></script>
   <script src="./electric-range.js?v=20261104-costs-range-v1"></script>
-  <script type="module" src="./app-v2.js?v=20261104-costs-range-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261104-zero-costs-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261104-costs-range-v1"></script>
   <script type="module" src="./cockpit.js?v=20261026-reset-v1"></script>
   <!-- detailed-readout-deploy-retry -->

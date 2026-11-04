@@ -163,7 +163,7 @@ test('BFCache reopening clears idle results, but a normal background/foreground 
 });
 test('a clean reset clears all current assessment state without deleting history, sign-in or preferences',()=>{
  const ctx=harness({pendingResearch:{jobId:'old'},currentVehicle:{make:'Tesla'},currentResult:{},currentMarketData:{},lastAnalysisContext:{},currentAnalysisId:'old',conversation:['old'],
- resetSearchInput(){ctx.q('vehicleUrl').value='';ctx.q('vehicleMileage').value='';},stopProgress(){ctx.q('progressPanel').classList.add('hidden');},hideVehicleFollowup(){},
+ resetDealCosts(){},resetSearchInput(){ctx.q('vehicleUrl').value='';ctx.q('vehicleMileage').value='';},stopProgress(){ctx.q('progressPanel').classList.add('hidden');},hideVehicleFollowup(){},
  setTimeout(){throw Error('unexpected focus timer');}});
  vm.runInContext(source('function resetAnalysisView','function loadImageElement'),ctx);
  ctx.resetAnalysisView({announce:false,focus:false,scroll:false});
@@ -173,6 +173,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261104-costs-range-v1/);
+ assert.match(html,/app-v2\.js\?v=20261104-zero-costs-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });
