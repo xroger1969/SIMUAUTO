@@ -282,3 +282,29 @@ test('loading legacy account preferences keeps margin and workshop settings but 
   for(const value of Object.values(app.h.deal.costs))assert.equal(value,0);
   assert.equal(app.h.deal.risk_reserve,0);
 });
+
+test('stop preserves inputs and a late result cannot replace the next assessment',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  const {h,q,w}=app;const first=deferred(),second=deferred();let calls=0;
+  w.fetch=async()=>({ok:true,json:async()=>({ok:true,status:'cancelled',provider_cancelled:true})});
+  h.setMarket(async()=>{calls++;return calls===1?first.promise:second.promise;});
+  assert.equal(q('stopAssessmentBtn').hidden,true);
+  app.submit(tesla.registration);await until(()=>calls===1);
+  assert.equal(q('stopAssessmentBtn').hidden,false);
+  q('stopAssessmentBtn').click();
+  assert.equal(h.busy,false);assert.equal(q('vehicleUrl').value,tesla.registration);
+  assert.equal(q('vehicleUrl').disabled,false);assert.equal(q('stopAssessmentBtn').hidden,true);
+  app.submit(ford.registration);await until(()=>calls===2);
+  first.resolve(market(tesla,31450));await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(h.busy,true);assert.equal(h.result,null);assert.equal(q('stopAssessmentBtn').hidden,false);
+  second.resolve(market(ford,23000));await until(()=>!h.busy);
+  assert.equal(h.result.subject.make,'Ford');assert.equal(q('stopAssessmentBtn').hidden,true);
+});
+
+test('plate input alone is not shown as a successful plate identification',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  const data={subject:{registration:'86-QG-72'},comparables:[],risk_flags:[{code:'registration_lookup_unavailable',label:'Fornecedor indisponível'}]};
+  app.h.setMarket(async()=>data);app.submit('86-QG-72');await until(()=>!app.h.busy);
+  assert.match(app.q('adReadStatus').textContent,/Consulta da matrícula indisponível/);
+  assert.doesNotMatch(app.q('adReadStatus').textContent,/^Identificação pela matrícula$/);
+});

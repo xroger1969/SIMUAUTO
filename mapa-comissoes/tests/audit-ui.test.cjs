@@ -74,6 +74,8 @@ test('plate text, manual input and photographs never claim a public announcement
   vm.runInContext(source('function renderVehicleReadout','const VALUATION_REQUIRED_FIELDS='),ctx);
   const reader={status:'ok',source_kind:'manual',page:{text_sample:'AL-47-IC'}};
   ctx.renderVehicleReadout({registration:'AL-47-IC'},{reader,entry:{mode:'manual',registration:'AL-47-IC'}});
+  assert.equal(ctx.q('adReadStatus').textContent,'Identificação pela matrícula por confirmar');
+  ctx.renderVehicleReadout({make:'Renault',model:'Captur'},{reader,entry:{registration:'88-QG-72'},market:{registration_data:{make:'Renault',model:'Captur'}}});
   assert.equal(ctx.q('adReadStatus').textContent,'Identificação pela matrícula');
   assert.doesNotMatch(ctx.q('adReadStatus').textContent,/anúncio lido|carateres/);
   ctx.renderVehicleReadout({},{reader,entry:{mode:'manual'}});

@@ -74,6 +74,10 @@ button:disabled{cursor:wait;opacity:.55}
 #analyzeForm #analyzeBtn[data-state="partial"]{background:#facc15;color:#422006;border-color:#eab308}
 #analyzeBtn[data-state="running"]:after{content:"";width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cockpit-spin 1s linear infinite}
 #analyzeBtn[data-state="complete"]:after{content:"✓";font-size:24px}
+#app .stop-assessment{width:100%;min-height:54px;margin-top:12px;background:#b91c1c;color:#fff;border:2px solid #ef4444;border-radius:10px;font-size:18px;font-weight:700}
+#refineStopAssessmentBtn{min-height:48px;background:#b91c1c;color:#fff;border:2px solid #ef4444}
+.stop-assessment[hidden],.stop-assessment-status[hidden]{display:none!important}
+.stop-assessment-status{color:#e5e7ef;font-size:14px;line-height:1.5;margin:12px 0}
 @keyframes cockpit-spin{to{transform:translateY(-50%) rotate(360deg)}}
 .cockpit-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:22px}
 #app .cockpit-tile{min-width:0;min-height:108px;width:100%;display:flex;align-items:center;gap:14px;padding:20px 18px!important;border:1px solid #2c2f38;border-radius:10px;background:linear-gradient(120deg,#16181e,#111318);color:#dee0e9;text-align:left;font-size:16px!important}

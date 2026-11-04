@@ -38,7 +38,7 @@
   <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
   <link rel="stylesheet" href="./form-layout.css?v=20261024-wltp-v1">
   <link rel="stylesheet" href="./teaching-chat.css?v=20261023-voice-v2-screen-v1">
-  <link rel="stylesheet" href="./cockpit.css?v=20261104-fuel-model-v1">
+  <link rel="stylesheet" href="./cockpit.css?v=20261104-stop-v1">
 </head>
 <body class="cockpit-theme">
   <div class="auth-gate" id="authGate">
@@ -118,6 +118,8 @@
         </div>
         <div class="search-actions">
           <button class="btn primary" type="submit" id="analyzeBtn" data-state="idle" aria-busy="false" aria-live="polite" aria-atomic="true">Analisar viatura</button>
+          <button class="btn stop-assessment" type="button" id="stopAssessmentBtn" hidden>Parar avaliação</button>
+          <p id="stopAssessmentStatus" class="stop-assessment-status" role="status" hidden></p>
           <button class="btn ghost" type="button" id="clearAssessmentBtn">Limpar e nova avaliação</button>
         </div>
       </form>
@@ -504,6 +506,7 @@
         <button class="refine-dialog-close" type="button" id="refineDialogClose" aria-label="Fechar">×</button>
       </div>
       <div class="refine-dialog-state" id="refineDialogState">A analisar…</div>
+      <button class="btn stop-assessment" type="button" id="refineStopAssessmentBtn" hidden>Parar avaliação</button>
       <div class="refine-dialog-messages" id="refineDialogMessages" aria-live="polite">
         <div class="refine-dialog-message assistant" id="refineDialogText">Diz-me o que sabes sobre este carro.</div>
       </div>
@@ -535,7 +538,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261104-fuel-model-v1"></script>
   <script src="./electric-range.js?v=20261104-costs-range-v1"></script>
-  <script type="module" src="./app-v2.js?v=20261104-fuel-model-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261104-stop-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261104-costs-range-v1"></script>
   <script type="module" src="./cockpit.js?v=20261026-reset-v1"></script>
   <!-- detailed-readout-deploy-retry -->
