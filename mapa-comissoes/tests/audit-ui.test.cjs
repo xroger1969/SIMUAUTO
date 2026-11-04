@@ -124,6 +124,7 @@ test('a failed history write retains the calculated snapshot and can be retried'
 test('network polling interruption is recoverable while a terminal provider failure is not',async()=>{
   const ctx=harness({assertOperation(){},wait:async()=>{},progress(){},fetchJson:async()=>{throw Error('network')}});
   vm.runInContext(source('function pendingResearchError','async function runMarketAnalysis'),ctx);
+  ctx.waitForMarketPoll=async()=>{};
   await assert.rejects(ctx.pollMarketJob('job-one',{}),error=>error.recoverable===true);
   ctx.fetchJson=async()=>({response:{ok:false,status:502},data:{error:'market_job_failed',message:'Provider failed'}});
   await assert.rejects(ctx.pollMarketJob('job-one',{}),error=>!error.recoverable&&error.message==='Provider failed');
@@ -134,7 +135,7 @@ test('network polling interruption is recoverable while a terminal provider fail
 
 test('history exposes an old pending job without a recent-time cutoff',async()=>{
   const calls=[];let resume=null;
-  const query={select(){return this},eq(...args){calls.push(['eq',...args]);return this},in(){return this},order(){return this},limit:async()=>({data:[{id:'old-job',analysis_id:'old-analysis',created_at:'2026-09-01T12:00:00Z',context:{previous_subject:{make:'Tesla',model:'Model Y'}}}]})};
+  const query={select(){return this},eq(...args){calls.push(['eq',...args]);return this},in(){return this},neq(...args){calls.push(['neq',...args]);return this},order(){return this},limit:async()=>({data:[{id:'old-job',analysis_id:'old-analysis',created_at:'2026-09-01T12:00:00Z',context:{previous_subject:{make:'Tesla',model:'Model Y'}}}]})};
   const ctx=harness({db:{from:()=>query},document:{createElement:()=>({children:[],append(...xs){this.children.push(...xs)},addEventListener(name,fn){this.listener=fn}})},closeHistory(){},resumePendingAnalysis:id=>{resume=id}});
   vm.runInContext(source('async function loadRecoverableJobs','function openHistory'),ctx);
   await ctx.loadRecoverableJobs();
@@ -142,7 +143,7 @@ test('history exposes an old pending job without a recent-time cutoff',async()=>
   const [label,,button]=ctx.q('historyPendingList').children[0].children;
   assert.equal(label.textContent,'Tesla Model Y');
   button.listener();assert.equal(resume,'old-job');
-  assert.deepEqual(calls,[['eq','user_id','user-one']]);
+  assert.deepEqual(calls,[['eq','user_id','user-one'],['neq','cap_analyses.status','done']]);
 });
 
 
@@ -164,3 +165,28 @@ test('simultaneous save retries do not duplicate the same evidence write',async(
   assert.equal(writes,1);
 });
 
+
+test('a completed response is collected after the phone resumes past the polling deadline',async()=>{
+  let calls=0;
+  const ctx=harness({assertOperation(){},progress(){},fetchJson:async()=>{calls++;return {response:{ok:true,status:200},data:{status:'completed',subject:{make:'Peugeot'}}}}});
+  vm.runInContext(source('function pendingResearchError','async function runMarketAnalysis'),ctx);
+  const result=await ctx.pollMarketJob('job-one',{},0);
+  assert.equal(calls,1);assert.equal(result.subject.make,'Peugeot');
+  ctx.fetchJson=async()=>({response:{ok:true,status:202},data:{status:'in_progress'}});
+  await assert.rejects(ctx.pollMarketJob('job-one',{},0),error=>error.recoverable===true);
+});
+
+test('reload offers an owner-scoped recovery checkpoint without starting a new assessment',()=>{
+  const values=new Map();let fetches=0;
+  const ctx=harness({activeOperation:null,localStorage:{setItem:(k,v)=>values.set(k,v),getItem:k=>values.get(k)||null,removeItem:k=>values.delete(k)},fetchJson:()=>{fetches++;throw Error('must not start');}});
+  vm.runInContext(source('function pendingResearchError','async function runMarketAnalysis'),ctx);
+  ctx.rememberResearchCheckpoint({analysisId:'analysis-one',jobId:'job-one'});
+  ctx.restoreResearchCheckpoint();
+  assert.equal(ctx.pendingResearch.jobId,'job-one');assert.equal(fetches,0);
+  assert.match(ctx.q('pendingResearchText').textContent,/sem reenviar/);
+  ctx.session.user.id='user-two';ctx.pendingResearch=null;ctx.restoreResearchCheckpoint();
+  assert.equal(ctx.pendingResearch,null);
+  ctx.session.user.id='user-one';ctx.rememberResearchCheckpoint({analysisId:'new-analysis',jobId:'new-job'});
+  ctx.clearResearchCheckpoint({analysisId:'analysis-one'});ctx.restoreResearchCheckpoint();
+  assert.equal(ctx.pendingResearch.jobId,'new-job','an older save must not erase a newer job');
+});

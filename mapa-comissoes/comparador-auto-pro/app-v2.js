@@ -290,8 +290,8 @@ async function loadHistory(reset=false){
 }
 async function loadRecoverableJobs(){
   const list=q("historyPendingList");if(!list||!session)return;
-  const {data,error}=await db.from("cap_jobs").select("id,analysis_id,status,context,created_at")
-    .eq("user_id",session.user.id).in("status",["starting","queued","in_progress"])
+  const {data,error}=await db.from("cap_jobs").select("id,analysis_id,status,context,created_at,cap_analyses!inner(status)")
+    .eq("user_id",session.user.id).in("status",["starting","queued","in_progress","completed"]).neq("cap_analyses.status","done")
     .order("created_at",{ascending:false}).limit(40);
   list.innerHTML="";
   if(error){list.textContent="Pesquisas pendentes indisponíveis.";return}
@@ -301,7 +301,7 @@ async function loadRecoverableJobs(){
     const v=job.context?.previous_subject||{};
     label.textContent=[v.make,v.model,v.trim].filter(Boolean).join(" ")||"Pesquisa pendente";
     const when=document.createElement("small");when.textContent=job.created_at?historyDate.format(new Date(job.created_at)):"";
-    const button=document.createElement("button");button.type="button";button.className="btn ghost small";button.textContent="Retomar pesquisa";
+    const button=document.createElement("button");button.type="button";button.className="btn ghost small";button.textContent=job.status==="completed"?"Abrir resultado disponível":"Retomar pesquisa";
     button.addEventListener("click",()=>{closeHistory();resumePendingAnalysis(job.id)});
     item.append(label,when,button);list.appendChild(item);
   }
@@ -1493,6 +1493,7 @@ function stopActiveAssessment(){
   const op=activeOperation;
   if(!op?.cancelable||op.resultReady)return;
   op.cancelled=true;op.controller.abort();
+  clearResearchCheckpoint(op);
   activeOperation=null;setOperationBusy(false);stopProgress();
   pendingResearch=null;q("pendingResearch")?.classList.add("hidden");
   q("refineDialog")?.classList.add("hidden");
@@ -1638,7 +1639,9 @@ async function retryPendingSaves(){
 async function persistCompletedAnalysis(analysisId,result,market,reader,entry,marketPayload,calculationKind="analysis"){
   const item={analysisId,snapshot:JSON.parse(JSON.stringify(calculationKind==="tax_simulation"&&currentMarketData?.savedSnapshot?{...currentMarketData.savedSnapshot,result,saved_at:new Date().toISOString(),calculation_kind:calculationKind}:makeSnapshot(result,market,reader,entry,marketPayload,calculationKind)))};
   pendingAnalysisSaves.push(item);syncPendingSaves();
-  return retryPendingSaves();
+  const saved=await retryPendingSaves();
+  if(saved)clearResearchCheckpoint({analysisId});
+  return saved;
 }
 globalThis.saveAutoProTaxSimulation=async function(simulation){
   if(activeOperation||!session||!currentAnalysisId||!currentResult||!currentMarketData)throw new Error("Conclui uma avaliação primeiro.");
@@ -1659,7 +1662,8 @@ async function initializeAppData(){
   await Promise.allSettled([refreshMemoryCount(),loadDealPreferences(),loadMemories()]);
   try{pendingAnalysisSaves=JSON.parse(sessionStorage.getItem(pendingSavesKey())||"[]").filter(item=>item.analysisId&&item.snapshot?.result)}catch{pendingAnalysisSaves=[]}
   if(pendingAnalysisSaves.length)await retryPendingSaves();
-  // Pending research is resumed only by an explicit action in the history.
+  // Keep the form empty on launch; offer explicit recovery without a new search.
+  restoreResearchCheckpoint();
 }
 
 function auto1Request(action,url,timeout=80000){
@@ -2158,6 +2162,7 @@ function showAssessmentFailure(error,operation){
   const raw=failure.message;
   const message=/JSON|Unexpected|position/.test(raw)?"A resposta do serviço ficou inválida. Não foi emitida uma recomendação de compra.":/Load failed|Failed to fetch|NetworkError|network connection/i.test(raw)?"A ligação caiu. A pesquisa fica identificada para evitar duplicações.":raw;
   operation.failed=true;
+  clearResearchCheckpoint(operation);
   const panel=q("emptyState");
   panel.classList.remove("hidden");
   panel.querySelector("h2").textContent=failure.code==="ai_credits_exhausted"?"Avaliação indisponível: falta saldo":failure.billing?"Avaliação indisponível: limite da API":"Não consegui concluir esta avaliação";
@@ -2167,26 +2172,69 @@ function showAssessmentFailure(error,operation){
   panel.focus({preventScroll:true});
   return message;
 }
+function researchCheckpointKey(){return "cap:research-checkpoint:"+(session?.user?.id||"")}
+function rememberResearchCheckpoint(operation){
+  if(!operation?.analysisId)return;
+  try{localStorage.setItem(researchCheckpointKey(),JSON.stringify({analysisId:operation.analysisId,jobId:operation.jobId||null,savedAt:Date.now()}));}catch{}
+}
+function clearResearchCheckpoint(operation){
+  try{
+    const saved=JSON.parse(localStorage.getItem(researchCheckpointKey())||"null");
+    if(saved?.analysisId===operation?.analysisId)localStorage.removeItem(researchCheckpointKey());
+  }catch{}
+}
+function restoreResearchCheckpoint(){
+  if(!session||activeOperation)return;
+  try{
+    const saved=JSON.parse(localStorage.getItem(researchCheckpointKey())||"null");
+    if(saved?.analysisId&&Date.now()-saved.savedAt<24*60*60*1000){
+      showPendingResearch(saved,"Tens uma avaliação por recolher. Abre o resultado ou retoma a pesquisa, sem reenviar as fotografias.");
+    }
+  }catch{}
+}
+function showMarketProgress(data={}){
+  const detail=data.progress;if(!detail)return;
+  const v=detail.vehicle||{};
+  const vehicle=[v.make,v.model,v.year,v.mileage_km!=null?Number(v.mileage_km).toLocaleString("pt-PT")+" km":null].filter(Boolean).join(" · ");
+  const seconds=Math.max(0,Number(detail.elapsed_seconds)||0);
+  const elapsed=seconds>=60?Math.floor(seconds/60)+" min "+seconds%60+" s":seconds+" s";
+  const identified=detail.stage!=="identify"&&!!v.make;
+  const title=identified?(detail.search_step>0?"A alargar a pesquisa de mercado…":"Viatura identificada · a pesquisar preços…"):"A ler os dados da viatura…";
+  const searches=detail.searches_completed?detail.searches_completed+" consulta(s) concluída(s).":"";
+  progress(title,[vehicle,elapsed,searches,"Podes sair e retomar esta avaliação; não precisas de reenviar as fotografias."].filter(Boolean).join(" · "));
+}
+function waitForMarketPoll(operation){
+  return new Promise(resolve=>{
+    const finish=()=>{clearTimeout(timer);document.removeEventListener("visibilitychange",visible);window.removeEventListener("online",finish);operation.controller?.signal.removeEventListener("abort",finish);resolve();};
+    const visible=()=>{if(!document.hidden)finish();};
+    const timer=setTimeout(finish,2200);
+    document.addEventListener("visibilitychange",visible);window.addEventListener("online",finish);
+    operation.controller?.signal.addEventListener("abort",finish,{once:true});
+    if(operation.controller?.signal.aborted)finish();
+  });
+}
 function showPendingResearch(operation,message){
+  rememberResearchCheckpoint(operation);
   pendingResearch={jobId:operation.jobId||null,analysisId:operation.analysisId||null};
   const panel=q("pendingResearch");if(!panel)return;
   panel.classList.remove("hidden");q("pendingResearchText").textContent=message;
 }
 q("resumeResearchBtn")?.addEventListener("click",()=>resumePendingAnalysis(pendingResearch?.jobId,pendingResearch?.analysisId));
 async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
-  const startedAt=Date.now();let consecutiveNetworkFailures=0;
-  while(Date.now()-startedAt<timeoutMs){
+  const startedAt=Date.now();let consecutiveNetworkFailures=0,firstPoll=true;
+  while(true){
     assertOperation(operation);
-    await wait(2200);
+    if(!firstPoll)await waitForMarketPoll(operation);
     assertOperation(operation);
-    if(Date.now()-startedAt>12000)progress("A pesquisar o mercado…","");
     let poll;
     try{
-      poll=await fetchJson("/api/comparador-market?job_id="+encodeURIComponent(jobId),{
+      poll=await fetchJson("/api/comparador-market?job_id="+encodeURIComponent(jobId)+(firstPoll&&operation.kind==="resume"?"&resume=1":""),{
         method:"GET",headers:{authorization:"Bearer "+session.access_token},signal:operation.controller?.signal
       },20000);
+      firstPoll=false;
       if(poll.response.ok)consecutiveNetworkFailures=0;
     }catch(error){
+      firstPoll=false;
       assertOperation(operation);
       consecutiveNetworkFailures++;
       if(consecutiveNetworkFailures<4)continue;
@@ -2194,7 +2242,12 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
     }
     assertOperation(operation);
     if(poll.data.error==="market_job_cancelled"||poll.data.status==="cancelled")throw Object.assign(new Error("Avaliação parada."),{cancelled:true});
-    if(poll.response.status===202||["starting","queued","in_progress"].includes(poll.data.status))continue;
+    if(poll.response.status===202||["starting","queued","in_progress"].includes(poll.data.status)){
+      showMarketProgress(poll.data);
+      // Always collect a completed result after iOS resumes, even past the UI deadline.
+      if(Date.now()-startedAt>=timeoutMs)throw pendingResearchError("A pesquisa ficou guardada. Podes recolher o resultado aqui ou no histórico.");
+      continue;
+    }
     if(!poll.response.ok){
       const error=marketRequestError(poll.data);
       const terminal=error.billing||["market_job_failed","openai_market_failed","market_start_interrupted"].includes(poll.data.error);
@@ -2206,10 +2259,10 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
     }
     return poll.data;
   }
-  throw pendingResearchError("A pesquisa continua pendente. Podes retomá-la aqui ou no histórico.");
 }
 async function runMarketAnalysis(payload,operation){
   assertOperation(operation);
+  rememberResearchCheckpoint(operation);
   const requestBody={...payload,dealer_memories:(payload.dealer_memories||[]).filter(r=>r.effect?.mode!=="supervised"),analysis_id:operation.analysisId,request_key:operation.requestKey};
   let start=null;
   for(let attempt=0;attempt<2;attempt++){
@@ -2237,7 +2290,7 @@ async function runMarketAnalysis(payload,operation){
   if(start.data.subject)return start.data;
   const jobId=start.data.job_id;
   if(!jobId)throw new Error("O radar iniciou sem identificador persistente.");
-  operation.jobId=jobId;
+  operation.jobId=jobId;rememberResearchCheckpoint(operation);showMarketProgress(start.data);
   const result=await pollMarketJob(jobId,operation);
   q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
   if(start.data.registration_data&&!result.registration_data)result.registration_data=start.data.registration_data;
@@ -2258,7 +2311,7 @@ async function resumePendingAnalysis(jobId=null,analysisId=null){
   if(!analysis)return;
   clearSavedRevisionView();
   if(currentAnalysisId!==job.analysis_id)resetDealCosts();
-  const operation=beginOperation("resume",job.analysis_id);operation.jobId=job.id;
+  const operation=beginOperation("resume",job.analysis_id);operation.jobId=job.id;rememberResearchCheckpoint(operation);
   currentAnalysisId=job.analysis_id;
   currentVehicle=null;currentResult=null;publishAssessment(null);
   currentMarketData=null;lastAnalysisContext=null;
