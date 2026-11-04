@@ -173,6 +173,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261104-stop-v1/);
+ assert.match(html,/app-v2\.js\?v=20261104-visible-errors-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });

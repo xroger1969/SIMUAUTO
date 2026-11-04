@@ -12,7 +12,7 @@ function harness({context={},response_id='resp_initial',comparables=[],cache=[]}
   const job={id:'00000000-0000-4000-8000-000000000001',response_id,status:'in_progress',created_at:ago(),updated_at:ago(),context:{stage:'market',previous_subject:car,...context}};
   const stats={launches:[],providerReads:0};
   const output={status:'completed',id:response_id,output_text:JSON.stringify({subject:car,comparables})};
-  let failLaunch=false,failStartedSave=false,providerStatus=200;
+  let failLaunch=false,failStartedSave=false,providerStatus=200,launchError=null;
   const rest=async(token,query,options={})=>{
     const url=new URL('https://db.example/'+query),params=url.searchParams;
     if(options.method==='PATCH'){
@@ -34,13 +34,14 @@ function harness({context={},response_id='resp_initial',comparables=[],cache=[]}
       if(options?.method==='POST'){
         stats.launches.push({body:options.body,headers:options.headers});
         if(failLaunch){failLaunch=false;throw Error('connection reset');}
+        if(launchError)return {ok:false,status:429,json:async()=>({error:launchError})};
         return {ok:true,json:async()=>({id:'resp_market_'+stats.launches.length,status:'queued'})};
       }
       stats.providerReads++;
       return {ok:providerStatus===200,status:providerStatus,json:async()=>structuredClone(output)};
     }};
   vm.createContext(ctx);vm.runInContext(fs.readFileSync(apiPath,'utf8'),ctx);
-  return {job,stats,output,setProviderStatus:status=>{providerStatus=status;},api:ctx.module.exports._test,failNextLaunch:()=>{failLaunch=true;},failNextStartedSave:()=>{failStartedSave=true;},poll:async()=>{
+  return {job,stats,output,setLaunchError:error=>{launchError=error;},setProviderStatus:status=>{providerStatus=status;},api:ctx.module.exports._test,failNextLaunch:()=>{failLaunch=true;},failNextStartedSave:()=>{failStartedSave=true;},poll:async()=>{
     let status,result;await ctx.module.exports({method:'GET',query:{job_id:job.id}},{status:n=>({json:value=>{status=n;result=value;}})});return {status,result};
   }};
 }
@@ -54,6 +55,37 @@ test('raw adverts with no eligible price cannot be reused from either 24-hour ca
   assert.equal(await h.api.findFreshInputCache('test','signature'),null);
   row.result.comparables=[ad()];
   assert.equal((await h.api.findFreshMarketCache('test','key')).id,'cached');
+});
+
+test('credit exhaustion during market transition fails once and never starts another paid retry',async()=>{
+  const h=harness({context:{stage:'identify'}});
+  h.setLaunchError({code:'credit_balance_exhausted',type:'insufficient_quota',message:'You have no credits remaining.'});
+  await assert.rejects(h.poll(),error=>error.status===402&&error.code==='ai_credits_exhausted');
+  assert.equal(h.job.status,'failed');
+  assert.equal(h.job.context.provider_error_code,'ai_credits_exhausted');
+  assert.match(h.job.error_message,/sem créditos/);
+  const again=await h.poll();
+  assert.equal(again.status,402);assert.equal(again.result.error,'ai_credits_exhausted');
+  assert.equal(h.stats.launches.length,1);
+});
+
+test('background failure and legacy saved credit errors are reported as terminal billing failures',async()=>{
+  const h=harness();
+  h.output.status='failed';h.output.error={code:'credit_balance_exhausted',message:'You have no credits remaining.'};
+  await assert.rejects(h.poll(),error=>error.status===402&&error.code==='ai_credits_exhausted');
+  assert.equal(h.job.status,'failed');assert.equal(h.stats.launches.length,0);
+  h.job.context.provider_error_code=null;
+  h.job.error_message='You have no credits remaining. Add credits to continue using the API.';
+  const legacy=await h.poll();assert.equal(legacy.status,402);assert.match(legacy.result.message,/sem créditos/);
+});
+
+test('billing limits are distinct from transient provider rate limits',()=>{
+  const {providerError}=require('../lib/provider-error');
+  for(const code of ['project_spend_limit_exceeded','organization_usage_limit_exceeded','insufficient_quota']){
+    assert.equal(providerError({code,message:'Limit reached'}).code,'ai_billing_limit');
+  }
+  const rate=providerError({code:'rate_limit_exceeded',message:'Too many requests'});
+  assert.equal(rate.status,502);assert.equal(rate.code,'openai_market_error');
 });
 
 test('Captur Diesel provider identity completes with discovered Captur adverts instead of repeating three searches',async()=>{
