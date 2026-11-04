@@ -430,11 +430,63 @@ async function getOwnedJob(token,id){
 }
 
 async function updateJob(token,id,patch){
-  await rest(token,"cap_jobs?id=eq."+encodeURIComponent(id),{
+  const rows=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(id)+"&status=neq.cancelled",{
     method:"PATCH",
     body:{...patch,updated_at:nowIso()},
-    headers:{Prefer:"return=minimal"}
+    headers:{Prefer:"return=representation"}
   });
+  if(Array.isArray(rows)&&rows.length===0){
+    // A response may finish starting after the user stopped the job. Keep its
+    // identifier for cancellation retries, but never resurrect the stopped job.
+    if(patch.response_id){
+      await rest(token,"cap_jobs?id=eq."+encodeURIComponent(id)+"&status=eq.cancelled",{
+        method:"PATCH",body:{response_id:patch.response_id},headers:{Prefer:"return=minimal"}
+      });
+      await cancelProviderResponse(patch.response_id);
+    }
+    throw appError("Avaliação parada.",409,"market_job_cancelled");
+  }
+}
+
+async function cancelProviderResponse(responseId){
+  if(!responseId)return true;
+  try{
+    const response=await fetch("https://api.openai.com/v1/responses/"+encodeURIComponent(responseId)+"/cancel",{
+      method:"POST",signal:AbortSignal.timeout(10000),
+      headers:{authorization:"Bearer "+process.env.OPENAI_API_KEY,"content-type":"application/json"},body:"{}"
+    });
+    if(response.ok){
+      const data=await response.json();
+      return ["cancelled","completed","failed","incomplete"].includes(data.status);
+    }
+    console.warn("market_cancel_provider_failed",{status:response.status});
+  }catch(error){console.warn("market_cancel_provider_failed",{kind:error?.name||"unknown"});}
+  return false;
+}
+
+async function cancelMarketJob(token,body={}){
+  let job;
+  if(body.job_id){
+    if(!uuid.test(String(body.job_id)))throw appError("Pesquisa inválida.",400,"invalid_job_id");
+    job=await getOwnedJob(token,body.job_id);
+  }else{
+    if(!uuid.test(String(body.analysis_id))||!uuid.test(String(body.request_key)))throw appError("Pesquisa inválida.",400,"invalid_job_context");
+    // The shared request key also stops a POST still waiting for a plate lookup.
+    // cap_claim_job enforces analysis ownership and creates a durable tombstone.
+    const claim=await rest(token,"rpc/cap_claim_job",{method:"POST",body:{
+      p_analysis:body.analysis_id,p_request:body.request_key,p_context:{stage:"cancelled"}
+    }});
+    job=claim?.job;
+    if(!job?.id)throw appError("Não foi possível parar a pesquisa.",503,"job_cancel_failed");
+  }
+  const rows=await rest(token,"cap_jobs?id=eq."+encodeURIComponent(job.id)+"&status=in.(starting,queued,in_progress,cancelled)",{
+    method:"PATCH",body:{status:"cancelled",error_message:"Avaliação parada pelo utilizador.",updated_at:nowIso()},
+    headers:{Prefer:"return=representation"}
+  });
+  const stopped=rows?.[0];
+  if(!stopped)return {ok:true,status:job.status,job_id:job.id};
+  const providerCancelled=await cancelProviderResponse(stopped.response_id);
+  return {ok:true,status:"cancelled",job_id:job.id,provider_cancelled:providerCancelled};
 }
 
 async function findFreshMarketCache(token,key,excludeJobId=null){
@@ -746,6 +798,7 @@ async function launchMarketTransition(token,job,nextContext,{recover=false}={}){
   const pending={...nextContext,stage:"market_pending",transition_id:transitionId,pending_started_at:nowIso(),
     transition_retries:recover?(Number(job.context.transition_retries)||0)+1:0};
   let path="cap_jobs?id=eq."+encodeURIComponent(job.id)+"&context->>stage="+(job.context?.stage?"eq."+encodeURIComponent(job.context.stage):"is.null");
+  path+="&status=neq.cancelled";
   path+=job.response_id?"&response_id=eq."+encodeURIComponent(job.response_id):"&response_id=is.null";
   if(recover&&job.context.transition_id)path+="&context->>transition_id=eq."+encodeURIComponent(job.context.transition_id);
   if(recover&&job.context.pending_started_at)path+="&context->>pending_started_at=eq."+encodeURIComponent(job.context.pending_started_at);
@@ -758,6 +811,7 @@ async function launchMarketTransition(token,job,nextContext,{recover=false}={}){
     await updateJob(token,job.id,{response_id:next.id,status:next.status||"queued",error_message:null,context:{...pending,stage:"market",pending_started_at:null}});
     return {ok:true,status:next.status||"queued",job_id:job.id,recovery_step:Number(pending.market_search_step)||0};
   }catch(error){
+    if(error?.code==="market_job_cancelled")throw error;
     // Preserve the lease and search context so a dropped connection can be resumed.
     await updateJob(token,job.id,{status:startedResponse?.status||"in_progress",
       ...(startedResponse?.id?{response_id:startedResponse.id}:{}),error_message:clip(error?.message||error,600),
@@ -807,13 +861,15 @@ async function startResponse(context,imageDataUrls,metadata,identify){
 
 module.exports=endpoint(async function handler(req,res){
   if(!["GET","POST"].includes(req.method))return res.status(405).json({error:"method_not_allowed"});
-  if(!process.env.OPENAI_API_KEY)throw appError("OpenAI não configurada.",503,"openai_not_configured");
   const {token}=await authenticate(req);
+  if(req.method==="POST"&&req.body?.action==="cancel")return res.status(200).json(await cancelMarketJob(token,req.body));
+  if(!process.env.OPENAI_API_KEY)throw appError("OpenAI não configurada.",503,"openai_not_configured");
 
   if(req.method==="GET"){
     const jobId=String(req.query?.job_id||"").trim();
     if(!uuid.test(jobId))return res.status(400).json({error:"invalid_job_id"});
     const job=await getOwnedJob(token,jobId);
+    if(job.status==="cancelled")throw appError("Avaliação parada.",409,"market_job_cancelled");
     if(job.status==="completed"&&job.result)return res.status(200).json(job.result);
     if(job.status==="failed")return res.status(502).json({error:"market_job_failed",message:job.error_message||"A pesquisa terminou com erro.",job_id:job.id});
     if(job.context?.stage==="market_pending"){
@@ -967,6 +1023,7 @@ module.exports=endpoint(async function handler(req,res){
   const job=claim?.job;
   if(!job?.id)throw appError("Não foi possível criar a pesquisa.",503,"job_create_failed");
   if(claim.claimed!==true){
+    if(job.status==="cancelled")throw appError("Avaliação parada.",409,"market_job_cancelled");
     if(job.status==="completed"&&job.result)return res.status(200).json(job.result);
     if(job.status==="failed")return res.status(502).json({error:"market_job_failed",message:job.error_message||"A pesquisa anterior terminou com erro.",job_id:job.id});
     return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id});
@@ -1036,5 +1093,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
 
