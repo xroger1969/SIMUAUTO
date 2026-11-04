@@ -145,7 +145,8 @@
         <div class="tax-sim-fields">
           <label for="taxSimPurchase">Compra (€)<input id="taxSimPurchase" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" placeholder="—"></label>
           <label for="taxSimSale">Venda (€)<input id="taxSimSale" type="number" inputmode="decimal" min="0.01" max="10000000" step="0.01" placeholder="—"></label>
-          <label for="taxSimCosts">Custos e reserva (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" step="0.01" placeholder="—"></label>
+          <label for="taxSimCosts">Custos efetivos (€)<input id="taxSimCosts" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" value="0"></label>
+          <label for="taxSimReserve">Reserva para imprevistos (€)<input id="taxSimReserve" type="number" inputmode="decimal" min="0" max="10000000" step="0.01" value="0"></label>
           <label for="taxSimQuarterly">Vendas/trimestre
             <select id="taxSimQuarterly">
               <option value="1">1 carro</option><option value="2">2 carros</option>
@@ -166,6 +167,10 @@
             <span>Após IRS estimado</span><strong id="taxSimAfterIRS">—</strong>
           </div>
         </div>
+        <p class="tax-sim-one-line">Saldo após reserva: <strong id="taxSimAfterReserve">—</strong></p>
+        <p class="tax-sim-footnote">Custos efetivos são despesas do negócio. A reserva é dinheiro separado para imprevistos e só será despesa quando utilizado.</p>
+        <button class="btn ghost small" type="button" id="taxSimSave">Guardar ajustes no histórico</button>
+        <p id="taxSimSaveStatus" role="status"></p>
         <p class="tax-sim-one-line" id="taxSimSummary" aria-live="polite">—</p>
         <details class="tax-sim-details" id="taxSimDetails">
           <summary>Ver detalhes e ajustar IRS <span aria-hidden="true">⌄</span></summary>
@@ -230,6 +235,9 @@
           <span>Autonomia WLTP combinada</span>
           <strong id="electricRangeValue">Por confirmar</strong>
           <small id="electricRangeVariant"></small>
+          <small id="electricBatteryValue"></small>
+          <small id="electricRealRangeValue"></small>
+          <a id="electricRealRangeSource" target="_blank" rel="noopener noreferrer" hidden>Fonte da estimativa ↗</a>
         </div>
         <a id="electricRangeSource" href="#" target="_blank" rel="noopener noreferrer" hidden>Fonte ↗</a>
       </section>
@@ -523,9 +531,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261026-listing-links-v1"></script>
-  <script src="./electric-range.js?v=20261024-wltp-v1"></script>
-  <script type="module" src="./app-v2.js?v=20261026-reset-v1"></script>
-  <script type="module" src="./tax-simulator-ui.js?v=20261023-eni-sync-v1"></script>
+  <script src="./electric-range.js?v=20261104-costs-range-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261104-costs-range-v1"></script>
+  <script type="module" src="./tax-simulator-ui.js?v=20261104-costs-range-v1"></script>
   <script type="module" src="./cockpit.js?v=20261026-reset-v1"></script>
   <!-- detailed-readout-deploy-retry -->
   <!-- collapsed-readout-deploy-retry -->

@@ -114,7 +114,7 @@ test('real page loads the shared identity module before the current valuation en
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
   assert.match(app,/valuation\.js\?v=20261023-supervised-v1/);
-  assert.match(html,/tax-simulator-ui\.js\?v=20261023-[a-z0-9-]+/);
+  assert.match(html,/tax-simulator-ui\.js\?v=20261104-costs-range-v1/);
 });
 
 test('simultaneous save retries do not duplicate the same evidence write',async()=>{

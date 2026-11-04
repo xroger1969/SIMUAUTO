@@ -24,11 +24,11 @@
       year:number(v.year),fuel:text(v.fuel),battery_kwh:number(v.battery_kwh),
       power_cv:number(v.power_cv),drivetrain:text(v.drivetrain)};
   }
-  const isElectric=vehicle=>rangeIdentity(vehicle).fuel==="electric";
+  const isElectric=vehicle=>["electric","phev"].includes(rangeIdentity(vehicle).fuel);
   const sameIdentity=(a,b)=>JSON.stringify(rangeIdentity(a))===JSON.stringify(rangeIdentity(b));
   function matchingVersion(subject,reference){
     const a=rangeIdentity(subject),b=rangeIdentity(reference);
-    if(a.fuel!=="electric"||b.fuel!=="electric"||!a.make||a.make!==b.make||!a.model||a.model!==b.model)return false;
+    if(!["electric","phev"].includes(a.fuel)||a.fuel!==b.fuel||!a.make||a.make!==b.make||!a.model||a.model!==b.model)return false;
     if(!a.year||a.year!==b.year)return false;
     for(const field of ["trim","generation","drivetrain"]){
       if(a[field]&&a[field]!==b[field])return false;
@@ -39,9 +39,19 @@
     // A model name alone cannot select a battery/range variant.
     return !!(a.trim&&a.trim===b.trim&&((a.battery_kwh&&b.battery_kwh)||(a.power_cv&&b.power_cv)));
   }
+  function normalizeRealRange(candidate,subject,sources){
+    if(!candidate||candidate.version_match!=="exact"||!matchingVersion(subject,candidate.vehicle))return null;
+    const low=candidate.min_km,high=candidate.max_km,url=safeUrl(candidate.source_url);
+    if(!Number.isInteger(low)||!Number.isInteger(high)||low<5||high<low||high>1500||!url)return null;
+    if(!sources.some(source=>safeUrl(source?.url||source?.link)===url))return null;
+    const evidence=String(candidate.evidence||"");
+    const numbers=[...evidence.matchAll(/\b(\d{1,4})\s*km\b/gi)].map(match=>Number(match[1]));
+    if(!numbers.includes(low)||!numbers.includes(high)||!String(candidate.conditions||"").trim())return null;
+    return {min_km:low,max_km:high,source_url:url,conditions:String(candidate.conditions).slice(0,300),evidence:evidence.slice(0,600)};
+  }
   function normalizeRange(candidate,subject,sources=[],observedAt=new Date().toISOString()){
     if(!candidate||candidate.cycle!=="WLTP_COMBINED"||candidate.version_match!=="exact")return null;
-    if(!Number.isInteger(candidate.combined_km)||candidate.combined_km<30||candidate.combined_km>1500)return null;
+    if(!Number.isInteger(candidate.combined_km)||candidate.combined_km<10||candidate.combined_km>1500)return null;
     if(!["manufacturer","homologation"].includes(candidate.source_type)||!matchingVersion(subject,candidate.vehicle))return null;
     const url=safeUrl(candidate.source_url);
     if(!url||!sources.some(source=>safeUrl(source?.url||source?.link)===url))return null;
@@ -54,21 +64,26 @@
     return {combined_km:candidate.combined_km,cycle:"WLTP_COMBINED",source_url:url,
       source_title:String(candidate.source_title||"Fonte WLTP").slice(0,240),
       source_type:candidate.source_type,source_variant:String(candidate.source_variant||"").slice(0,240),
-      reference_battery_kwh:positive(candidate.vehicle.battery_kwh)?Number(candidate.vehicle.battery_kwh):null,
+      reference_battery_kwh:positive(candidate.vehicle.battery_kwh)&&[...String(candidate.battery_evidence||evidence).matchAll(/(\d+(?:[.,]\d+)?)\s*kWh/gi)].some(m=>Number(m[1].replace(",","."))===Number(candidate.vehicle.battery_kwh))?Number(candidate.vehicle.battery_kwh):null,
+      battery_evidence:String(candidate.battery_evidence||evidence).slice(0,600),
+      battery_basis:["usable","gross"].includes(candidate.battery_basis)?candidate.battery_basis:"unknown",
+      real_range:normalizeRealRange(candidate.real_range,subject,sources),
       evidence:evidence.slice(0,600),identity:rangeIdentity(subject),
       source_url_verified:true,observed_at:observedAt};
   }
   function confirmedRange(vehicle={}){
     const range=vehicle.ev_range;
     if(!isElectric(vehicle)||!range||range.source_url_verified!==true||range.cycle!=="WLTP_COMBINED")return null;
-    if(!Number.isInteger(range.combined_km)||range.combined_km<30||range.combined_km>1500||!safeUrl(range.source_url))return null;
+    if(!Number.isInteger(range.combined_km)||range.combined_km<10||range.combined_km>1500||!safeUrl(range.source_url))return null;
     if(!range.identity||!sameIdentity(vehicle,range.identity))return null;
     return range;
   }
   const nullableString={type:["string","null"]},nullableNumber={type:["number","null"]};
   const vehicleProperties={make:nullableString,model:nullableString,trim:nullableString,generation:nullableString,
     year:{type:["integer","null"]},fuel:nullableString,battery_kwh:nullableNumber,power_cv:nullableNumber,drivetrain:nullableString};
-  const properties={combined_km:{type:["integer","null"]},cycle:{type:"string",enum:["WLTP_COMBINED","WLTP_CITY","NEDC","EPA","unknown"]},
+  const realProperties={version_match:{type:"string",enum:["exact","ambiguous","unknown"]},vehicle:{type:"object",additionalProperties:false,required:Object.keys(vehicleProperties),properties:vehicleProperties},min_km:{type:"integer"},max_km:{type:"integer"},source_url:{type:"string"},conditions:{type:"string"},evidence:{type:"string"}};
+  const properties={battery_evidence:nullableString,battery_basis:{type:"string",enum:["usable","gross","unknown"]},
+    real_range:{anyOf:[{type:"null"},{type:"object",additionalProperties:false,required:Object.keys(realProperties),properties:realProperties}]},combined_km:{type:["integer","null"]},cycle:{type:"string",enum:["WLTP_COMBINED","WLTP_CITY","NEDC","EPA","unknown"]},
     version_match:{type:"string",enum:["exact","ambiguous","unknown"]},
     vehicle:{type:"object",additionalProperties:false,required:Object.keys(vehicleProperties),properties:vehicleProperties},
     source_url:nullableString,source_title:nullableString,source_variant:nullableString,

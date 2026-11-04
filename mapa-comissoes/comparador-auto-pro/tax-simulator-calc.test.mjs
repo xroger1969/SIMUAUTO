@@ -79,3 +79,13 @@ test("a opção SS rejeita valores não booleanos em vez de os interpretar como 
   assert.throws(()=>calculateTaxSim({purchase:19600,sale:22990,includeSocialSecurity}),/Segurança Social.*booleana/);
  }
 });
+
+
+test("reserve is separate from expenses and tax bases",()=>{
+ const base=calculateTaxSim({purchase:19000,sale:23000,costs:250,irsRate:20});
+ const reserved=calculateTaxSim({purchase:19000,sale:23000,costs:250,reserve:500,irsRate:20});
+ assert.equal(reserved.afterIRS,base.afterIRS);
+ assert.equal(reserved.taxableIncome,base.taxableIncome);
+ assert.equal(reserved.afterReserve,Math.round((base.afterIRS-500)*100)/100);
+ for(const reserve of [-1,NaN,Infinity,"100",10000001])assert.throws(()=>calculateTaxSim({purchase:19000,sale:23000,reserve}));
+});

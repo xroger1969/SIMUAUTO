@@ -106,3 +106,17 @@ test("the visible range panel clears stale values and links when changing vehicl
     assert.ok(html.indexOf('src="./electric-range.js?')<html.indexOf('type="module" src="./app-v2.js?'));
   }finally{dom.window.close();}
 });
+
+
+test("PHEV validates electric WLTP and a separately sourced real-world estimate",()=>{
+ const phev={...vehicle,fuel:"phev",battery_kwh:12};
+ const real={version_match:"exact",vehicle:phev,min_km:35,max_km:45,source_url:"https://example.test/road-test",conditions:"Percurso misto, 20 °C",evidence:"Autonomia elétrica medida: 35 km a 45 km."};
+ const c={...candidate(),vehicle:phev,combined_km:50,evidence:"Autonomia elétrica WLTP combinada: 50 km. Bateria 12 kWh.",real_range:real,battery_basis:"usable"};
+ const range=normalizeRange(c,phev,[...sources,{url:real.source_url}]);
+ assert.equal(range.combined_km,50);assert.equal(range.reference_battery_kwh,12);assert.equal(range.real_range.min_km,35);
+ assert.equal(confirmedRange({...phev,ev_range:range}).combined_km,50);
+ assert.equal(normalizeRange(c,phev,sources).real_range,null);
+ assert.equal(normalizeRange({...c,battery_evidence:"Sem capacidade documentada"},phev,sources).reference_battery_kwh,null);
+ assert.equal(normalizeRange({...c,real_range:{...real,evidence:"Estimativa sem valores"}},phev,[...sources,{url:real.source_url}]).real_range,null);
+ assert.equal(normalizeRange(c,vehicle,sources),null);
+});

@@ -1,9 +1,9 @@
-import {calculateTaxSim} from "./tax-simulator-calc.mjs?v=20261023-progressive-v1";
+import {calculateTaxSim} from "./tax-simulator-calc.mjs?v=20261104-costs-v1";
 
 // Só as preferências fiscais persistem entre pesquisas. Os montantes acompanham
 // a avaliação visível e deixam de existir quando se inicia outra pesquisa.
 const STORAGE_KEY="aap-tax-sim-v2";
-const DEAL_FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts"];
+const DEAL_FIELD_IDS=["taxSimPurchase","taxSimSale","taxSimCosts","taxSimReserve"];
 const PREFERENCE_IDS=["taxSimQuarterly","taxSimIrsRate","taxSimSocialEnabled","taxSimAnnualSales","taxSimGrossSalary"];
 const FIELD_IDS=[...DEAL_FIELD_IDS,...PREFERENCE_IDS];
 let syncedAssessment;
@@ -40,7 +40,7 @@ function numberFrom(id){
  return val;
 }
 function clearOutputs(){
- ["taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimIrs","taxSimAfterIRS"].forEach(id=>{byId(id).textContent="—";});
+ ["taxSimAfterReserve","taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimIrs","taxSimAfterIRS"].forEach(id=>{byId(id).textContent="—";});
  byId("taxSimSummary").textContent="—";
  byId("taxSimWarning").textContent="";
 }
@@ -50,7 +50,7 @@ function clearCostSource(){
  if(field.dataset){delete field.dataset.assessmentFixedCosts;delete field.dataset.assessmentRiskReserve;}
 }
 function clearDeal(){
- DEAL_FIELD_IDS.forEach(id=>{byId(id).value="";});
+ DEAL_FIELD_IDS.forEach(id=>{byId(id).value=["taxSimCosts","taxSimReserve"].includes(id)?"0":"";});
  clearCostSource();
  clearOutputs();
  const error=byId("taxSimError");
@@ -60,7 +60,7 @@ function clearDeal(){
 function render(){
  const error=byId("taxSimError");
  saveState();
- if(DEAL_FIELD_IDS.every(id=>!byId(id).value.trim())){
+ if(["taxSimPurchase","taxSimSale"].every(id=>!byId(id).value.trim())){
   clearOutputs();error.hidden=true;error.textContent="";return;
  }
  try{
@@ -68,7 +68,7 @@ function render(){
   const includeSocialSecurity=byId("taxSimSocialEnabled")?.checked===true;
   const r=calculateTaxSim({
    purchase:numberFrom("taxSimPurchase"),sale:numberFrom("taxSimSale"),
-   costs:numberFrom("taxSimCosts"),quarterlySales:numberFrom("taxSimQuarterly"),
+   costs:numberFrom("taxSimCosts"),reserve:numberFrom("taxSimReserve"),quarterlySales:numberFrom("taxSimQuarterly"),
    irsRate:irs?irs.replace(",","."):null,includeSocialSecurity,automaticIRS:true,
    annualSales:byId("taxSimAnnualSales")?numberFrom("taxSimAnnualSales"):10,
    monthlyGrossSalary:byId("taxSimGrossSalary")?numberFrom("taxSimGrossSalary"):730
@@ -77,8 +77,9 @@ function render(){
   const ids={taxSimMargin:r.grossMargin,taxSimVat:r.marginVat,taxSimExpense:r.costs,taxSimSocial:r.socialPerCar,taxSimTaxable:r.taxableIncome,taxSimBeforeIRS:r.beforeIRS};
   Object.entries(ids).forEach(([id,val])=>{byId(id).textContent=eur(val);});
   byId("taxSimIrs").textContent=r.irsEstimate===null?"—":eur(r.irsEstimate);
+  byId("taxSimAfterReserve").textContent=r.afterReserve===null?"—":eur(r.afterReserve);
   byId("taxSimAfterIRS").textContent=r.afterIRS===null?"—":eur(r.afterIRS);
-  byId("taxSimSummary").textContent="Margem "+eur(r.grossMargin)+" · IVA "+eur(r.marginVat)+" · "+(includeSocialSecurity?"SS "+eur(r.socialPerCar):"SS não incluída")+" · Despesas "+eur(r.costs);
+  byId("taxSimSummary").textContent="Margem "+eur(r.grossMargin)+" · IVA "+eur(r.marginVat)+" · "+(includeSocialSecurity?"SS "+eur(r.socialPerCar):"SS não incluída")+" · Despesas "+eur(r.costs)+" · Reserva "+eur(r.reserve);
   const warnings=[];
   if(r.exceedsSimplifiedSingleYearThreshold)warnings.push("Projeção anual superior a 250.000 €: confirmar a obrigatoriedade de contabilidade organizada no ano seguinte.");
   else if(r.requiresAnnualReview)warnings.push("Projeção anual superior a 200.000 €: confirmar o enquadramento fiscal.");
@@ -107,19 +108,13 @@ function useAssessmentPrices(){
  }
  const purchase=assessmentAmount(assessment.purchase?.currentPrice)??assessmentAmount(assessment.purchase?.effectiveCeiling);
  const sale=assessmentAmount(assessment.market?.saleLikely);
- const fixedCosts=assessmentAmount(assessment.purchase?.fixedCosts),reserve=assessmentAmount(assessment.purchase?.riskReserve);
- if(purchase===null||sale===null||sale<=0||fixedCosts===null||reserve===null){showUseError("Faltam preços ou custos nesta avaliação.");return false;}
- const costs=Math.round((fixedCosts+reserve)*100)/100;
- if([purchase,sale,costs].some(value=>value>10000000)){showUseError("Os valores da avaliação são inválidos.");return false;}
+ if(purchase===null||sale===null||sale<=0){showUseError("Faltam preços nesta avaliação.");return false;}
+ if([purchase,sale].some(value=>value>10000000)){showUseError("Os valores da avaliação são inválidos.");return false;}
  byId("taxSimPurchase").value=String(purchase);
  byId("taxSimSale").value=String(sale);
- const costField=byId("taxSimCosts");
- costField.value=String(costs);
- costField.title="Custos: "+eur(fixedCosts)+" · Reserva de risco: "+eur(reserve);
- if(costField.dataset){
-  costField.dataset.assessmentFixedCosts=String(fixedCosts);
-  costField.dataset.assessmentRiskReserve=String(reserve);
- }
+ byId("taxSimCosts").value="0";
+ byId("taxSimReserve").value="0";
+ clearCostSource();
  render();
  return true;
 }
@@ -130,13 +125,37 @@ function syncAssessment(){
  if(assessment&&assessment===syncedAssessment)return;
  syncedAssessment=assessment;
  clearDeal();
- if(assessment)useAssessmentPrices();
+ if(assessment){
+  if(useAssessmentPrices()&&assessment.tax_simulation?.fields){
+   const saved=assessment.tax_simulation.fields;
+   FIELD_IDS.forEach(id=>{const el=byId(id);if(el&&typeof saved[id]==="string")el.value=saved[id];else if(el?.type==="checkbox"&&typeof saved[id]==="boolean")el.checked=saved[id];});
+   render();
+  }
+ }
+ byId("taxSimSaveStatus").textContent="";
 }
 function openSimulator(useAssessment=false){
  const panel=byId("taxSimulator");panel.open=true;
  if(useAssessment)useAssessmentPrices();
  panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
+globalThis.AutoProTaxSimulation={snapshot(){
+ const fields={};
+ FIELD_IDS.forEach(id=>{const el=byId(id);fields[id]=el?.type==="checkbox"?el.checked:el?.value??"";});
+ return {version:1,fields};
+}};
+byId("taxSimSave")?.addEventListener("click",async()=>{
+ render();
+ if(!byId("taxSimError").hidden)return;
+ const status=byId("taxSimSaveStatus"),button=byId("taxSimSave");
+ button.disabled=true;status.textContent="A guardar…";
+ try{
+  if(!globalThis.saveAutoProTaxSimulation)throw Error("Conclui uma avaliação primeiro.");
+  const saved=await globalThis.saveAutoProTaxSimulation(globalThis.AutoProTaxSimulation.snapshot());
+  status.textContent=saved?"Ajustes guardados no histórico.":"Por guardar. Usa Repetir gravação do histórico.";
+ }catch(error){status.textContent=error.message;}
+ finally{button.disabled=false;}
+});
 restoreState();
 FIELD_IDS.forEach(id=>{
  const field=byId(id);

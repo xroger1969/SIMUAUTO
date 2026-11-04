@@ -328,7 +328,7 @@ function savedRevisionSnapshot(row){
   const date=new Date(rawDate);
   return {snapshot,result,sourceHost,
     savedAt:Number.isFinite(date.getTime())?date.toISOString():null,
-    context:{market,reader:snapshot.reader||{},entry,sourceHost,marketPayload:{url:entry.sourceUrl},allRules:snapshot.memory_rules||[]}};
+    context:{savedSnapshot:snapshot,market,reader:snapshot.reader||{},entry,sourceHost,marketPayload:{url:entry.sourceUrl},allRules:snapshot.memory_rules||[]}};
 }
 function clearSavedRevisionView(){
   currentHistoryRevision=null;
@@ -698,6 +698,12 @@ function renderElectricRange(vehicle={}){
   q("electricRangeVariant").textContent=range
     ?range.source_variant||[vehicle.trim,range.reference_battery_kwh?range.reference_battery_kwh+" kWh":null].filter(Boolean).join(" · ")
     :"Versão e bateria por confirmar na fonte.";
+  const battery=range?.reference_battery_kwh;
+  q("electricBatteryValue").textContent=battery?"Bateria: "+battery+" kWh"+(range.battery_basis==="usable"?" úteis":range.battery_basis==="gross"?" brutos":" · tipo de capacidade por confirmar"):"Capacidade da bateria: por confirmar";
+  const real=range?.real_range,realSource=q("electricRealRangeSource");
+  q("electricRealRangeValue").textContent=real?"Autonomia real estimada: "+real.min_km+(real.max_km!==real.min_km?"–"+real.max_km:"")+" km · "+real.conditions+". Referência de uso, não medição deste exemplar.":"Autonomia real estimada: por confirmar";
+  realSource.hidden=!real;
+  if(real)realSource.href=api.safeUrl(real.source_url);else realSource.removeAttribute("href");
   const source=q("electricRangeSource");
   source.hidden=!range;
   if(range){
@@ -1514,7 +1520,7 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
   return {
     saved_at:new Date().toISOString(),
     calculation_kind:calculationKind,
-    result,
+    result:{...result,tax_simulation:result.tax_simulation||globalThis.AutoProTaxSimulation?.snapshot()},
     research:{
       job_id:market?.job_id||null,response_id:market?.response_id||null,model:market?.model||null,
       condition_report:market?.condition_report||null,condition_overrides:market?.condition_overrides||{},
@@ -1548,10 +1554,19 @@ async function retryPendingSaves(){
   try{return await pendingSavesAttempt}finally{pendingSavesAttempt=null}
 }
 async function persistCompletedAnalysis(analysisId,result,market,reader,entry,marketPayload,calculationKind="analysis"){
-  const item={analysisId,snapshot:JSON.parse(JSON.stringify(makeSnapshot(result,market,reader,entry,marketPayload,calculationKind)))};
+  const item={analysisId,snapshot:JSON.parse(JSON.stringify(calculationKind==="tax_simulation"&&currentMarketData?.savedSnapshot?{...currentMarketData.savedSnapshot,result,saved_at:new Date().toISOString(),calculation_kind:calculationKind}:makeSnapshot(result,market,reader,entry,marketPayload,calculationKind)))};
   pendingAnalysisSaves.push(item);syncPendingSaves();
   return retryPendingSaves();
 }
+globalThis.saveAutoProTaxSimulation=async function(simulation){
+  if(activeOperation||!session||!currentAnalysisId||!currentResult||!currentMarketData)throw new Error("Conclui uma avaliação primeiro.");
+  const original=currentResult;
+  const result={...original,tax_simulation:simulation};
+  const context=currentMarketData;
+  const saved=await persistCompletedAnalysis(currentAnalysisId,result,context.market,context.reader,context.entry,context.marketPayload,"tax_simulation");
+  original.tax_simulation=simulation;
+  return saved;
+};
 q("retryAnalysisSaveBtn")?.addEventListener("click",async()=>{
   if(activeOperation)return;
   const button=q("retryAnalysisSaveBtn");button.disabled=true;
