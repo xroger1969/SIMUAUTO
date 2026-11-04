@@ -514,7 +514,9 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
 function reuseInputCache(cached,signature){
   const base=JSON.parse(JSON.stringify(cached.result||{}));
   const snapshotAt=cached.snapshot_at||base?.market_cache?.snapshot_at||cached.updated_at||nowIso();
-  return {
+  // Reapply current eligibility rules to stored evidence. A normalization fix
+  // can recover adverts that the previous engine excluded, including their km.
+  return estimateMileage({
     ...base,
     input_signature:signature,
     market_cache:{
@@ -525,7 +527,7 @@ function reuseInputCache(cached,signature){
       source_job_id:cached.id,
       max_age_hours:MARKET_CACHE_HOURS
     }
-  };
+  });
 }
 
 function boundedContext(body,registrationData,registrationLookupWarning=""){

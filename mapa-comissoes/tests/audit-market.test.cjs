@@ -56,6 +56,20 @@ test('raw adverts with no eligible price cannot be reused from either 24-hour ca
   assert.equal((await h.api.findFreshMarketCache('test','key')).id,'cached');
 });
 
+test('Captur Diesel provider identity completes with discovered Captur adverts instead of repeating three searches',async()=>{
+  const snapshot=require('./fixtures/captur-diesel-market.json');
+  const h=harness({context:{previous_subject:snapshot.subject,registration_data:snapshot.subject},comparables:snapshot.comparables});
+  const r=await h.poll();
+  assert.equal(r.status,200);
+  assert.equal(r.result.status,'completed');
+  assert.ok(r.result.market_selection.accepted_count>0);
+  assert.equal(r.result.market_attempts.length,1);
+  assert.ok(r.result.market_attempts[0].accepted_count>0);
+  assert.equal(h.stats.launches.length,0);
+  assert.equal(r.result.subject.trim,null);
+  assert.equal(r.result.subject.mileage_estimated,true);
+});
+
 test('same plate cache identity changes after fuel, version, drivetrain, battery, generation or actual km correction',()=>{
   const {marketCacheKey,inputSignature}=harness().api;
   const key=marketCacheKey(car);

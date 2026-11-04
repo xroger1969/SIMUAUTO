@@ -71,6 +71,7 @@ button:disabled{cursor:wait;opacity:.55}
 #analyzeBtn:after{content:"⟶";position:absolute;right:22px;top:50%;transform:translateY(-50%);font-size:34px;font-weight:400;line-height:1}
 #analyzeForm #analyzeBtn[data-state="running"]{background:#facc15;color:#422006;border-color:#eab308;cursor:wait}
 #analyzeForm #analyzeBtn[data-state="complete"]{background:#15803d;color:#fff;border-color:#16a34a}
+#analyzeForm #analyzeBtn[data-state="partial"]{background:#facc15;color:#422006;border-color:#eab308}
 #analyzeBtn[data-state="running"]:after{content:"";width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cockpit-spin 1s linear infinite}
 #analyzeBtn[data-state="complete"]:after{content:"✓";font-size:24px}
 @keyframes cockpit-spin{to{transform:translateY(-50%) rotate(360deg)}}

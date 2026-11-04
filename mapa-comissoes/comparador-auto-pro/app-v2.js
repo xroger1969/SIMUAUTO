@@ -231,6 +231,9 @@ function calculationKindLabel(kind){
 function hasMarketReference(result){
   return Number(result?.market?.comparablesUsed)>0&&result.market.marketValue!=null&&Number.isFinite(Number(result.market.marketValue));
 }
+function assessmentButtonState(result){
+  return hasMarketReference(result)?"complete":"partial";
+}
 function assessmentConfidenceLabel(result){
   if(result?.purchase?.priceScenario)return "Nível 4 · cenário sem mercado verificado";
   if(!(Number(result?.market?.comparablesUsed)>0))return "Sem referência de mercado · evidência 0%";
@@ -758,15 +761,19 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
   const panel=q("vehicleFollowup");
   if(!panel)return;
   const labels=missing.map(item=>item.label);
-  const optional=!!currentResult&&Number.isFinite(Number(currentResult.market?.marketValue));
+  const optional=hasMarketReference(currentResult);
+  const canSearch=blockingVehicleFields(missing).length===0;
   q("vehicleFollowupTitle").textContent=optional
     ?"Podes melhorar a avaliação"
     :missing.some(item=>item.key==="make_model")
       ?"Ajuda-me a identificar melhor a viatura"
+      :canSearch?"Podes melhorar a pesquisa"
       :labels.length===1?"Falta 1 dado para fechar a avaliação":"Faltam "+labels.length+" dados para fechar a avaliação";
   q("vehicleFollowupText").textContent=optional
     ?"Já calculei uma avaliação provisória. Para aumentar a confiança, confirma "+labels.join(", ")+"."
-    :followupQuestion(vehicle,missing,currentMarketData||{});
+    :canSearch
+      ?"A pesquisa terminou sem anúncios utilizáveis. Para afinar a próxima tentativa, podes indicar "+labels.join(", ")+". Estes dados ajudam a comparação por aproximação."
+      :followupQuestion(vehicle,missing,currentMarketData||{});
   if(q("vehicleFollowupBtn"))q("vehicleFollowupBtn").textContent=optional?"Atualizar avaliação":"Continuar análise";
   const tags=q("vehicleFollowupMissing");tags.replaceChildren();
   labels.forEach(label=>{const tag=document.createElement("span");tag.textContent=label;tags.appendChild(tag)});
@@ -1073,8 +1080,9 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(shareBar)shareBar.classList.toggle("hidden",!shareReady);
   syncDealForm();
   publishAssessment(currentResult);
-  if(activeOperation?.isAssessment)activeOperation.resultReady=true;
-  else if(!activeOperation)setAnalysisButtonState("complete");
+  const resultState=assessmentButtonState(result);
+  if(activeOperation?.isAssessment){activeOperation.resultReady=true;activeOperation.resultState=resultState;}
+  else if(!activeOperation)setAnalysisButtonState(resultState);
 }
 
 function conditionCostContext(market={}){
@@ -1438,7 +1446,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
 function setAnalysisButtonState(state){
   const button=q("analyzeBtn");if(!button)return;
   button.dataset.state=state;
-  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":"Analisar viatura";
+  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":state==="partial"?"Pesquisa sem cotação":"Analisar viatura";
   button.setAttribute("aria-busy",String(state==="running"));
 }
 function markAnalysisInputChanged(){
@@ -1466,7 +1474,7 @@ function assertOperation(op){
 function finishOperation(op){
   if(activeOperation===op){
     activeOperation=null;setOperationBusy(false);
-    if(op.isAssessment)setAnalysisButtonState(op.resultReady?"complete":"idle");
+    if(op.isAssessment)setAnalysisButtonState(op.resultReady?(op.resultState||"partial"):"idle");
     if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;
   }
 }

@@ -34,6 +34,41 @@ test('zero accepted market references never render a positive tier or fixed-mark
   assert.match(ctx.assessmentConfidenceLabel({purchase:{priceScenario:true}}),/Nível 4/);
 });
 
+test('completed research without a price is partial and never turns the assessment button green',()=>{
+  const ctx=harness({activeOperation:null,currentHistoryRevision:null,setOperationBusy(){}});
+  const button=ctx.q('analyzeBtn');button.dataset={};button.setAttribute=(k,v)=>button[k]=v;
+  vm.runInContext(source('function hasMarketReference','function assessmentConfidenceLabel'),ctx);
+  vm.runInContext(source('function setAnalysisButtonState','function markAnalysisInputChanged'),ctx);
+  vm.runInContext(source('function finishOperation','function mergeDeal'),ctx);
+  for(const result of [null,{market:{comparablesUsed:0,marketValue:null}},{market:{comparablesUsed:0,marketValue:10000},purchase:{priceScenario:true}}]){
+    const op={isAssessment:true,resultReady:true,resultState:ctx.assessmentButtonState(result)};
+    ctx.activeOperation=op;ctx.finishOperation(op);
+    assert.equal(button.dataset.state,'partial');
+    assert.equal(button.textContent,'Pesquisa sem cotação');
+    assert.equal(button['aria-busy'],'false');
+  }
+  const op={isAssessment:true,resultReady:true,resultState:ctx.assessmentButtonState({market:{comparablesUsed:1,marketValue:9000}})};
+  ctx.activeOperation=op;ctx.finishOperation(op);
+  assert.equal(button.dataset.state,'complete');
+  assert.equal(button.textContent,'Avaliação concluída');
+});
+
+test('unknown trim refines a search without claiming it prevents an approximate valuation',()=>{
+  const ctx=harness({currentResult:{market:{comparablesUsed:0,marketValue:null}},selectedImages:[],document:{createElement:()=>({})}});
+  ctx.q('vehicleFollowupMissing').replaceChildren=function(){this.children=[]};
+  vm.runInContext(source('function hasMarketReference','function assessmentConfidenceLabel'),ctx);
+  vm.runInContext(source('const VALUATION_REQUIRED_FIELDS=','function renderNeedsVehicleInfo'),ctx);
+  const vehicle={make:'Renault',model:'Captur Diesel',fuel:'diesel',year:2015,trim:null};
+  const missing=ctx.missingVehicleFields(vehicle);
+  ctx.showVehicleFollowup(vehicle,missing,{scroll:false});
+  assert.equal(ctx.q('vehicleFollowupTitle').textContent,'Podes melhorar a pesquisa');
+  assert.doesNotMatch(ctx.q('vehicleFollowupText').textContent,/fechar a avaliação|Já calculei/);
+  ctx.currentResult={market:{comparablesUsed:1,marketValue:9000}};
+  ctx.showVehicleFollowup(vehicle,missing,{scroll:false});
+  assert.equal(ctx.q('vehicleFollowupTitle').textContent,'Podes melhorar a avaliação');
+  assert.match(ctx.q('vehicleFollowupText').textContent,/provisória/);
+});
+
 test('plate text, manual input and photographs never claim a public announcement was read',()=>{
   const ctx=harness({renderTagList(){},displayValue:v=>v??'—',originLabel:()=>'',fmt:String,esc:String});
   vm.runInContext(source('function renderVehicleReadout','const VALUATION_REQUIRED_FIELDS='),ctx);
@@ -110,7 +145,7 @@ test('history exposes an old pending job without a recent-time cutoff',async()=>
 
 
 test('real page loads the shared identity module before the current valuation engine',()=>{
-  const shared=html.indexOf('src="./commercial-identity.js?v=20261026-listing-links-v1"');
+  const shared=html.indexOf('src="./commercial-identity.js?v=20261104-fuel-model-v1"');
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
   assert.match(app,/valuation\.js\?v=20261104-zero-costs-v1/);
