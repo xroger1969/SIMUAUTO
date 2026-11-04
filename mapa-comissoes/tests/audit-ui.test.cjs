@@ -113,7 +113,7 @@ test('real page loads the shared identity module before the current valuation en
   const shared=html.indexOf('src="./commercial-identity.js?v=20261026-listing-links-v1"');
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
-  assert.match(app,/valuation\.js\?v=20261023-supervised-v1/);
+  assert.match(app,/valuation\.js\?v=20261104-zero-costs-v1/);
   assert.match(html,/tax-simulator-ui\.js\?v=20261104-costs-range-v1/);
 });
 

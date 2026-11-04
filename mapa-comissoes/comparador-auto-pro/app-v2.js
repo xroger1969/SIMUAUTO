@@ -1,4 +1,4 @@
-import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261023-supervised-v1";
+import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261104-zero-costs-v1";
 import { relevantMemories } from "./memory.js?v=20261023-voice-v1";
 import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
 import { createVoiceInput } from "./voice-input.js?v=20261023-voice-v2";
@@ -78,7 +78,8 @@ document.addEventListener("pointerdown",()=>{
 },{passive:true});
 
 const DEFAULT_DEAL={
-  costs:{auction_fee:0,transport:150,registration:0,reconditioning:450,warranty_reserve:350,stock_finance:150,other:100},
+  costs:{auction_fee:0,transport:0,registration:0,reconditioning:0,warranty_reserve:0,stock_finance:0,other:0},
+  risk_reserve:0,
   reconditioning:{paint_mode:"web",pricing_version:2,paint_min_eur:80,paint_max_eur:100},
   target_margin:null,
   minimum_margin:1200
@@ -93,6 +94,7 @@ function evaluatePurchase(input,custom){
   const perCar=q("vehicleMargin")?.value?.trim()||"";
   return evaluateBasePurchase({...input,analysis_id:currentAnalysisId,
     learning_rules:learningOwner===session?.user?.id?learningRulesCache:[],
+    risk_reserve:DEAL.risk_reserve,
     target_margin:perCar!==""?Number(perCar):input.target_margin},custom);
 }
 let lastLearningRecord=null;
@@ -352,6 +354,7 @@ function showSavedRevisionView(row,record){
     transportCostInput:deal.costs?.transport,reconditioningCostInput:deal.costs?.reconditioning,
     warrantyCostInput:deal.costs?.warranty_reserve,stockCostInput:deal.costs?.stock_finance,
     otherCostInput:deal.costs?.other,auctionCostInput:deal.costs?.auction_fee,registrationCostInput:deal.costs?.registration,
+    riskReserveInput:deal.risk_reserve??record.result.purchase.riskReserve??0,
     paintPriceModeInput:deal.reconditioning?.paint_mode,paintMinInput:deal.reconditioning?.paint_min_eur,paintMaxInput:deal.reconditioning?.paint_max_eur};
   for(const [id,value] of Object.entries(fields)){if(q(id))q(id).value=value??"";}
   const controls=new Set();
@@ -909,6 +912,16 @@ function renderCommercialDiagnosis(result){
   q("commercialSale").textContent=fmt(info.saleLikely);
   q("commercialCeiling").textContent=fmt(info.targetCeiling);
   q("commercialCosts").textContent=fmt(info.fixedCosts);
+  if(q("commercialReserve"))q("commercialReserve").textContent=fmt(info.riskReserve);
+  const breakdown=q("commercialCostBreakdown");
+  if(breakdown){
+    const costs=result.parameters?.costs||{};
+    const parts=[["Preparação/reparações",result.reconditioning?.appliedEconomic??info.preparation],["Transporte",costs.transport],
+      ["Garantia",costs.warranty_reserve],["Financiamento de stock",costs.stock_finance],
+      ["Comissão de leilão",costs.auction_fee],["Legalização/registo",costs.registration],
+      ["Outros custos",costs.other],["Importação/leilão",result.purchase?.importCost]];
+    breakdown.textContent=parts.filter(([,value])=>Number(value)>0).map(([label,value])=>label+": "+fmt(value)).join(" · ")||"Sem custos indicados ou reparações com valor estimado.";
+  }
   q("commercialMargin").textContent=fmt(info.expectedMargin);
   q("commercialTarget").textContent=fmt(info.targetMargin);
   q("commercialGap").textContent=fmt(info.excessBid);
@@ -1464,7 +1477,7 @@ function mergeDeal(settings){
     const value=Number(src.costs?.[key]);
     if(Number.isFinite(value)&&value>=0)out.costs[key]=value;
   }
-  for(const key of ["target_margin","minimum_margin"]){
+  for(const key of ["target_margin","minimum_margin","risk_reserve"]){
     const value=Number(src[key]);
     if(src[key]!==null&&src[key]!==undefined&&src[key]!==""&&Number.isFinite(value)&&value>=0)out[key]=value;
   }
@@ -1477,12 +1490,17 @@ function mergeDeal(settings){
   if(out.target_margin!==null)out.minimum_margin=Math.min(out.minimum_margin,out.target_margin);
   return out;
 }
+function resetDealCosts(){
+  DEAL={...DEAL,costs:{...DEFAULT_DEAL.costs},risk_reserve:0};
+  syncDealForm();
+}
 async function loadDealPreferences(){
   if(!session)return;
   const {data,error}=await db.from("cap_preferences").select("settings").eq("user_id",session.user.id).maybeSingle();
   if(error)throw error;
   DEAL=mergeDeal(data?.settings||DEFAULT_DEAL);
-  syncDealForm();
+  // Costs belong to one assessment, including when old preferences contained defaults.
+  resetDealCosts();
 }
 function syncDealForm(){
   const map={
@@ -1490,14 +1508,15 @@ function syncDealForm(){
     paintPriceModeInput:DEAL.reconditioning.paint_mode,paintMinInput:DEAL.reconditioning.paint_min_eur,paintMaxInput:DEAL.reconditioning.paint_max_eur,
     transportCostInput:DEAL.costs.transport,reconditioningCostInput:DEAL.costs.reconditioning,
     warrantyCostInput:DEAL.costs.warranty_reserve,stockCostInput:DEAL.costs.stock_finance,
-    otherCostInput:DEAL.costs.other,auctionCostInput:DEAL.costs.auction_fee,registrationCostInput:DEAL.costs.registration
+    otherCostInput:DEAL.costs.other,auctionCostInput:DEAL.costs.auction_fee,registrationCostInput:DEAL.costs.registration,
+    riskReserveInput:DEAL.risk_reserve
   };
   for(const [id,value] of Object.entries(map))if(q(id))q(id).value=value===null?"":String(value);
 }
 function dealFromForm(){
   const read=id=>Math.max(0,Number(q(id)?.value||0));
   return mergeDeal({
-    margin_policy_version:1,target_margin:q("targetMarginInput")?.value.trim()?read("targetMarginInput"):null,minimum_margin:read("minimumMarginInput"),
+    risk_reserve:read("riskReserveInput"),margin_policy_version:1,target_margin:q("targetMarginInput")?.value.trim()?read("targetMarginInput"):null,minimum_margin:read("minimumMarginInput"),
     reconditioning:{paint_mode:q("paintPriceModeInput")?.value,pricing_version:2,paint_min_eur:read("paintMinInput"),paint_max_eur:read("paintMaxInput")},
     costs:{
       transport:read("transportCostInput"),reconditioning:read("reconditioningCostInput"),
@@ -1508,7 +1527,7 @@ function dealFromForm(){
 }
 async function saveDealPreferences(){
   const {error}=await db.from("cap_preferences").upsert({
-    user_id:session.user.id,settings:DEAL,updated_at:new Date().toISOString()
+    user_id:session.user.id,settings:{...DEAL,costs:{...DEFAULT_DEAL.costs},risk_reserve:0},updated_at:new Date().toISOString()
   },{onConflict:"user_id"});
   if(error)throw new Error("Não foi possível guardar as premissas.");
 }
@@ -1719,6 +1738,7 @@ function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
 
   clearSavedRevisionView();
+  resetDealCosts();
   resetSearchInput({announce:false,focus:false});
   stopProgress();
   q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
@@ -2135,6 +2155,7 @@ async function resumePendingAnalysis(jobId=null,analysisId=null){
   if(session?.user?.id!==owner||activeOperation)return;
   if(!analysis)return;
   clearSavedRevisionView();
+  if(currentAnalysisId!==job.analysis_id)resetDealCosts();
   const operation=beginOperation("resume",job.analysis_id);operation.jobId=job.id;
   currentAnalysisId=job.analysis_id;
   currentVehicle=null;currentResult=null;publishAssessment(null);
@@ -2200,6 +2221,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   else if(entry.registration)q("vehicleUrl").value=entry.registration;
 
   clearSavedRevisionView();
+  resetDealCosts();
   const operation=beginOperation("analysis");
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
