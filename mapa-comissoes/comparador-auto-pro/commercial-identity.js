@@ -111,6 +111,10 @@ function modelKey(make,model){
   const m=norm(make);
   let v=norm(model);
   if(!v)return "";
+  // Providers may append the combustion fuel to the model ("Captur Diesel").
+  // Remove only a terminal fuel label from the comparison key; preserve the
+  // original identity, body names and the independent fuel compatibility gate.
+  v=v.replace(/\s+(?:diesel|gasoleo|petrol|gasolina)$/," ").trim();
   // Só normalizar grafias conhecidas; manter códigos de motor e carroçarias.
   if(m==="volkswagen"||m==="vw")v=v.replace(/^id[.\s]?([3-7])(?=\s|$)/,"id $1");
   if(m==="bmw")v=v.replace(/\b([1-8]\d{2})\s+(xe|xd|xi|d|i|e)\b/g,"$1$2");
