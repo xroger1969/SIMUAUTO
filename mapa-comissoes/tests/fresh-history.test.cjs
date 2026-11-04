@@ -50,7 +50,7 @@ test('initialization keeps failed history saves but never resumes or polls a pri
  let resumed=0,retried=0;
  const ctx=harness({refreshMemoryCount:async()=>{},loadDealPreferences:async()=>{},loadMemories:async()=>[],
  pendingSavesKey:()=> 'pending',sessionStorage:{getItem:()=>JSON.stringify([{analysisId:'old',snapshot:{result:{}}}])},
- retryPendingSaves:async()=>{retried++;},resumePendingAnalysis:async()=>{resumed++;}});
+ restoreResearchCheckpoint(){},retryPendingSaves:async()=>{retried++;},resumePendingAnalysis:async()=>{resumed++;}});
  vm.runInContext(source('async function initializeAppData','function auto1Request'),ctx);
  await ctx.initializeAppData();
  assert.equal(resumed,0);assert.equal(retried,1);
@@ -173,6 +173,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261104-visible-errors-v1/);
+ assert.match(html,/app-v2\.js\?v=20261104-background-recovery-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });

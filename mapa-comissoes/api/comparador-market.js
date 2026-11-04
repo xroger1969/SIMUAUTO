@@ -8,6 +8,7 @@ const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,modelFamilyK
 const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
 const {configuredModel}=require("../lib/model-config");
 const {providerError}=require("../lib/provider-error");
+const {continueMarketJob}=require("../lib/market-worker");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clip=(v,n)=>String(v??"").slice(0,n);
@@ -865,14 +866,23 @@ async function startResponse(context,imageDataUrls,metadata,identify){
   return data;
 }
 
-module.exports=endpoint(async function handler(req,res){
-  if(!["GET","POST"].includes(req.method))return res.status(405).json({error:"method_not_allowed"});
-  const {token}=await authenticate(req);
-  if(req.method==="POST"&&req.body?.action==="cancel")return res.status(200).json(await cancelMarketJob(token,req.body));
-  if(!process.env.OPENAI_API_KEY)throw appError("OpenAI não configurada.",503,"openai_not_configured");
+function jobProgress(job,data={}){
+  const vehicle=job.context?.previous_subject||job.context?.registration_data||{};
+  const started=Date.parse(job.context?.initial_started_at||job.created_at||"");
+  return {stage:job.context?.stage||"identify",
+    vehicle:{make:vehicle.make||null,model:vehicle.model||null,year:vehicle.year||null,mileage_km:vehicle.mileage_km??null},
+    elapsed_seconds:Number.isFinite(started)?Math.max(0,Math.floor((Date.now()-started)/1000)):0,
+    searches_completed:(data.output||[]).filter(item=>item.type==="web_search_call"&&item.status==="completed").length,
+    search_step:Number(job.context?.market_search_step)||0};
+}
+function continueOwnedJob(token,jobId,startedAt){
+  continueMarketJob(jobId,async()=>{
+    let status=200;
+    return pollMarketJob(token,jobId,{status(code){status=code;return this;},json(data){return {status,data};}});
+  },startedAt);
+}
 
-  if(req.method==="GET"){
-    const jobId=String(req.query?.job_id||"").trim();
+async function pollMarketJob(token,jobId,res){
     if(!uuid.test(jobId))return res.status(400).json({error:"invalid_job_id"});
     const job=await getOwnedJob(token,jobId);
     if(job.status==="cancelled")throw appError("Avaliação parada.",409,"market_job_cancelled");
@@ -891,7 +901,7 @@ module.exports=endpoint(async function handler(req,res){
       return res.status(202).json(await launchMarketTransition(token,job,job.context,{recover:true}));
     }
     if(!job.response_id){
-      if(!transitionExpired(job.context,job.updated_at))return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id});
+      if(!transitionExpired(job.context,job.updated_at))return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id,progress:jobProgress(job)});
       // Initial photo bytes deliberately are not persisted in the job context.
       if(job.context?.image_count){
         const message="O arranque da leitura das fotografias foi interrompido. Repete a pesquisa com as mesmas fotografias.";
@@ -922,7 +932,7 @@ module.exports=endpoint(async function handler(req,res){
     }
     if(data.status==="queued"||data.status==="in_progress"){
       await updateJob(token,job.id,{status:data.status});
-      return res.status(202).json({ok:true,status:data.status,job_id:job.id});
+      return res.status(202).json({ok:true,status:data.status,job_id:job.id,progress:jobProgress(job,data)});
     }
     if(data.status!=="completed"){
       const error=providerError(data?.error||{message:"A pesquisa de mercado terminou sem resultado válido."},"openai_market_failed");
@@ -1004,6 +1014,21 @@ module.exports=endpoint(async function handler(req,res){
     return res.status(200).json(result);
   }
 
+
+module.exports=endpoint(async function handler(req,res){
+  const requestStartedAt=Date.now();
+  if(!["GET","POST"].includes(req.method))return res.status(405).json({error:"method_not_allowed"});
+  const {token}=await authenticate(req);
+  if(req.method==="POST"&&req.body?.action==="cancel")return res.status(200).json(await cancelMarketJob(token,req.body));
+  if(!process.env.OPENAI_API_KEY)throw appError("OpenAI não configurada.",503,"openai_not_configured");
+
+  if(req.method==="GET"){
+    const jobId=String(req.query?.job_id||"").trim();
+    // A user-selected resume also restarts bounded collection after suspension.
+    if(req.query?.resume==="1"&&uuid.test(jobId))continueOwnedJob(token,jobId,requestStartedAt);
+    return pollMarketJob(token,jobId,res);
+  }
+
   const analysisId=String(req.body?.analysis_id||"").trim();
   const requestKey=String(req.body?.request_key||"").trim();
   if(!uuid.test(analysisId)||!uuid.test(requestKey))return res.status(400).json({error:"invalid_job_context",message:"A análise precisa de um identificador válido."});
@@ -1040,7 +1065,8 @@ module.exports=endpoint(async function handler(req,res){
       const error=providerError({code:job.context?.provider_error_code,message:job.error_message||"A pesquisa anterior terminou com erro."},"market_job_failed");
       return res.status(error.status).json({error:error.code,message:error.message,job_id:job.id});
     }
-    return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id});
+    continueOwnedJob(token,job.id,requestStartedAt);
+    return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id,progress:jobProgress(job)});
   }
 
   if(cacheAllowed(context)&&context.input_signature){
@@ -1073,6 +1099,7 @@ module.exports=endpoint(async function handler(req,res){
       const marketContext={...context,stage:"market",previous_subject:forcedBase,registration_data:registrationData,market_key:key};
       const data=await startResponse(marketContext,[],metadata,false);
       await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
+      continueOwnedJob(token,job.id,requestStartedAt);
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,forced_refresh:true});
     }
 
@@ -1096,10 +1123,12 @@ module.exports=endpoint(async function handler(req,res){
       }
       const data=await startResponse(marketContext,[],metadata,false);
       await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
+      continueOwnedJob(token,job.id,requestStartedAt);
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true});
     }
     const data=await startResponse(context,imageDataUrls,metadata,true);
     await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:{...context,registration_data:registrationData}});
+    continueOwnedJob(token,job.id,requestStartedAt);
     return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData});
   }catch(error){
     await updateJob(token,job.id,{status:"failed",error_message:String(error?.message||error),context:{...context,provider_error_code:error?.code||null}}).catch(()=>{});
@@ -1107,5 +1136,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={jobProgress,pollMarketJob,cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
 

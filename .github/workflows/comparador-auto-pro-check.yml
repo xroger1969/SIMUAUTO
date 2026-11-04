@@ -16,6 +16,9 @@ on:
       - "mapa-comissoes/lib/teaching.js"
       - "mapa-comissoes/lib/model-config.js"
       - "mapa-comissoes/lib/provider-error.js"
+      - "mapa-comissoes/lib/market-worker.js"
+      - "mapa-comissoes/package*.json"
+      - "mapa-comissoes/vercel.json"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -30,6 +33,9 @@ on:
       - "mapa-comissoes/lib/teaching.js"
       - "mapa-comissoes/lib/model-config.js"
       - "mapa-comissoes/lib/provider-error.js"
+      - "mapa-comissoes/lib/market-worker.js"
+      - "mapa-comissoes/package*.json"
+      - "mapa-comissoes/vercel.json"
       - "mapa-comissoes/tests/**"
       - "mapa-comissoes/database/**"
       - ".github/workflows/comparador-auto-pro-check.yml"
@@ -61,6 +67,8 @@ jobs:
           node --check mapa-comissoes/comparador-auto-pro/commercial-identity.js
           node --check mapa-comissoes/comparador-auto-pro/tax-simulator-ui.js
           node --check mapa-comissoes/comparador-auto-pro/tax-simulator-calc.mjs
+      - name: Install server dependencies
+        run: npm ci --prefix mapa-comissoes --ignore-scripts --no-audit --no-fund
       - name: Install isolated database test runtime
         run: npm ci --prefix mapa-comissoes/tests/db-runtime --ignore-scripts --no-audit --no-fund
       - name: Run active comparator regressions
