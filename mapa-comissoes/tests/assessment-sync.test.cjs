@@ -84,12 +84,12 @@ test('real analysis, reset, next car and saved history automatically update the 
   const first=await app.analyze(market(tesla,31450));
   assert.equal(q('taxSimPurchase').value,String(first.purchase.effectiveCeiling));
   assert.equal(q('taxSimSale').value,String(first.market.saleLikely));
-  assert.equal(q('taxSimCosts').value,String(Math.round((first.purchase.fixedCosts+first.purchase.riskReserve)*100)/100));
+  assert.equal(q('taxSimCosts').value,'0');
   const oldProfit=q('taxSimAfterIRS').textContent;
   app.saved(first);
   h.reset();
   assert.equal(w.AutoProAssessment,null);
-  for(const id of ['taxSimPurchase','taxSimSale','taxSimCosts'])assert.equal(q(id).value,'');
+  for(const id of ['taxSimPurchase','taxSimSale','taxSimCosts'])assert.equal(q(id).value,id==='taxSimCosts'?'0':'');
   assert.equal(q('taxSimAfterIRS').textContent,'—');
   assert.equal(q('taxSimIrsRate').value,'25');
   const second=await app.analyze(market(ford,23552));
@@ -199,7 +199,7 @@ test('a failed new search leaves no purchase, sale, costs or profit from the pre
   app.h.setMarket(async()=>{throw Error('Pesquisa indisponível');});
   app.submit(ford.registration);await until(()=>!app.h.busy);
   assert.equal(app.w.AutoProAssessment,null);
-  for(const id of ['taxSimPurchase','taxSimSale','taxSimCosts'])assert.equal(app.q(id).value,'');
+  for(const id of ['taxSimPurchase','taxSimSale','taxSimCosts'])assert.equal(app.q(id).value,id==='taxSimCosts'?'0':'');
   assert.equal(app.q('taxSimAfterIRS').textContent,'—');
   assert.match(app.q('emptyState').textContent,/Pesquisa indisponível/);
 });
@@ -220,4 +220,20 @@ test('notice dismiss preserves input and visible restart clears the full assessm
  assert.equal(w.AutoProAssessment,null);
  assert.ok(q('result').classList.contains('hidden'));
  assert.equal(q('taxSimSale').value,'');
+});
+
+
+test('saving fiscal edits creates a separate result and history restores both amounts',async t=>{
+ const app=await boot();t.after(()=>app.dom.window.close());
+ const first=await app.analyze(market(tesla,31450));
+ app.q('taxSimCosts').value='250';app.q('taxSimReserve').value='400';
+ app.q('taxSimCosts').dispatchEvent(new app.w.Event('input'));
+ await app.w.saveAutoProTaxSimulation(app.w.AutoProTaxSimulation.snapshot());
+ assert.equal(first.tax_simulation.fields.taxSimCosts,'250');
+ assert.equal(first.tax_simulation.fields.taxSimReserve,'400');
+ app.saved(first);
+ await app.analyze(market(ford,23552));
+ assert.equal(app.q('taxSimCosts').value,'0');
+ await app.h.openHistory('revision-one');
+ assert.equal(app.q('taxSimCosts').value,'250');assert.equal(app.q('taxSimReserve').value,'400');
 });

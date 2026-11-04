@@ -9,7 +9,7 @@ const html=readFileSync(new URL("./index.html",import.meta.url),"utf8");
 const eur=n=>n.toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
 
 function boot(storage=new Map(),shown=true,assessment=null){
- const data={taxSimPurchase:"",taxSimSale:"",taxSimCosts:"",taxSimQuarterly:"3",taxSimIrsRate:"",taxSimAnnualSales:"10",taxSimGrossSalary:"730"};
+ const data={taxSimPurchase:"",taxSimSale:"",taxSimCosts:"",taxSimReserve:"0",taxSimQuarterly:"3",taxSimIrsRate:"",taxSimAnnualSales:"10",taxSimGrossSalary:"730"};
  const elements={},events=new EventTarget();
  function create(id,value=""){
   const el={id,value,type:id==="taxSimSocialEnabled"?"checkbox":"text",checked:false,textContent:"",hidden:false,open:false,title:"",dataset:{},listeners:{},tagName:id==="taxSimQuarterly"?"SELECT":"INPUT",
@@ -21,7 +21,7 @@ function boot(storage=new Map(),shown=true,assessment=null){
   elements[id]=el;return el;
  }
  for(const [id,value] of Object.entries(data))create(id,value);
- for(const id of ["taxSimSocialEnabled","taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimAfterIRS","taxSimIrs","taxSimSummary","taxSimWarning","taxSimError","taxSimUseAssessment","taxSimOpenBtn","taxSimFromResult","taxSimulator","result","currentPrice","commercialSale"])create(id);
+ for(const id of ["taxSimAfterReserve","taxSimSaveStatus","taxSimSave","taxSimSocialEnabled","taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimAfterIRS","taxSimIrs","taxSimSummary","taxSimWarning","taxSimError","taxSimUseAssessment","taxSimOpenBtn","taxSimFromResult","taxSimulator","result","currentPrice","commercialSale"])create(id);
  const context={calculateTaxSim,AutoProAssessment:assessment,document:{getElementById:id=>elements[id]||null},
   addEventListener:events.addEventListener.bind(events),
   localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)}};
@@ -49,7 +49,7 @@ function enterDeal(app,{purchase=19600,sale=22990,costs=500}={}){
  app.trigger("taxSimCosts","input");
 }
 function assertEmptyDeal(app){
- for(const id of ["taxSimPurchase","taxSimSale","taxSimCosts"])assert.equal(app.elements[id].value,"",id);
+ for(const id of ["taxSimPurchase","taxSimSale","taxSimCosts"])assert.equal(app.elements[id].value,id==="taxSimCosts"?"0":"",id);
  for(const id of ["taxSimMargin","taxSimVat","taxSimExpense","taxSimSocial","taxSimTaxable","taxSimBeforeIRS","taxSimIrs","taxSimAfterIRS","taxSimSummary"])assert.equal(app.elements[id].textContent,"—",id);
  assert.equal(app.elements.taxSimCosts.title,"");
  assert.equal(app.elements.taxSimCosts.dataset.assessmentFixedCosts,undefined);
@@ -69,7 +69,7 @@ test("interface compacta: 4 campos, 2 resultados, sem preços de exemplo e detal
  assert.doesNotMatch(section,/<details\b[^>]*\bopen(?:[\s=>])/);
  assert.doesNotMatch(section,/<p class="tax-sim-intro"/);
  assert.doesNotMatch(section,/<small>Comissões,/);
- for(const id of ["taxSimPurchase","taxSimSale","taxSimCosts"]){
+ for(const id of ["taxSimPurchase","taxSimSale"]){
   const input=section.match(new RegExp('<input\\b[^>]*id="'+id+'"[^>]*>'))?.[0];
   assert.ok(input,id);assert.doesNotMatch(input,/\bvalue="[^\"]+"/);
  }
@@ -94,9 +94,9 @@ test("nova avaliação Ford substitui automaticamente a simulação antiga, sem 
  app.setAssessment(ford);
  assert.equal(app.elements.taxSimPurchase.value,"16943");
  assert.equal(app.elements.taxSimSale.value,"23081");
- assert.equal(app.elements.taxSimCosts.value,"1400");
+ assert.equal(app.elements.taxSimCosts.value,"0");
  assert.equal(app.elements.taxSimMargin.textContent,eur(6138));
- assert.equal(app.elements.taxSimExpense.textContent,eur(1400));
+ assert.equal(app.elements.taxSimExpense.textContent,eur(0));
  assert.notEqual(app.elements.taxSimAfterIRS.textContent,priorProfit);
  assert.notEqual(app.elements.taxSimAfterIRS.textContent,"—");
  assert.equal(app.elements.taxSimError.hidden,true);
@@ -132,26 +132,26 @@ test("importa preços estruturados sem perder cêntimos nem duplicar despesas, m
  const app=boot(new Map(),true,assessment());
  assert.equal(app.elements.taxSimPurchase.value,"19600.45");
  assert.equal(app.elements.taxSimSale.value,"22990.8");
- assert.equal(app.elements.taxSimCosts.value,"2900");
+ assert.equal(app.elements.taxSimCosts.value,"0");
  // A rounded or stale display is not a source for the fiscal calculation.
  app.elements.currentPrice.textContent="19.600 €";app.elements.commercialSale.textContent="22.991 €";
  app.trigger("taxSimUseAssessment","click");
  assert.equal(app.elements.taxSimPurchase.value,"19600.45");
  assert.equal(app.elements.taxSimSale.value,"22990.8");
- assert.equal(app.elements.taxSimCosts.value,"2900");
- assert.equal(app.elements.taxSimCosts.dataset.assessmentFixedCosts,"2710");
- assert.equal(app.elements.taxSimCosts.dataset.assessmentRiskReserve,"190");
- assert.match(app.elements.taxSimCosts.title,/Reserva de risco/);
+ assert.equal(app.elements.taxSimCosts.value,"0");
+ assert.equal(app.elements.taxSimCosts.dataset.assessmentFixedCosts,undefined);
+ assert.equal(app.elements.taxSimCosts.dataset.assessmentRiskReserve,undefined);
+ assert.equal(app.elements.taxSimCosts.title,"");
  assert.equal(app.elements.taxSimMargin.textContent,eur(3390.35));
- assert.equal(app.elements.taxSimExpense.textContent,eur(2900));
+ assert.equal(app.elements.taxSimExpense.textContent,eur(0));
 });
 
 test("sem preço atual usa o teto e a avaliação seguinte substitui custos antigos por zero",()=>{
  const app=boot(new Map(),true,assessment({purchase:{currentPrice:null,effectiveCeiling:18500,fixedCosts:900,riskReserve:100}}));
- assert.equal(app.elements.taxSimPurchase.value,"18500");assert.equal(app.elements.taxSimCosts.value,"1000");
+ assert.equal(app.elements.taxSimPurchase.value,"18500");assert.equal(app.elements.taxSimCosts.value,"0");
  app.setAssessment(assessment({purchase:{currentPrice:17000,effectiveCeiling:18000,fixedCosts:0,riskReserve:0}}));
  assert.equal(app.elements.taxSimPurchase.value,"17000");assert.equal(app.elements.taxSimCosts.value,"0");
- assert.equal(app.elements.taxSimCosts.dataset.assessmentRiskReserve,"0");
+ assert.equal(app.elements.taxSimCosts.dataset.assessmentRiskReserve,undefined);
 });
 
 test("preços zero válidos não são confundidos com campos nulos ou não finitos",()=>{
@@ -166,15 +166,13 @@ test("preços zero válidos não são confundidos com campos nulos ou não finit
 test("uma nova avaliação incompleta ou inválida limpa os valores antigos, sem importação parcial",()=>{
  for(const invalid of [
   {market:{saleLikely:null}}, {market:{saleLikely:NaN}}, {market:{saleLikely:0}}, {market:{saleLikely:10000001}},
-  {purchase:{currentPrice:18000,effectiveCeiling:20000,fixedCosts:null,riskReserve:10}},
   {purchase:{currentPrice:null,effectiveCeiling:null,fixedCosts:100,riskReserve:10}},
-  {purchase:{currentPrice:18000,effectiveCeiling:20000,fixedCosts:100,riskReserve:NaN}}
  ]){
   const app=boot(new Map(),true,assessment());
   assert.notEqual(app.elements.taxSimAfterIRS.textContent,"—");
   app.setAssessment(assessment(invalid));
   assertEmptyDeal(app);assert.equal(app.elements.taxSimError.hidden,false);
-  assert.match(app.elements.taxSimError.textContent,/Faltam preços ou custos|valores da avaliação são inválidos/);
+  assert.match(app.elements.taxSimError.textContent,/Faltam preços|valores da avaliação são inválidos/);
  }
 });
 
@@ -197,7 +195,7 @@ test("ajustes manuais sobrevivem ao mesmo resultado, abertura do painel e altera
  app.elements.taxSimSocialEnabled.checked=true;app.trigger("taxSimSocialEnabled","change");
  assert.equal(app.elements.taxSimPurchase.value,"18350");assert.equal(app.elements.taxSimSale.value,"23500");assert.equal(app.elements.taxSimCosts.value,"750");
  app.trigger("taxSimUseAssessment","click");
- assert.equal(app.elements.taxSimPurchase.value,"19600.45");assert.equal(app.elements.taxSimSale.value,"22990.8");assert.equal(app.elements.taxSimCosts.value,"2900");
+ assert.equal(app.elements.taxSimPurchase.value,"19600.45");assert.equal(app.elements.taxSimSale.value,"22990.8");assert.equal(app.elements.taxSimCosts.value,"0");
  assert.equal(app.elements.taxSimIrsRate.value,"25");assert.equal(app.elements.taxSimSocialEnabled.checked,true);
 });
 
@@ -206,9 +204,9 @@ test("nova avaliação da mesma matrícula e abertura de outro resultado histór
  const updated=assessment({market:{saleLikely:24000},purchase:{currentPrice:19000,effectiveCeiling:20500,fixedCosts:800,riskReserve:200}});
  assert.equal(updated.subject.registration,first.subject.registration);
  app.setAssessment(updated);
- assert.equal(app.elements.taxSimPurchase.value,"19000");assert.equal(app.elements.taxSimSale.value,"24000");assert.equal(app.elements.taxSimCosts.value,"1000");
+ assert.equal(app.elements.taxSimPurchase.value,"19000");assert.equal(app.elements.taxSimSale.value,"24000");assert.equal(app.elements.taxSimCosts.value,"0");
  app.setAssessment(first);
- assert.equal(app.elements.taxSimPurchase.value,"19600.45");assert.equal(app.elements.taxSimSale.value,"22990.8");assert.equal(app.elements.taxSimCosts.value,"2900");
+ assert.equal(app.elements.taxSimPurchase.value,"19600.45");assert.equal(app.elements.taxSimSale.value,"22990.8");assert.equal(app.elements.taxSimCosts.value,"0");
 });
 
 test("sem avaliação, Usar avaliação avisa sem substituir uma simulação manual",()=>{
@@ -264,4 +262,25 @@ test("migra dados antigos preservando preferências, descartando montantes e sem
   const saved=JSON.parse(storage.get("aap-tax-sim-v2"));
   assert.equal(saved.taxSimPurchase,undefined);assert.equal(saved.taxSimSale,undefined);assert.equal(saved.taxSimCosts,undefined);
  }
+});
+
+
+test("reserva independente não altera lucro nem impostos; reduz apenas o saldo disponível",()=>{
+ const app=boot(new Map(),true,assessment());
+ enterDeal(app,{costs:300});
+ const profit=app.elements.taxSimAfterIRS.textContent,vat=app.elements.taxSimVat.textContent;
+ app.elements.taxSimReserve.value="700";app.trigger("taxSimReserve","input");
+ assert.equal(app.elements.taxSimAfterIRS.textContent,profit);
+ assert.equal(app.elements.taxSimVat.textContent,vat);
+ assert.equal(app.elements.taxSimCosts.value,"300");
+ assert.notEqual(app.elements.taxSimAfterReserve.textContent,profit);
+ app.setAssessment(assessment());
+ assert.equal(app.elements.taxSimCosts.value,"0");assert.equal(app.elements.taxSimReserve.value,"0");
+});
+test("histórico repõe campos e preferências próprios da avaliação",()=>{
+ const saved=assessment({tax_simulation:{version:1,fields:{taxSimCosts:"123.45",taxSimReserve:"456",taxSimPurchase:"18000",taxSimSale:"24000",taxSimSocialEnabled:true}}});
+ const app=boot(new Map(),true,saved);
+ assert.equal(app.elements.taxSimCosts.value,"123.45");assert.equal(app.elements.taxSimReserve.value,"456");
+ assert.equal(app.elements.taxSimPurchase.value,"18000");assert.equal(app.elements.taxSimSocialEnabled.checked,true);
+ app.setAssessment(assessment());assert.equal(app.elements.taxSimCosts.value,"0");assert.equal(app.elements.taxSimReserve.value,"0");
 });

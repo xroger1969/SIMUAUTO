@@ -256,3 +256,23 @@ Cálculos são isolados e determinísticos em `tax-simulator-calc.mjs`, com test
 O módulo não recolhe dados fiscais sensíveis, não grava uma declaração e não altera o histórico de avaliações. Taxas/regras de 2026 precisam de revisão anual. Os valores com IVA são finais para efeitos do campo de despesas; deduções de IVA das despesas e fiscalidade de vendas fora do RETBSM não estão incluídos.
 
 Fontes: DL n.º 199/96 (regime da margem), artigo 31.º CIRS, artigo 157.º do código contributivo, IAS 2026 e documentação oficial da Segurança Social.
+
+
+### Custos efetivos, reserva e referências elétricas (2026-11-04)
+
+No Lucro ENI, cada avaliação nova começa com custos efetivos e reserva a zero.
+Os dois campos são independentes e editáveis. Apenas os custos efetivos entram
+no lucro; a reserva reduz o saldo após IRS, apresentado separadamente.
+«Usar avaliação» repõe os preços da avaliação e os dois campos a zero.
+«Guardar ajustes no histórico» cria uma revisão com os valores e preferências
+fiscais atuais. Abrir a revisão restaura esses campos sem alterar as revisões
+anteriores. A gravação usa a fila existente, com indicação de falha e repetição.
+
+A pesquisa técnica cobre BEV e PHEV (apenas autonomia elétrica nestes últimos).
+A referência WLTP exige fonte oficial consultada e correspondência da versão.
+A capacidade exige evidência em kWh e distingue útil/bruta quando documentado.
+A autonomia real exige uma fonte consultada, a versão correspondente, valores
+expressos em km e condições do ensaio; não usa percentagens fixas do WLTP.
+Sem confirmação, apresenta «Por confirmar». As referências ficam no resultado
+estruturado e, por isso, nas revisões do histórico. Resultados antigos não são
+completados retroativamente; é necessária nova pesquisa.

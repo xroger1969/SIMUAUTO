@@ -13,12 +13,12 @@ export function annualProgressiveIRS(taxable){
   total+=Math.max(0,Math.min(taxable,250000)-80000)*.025+Math.max(0,taxable-250000)*.05;
   return total;
 }
-export function calculateTaxSim({purchase,sale,costs=0,quarterlySales=1,irsRate=null,includeSocialSecurity=true,automaticIRS=false,annualSales=10,monthlyGrossSalary=730,salaryPayments=14}={}){
+export function calculateTaxSim({purchase,sale,costs=0,reserve=0,quarterlySales=1,irsRate=null,includeSocialSecurity=true,automaticIRS=false,annualSales=10,monthlyGrossSalary=730,salaryPayments=14}={}){
   const round=n=>Math.round(n*100+1e-7)/100;
-  for(const [name,value] of Object.entries({purchase,sale,costs,quarterlySales})){
+  for(const [name,value] of Object.entries({purchase,sale,costs,reserve,quarterlySales})){
     if(typeof value!=="number"||!Number.isFinite(value))throw new Error("O campo "+name+" tem de ser numérico.");
   }
-  if(purchase<0||sale<=0||costs<0||purchase>10000000||sale>10000000||costs>10000000)throw new Error("Introduz valores positivos válidos.");
+  if(purchase<0||sale<=0||costs<0||reserve<0||reserve>10000000||purchase>10000000||sale>10000000||costs>10000000)throw new Error("Introduz valores positivos válidos.");
   if(!Number.isInteger(quarterlySales)||quarterlySales<1||quarterlySales>30)throw new Error("O número de vendas do trimestre deve ser entre 1 e 30.");
   if(typeof includeSocialSecurity!=="boolean")throw new Error("A opção Segurança Social tem de ser booleana.");
   const validRate=irsRate===null||irsRate===""?null:Number(irsRate);
@@ -48,6 +48,7 @@ export function calculateTaxSim({purchase,sale,costs=0,quarterlySales=1,irsRate=
   const projectedAnnualVehicles=automaticIRS?annualSales:quarterlySales*4;
   const projectedAnnualRevenue=round(saleWithoutVat*projectedAnnualVehicles);
   const effectiveIRSRate=irsEstimate===null?null:round(irsEstimate/taxableIncome*100);
-  return {grossMargin,marginVat,saleWithoutVat,costs,taxableIncome,relevantMonthly,exemptLimit,socialMonthly,socialQuarter,socialPerCar,beforeIRS,irsEstimate,afterIRS,effectiveIRSRate,otherTaxable,incrementalAnnualIRS,irsMethod:validRate!==null?"manual":automaticIRS?"progressive-estimate":"unset",projectedAnnualRevenue,projectedAnnualVehicles,requiresAnnualReview:projectedAnnualRevenue>200000,exceedsSimplifiedSingleYearThreshold:projectedAnnualRevenue>250000,inputs:{purchase,sale,costs,quarterlySales,irsRate:validRate,includeSocialSecurity,automaticIRS,annualSales,monthlyGrossSalary,salaryPayments}};
+  const afterReserve=afterIRS===null?null:round(afterIRS-reserve);
+  return {reserve,afterReserve,grossMargin,marginVat,saleWithoutVat,costs,taxableIncome,relevantMonthly,exemptLimit,socialMonthly,socialQuarter,socialPerCar,beforeIRS,irsEstimate,afterIRS,effectiveIRSRate,otherTaxable,incrementalAnnualIRS,irsMethod:validRate!==null?"manual":automaticIRS?"progressive-estimate":"unset",projectedAnnualRevenue,projectedAnnualVehicles,requiresAnnualReview:projectedAnnualRevenue>200000,exceedsSimplifiedSingleYearThreshold:projectedAnnualRevenue>250000,inputs:{purchase,sale,costs,reserve,quarterlySales,irsRate:validRate,includeSocialSecurity,automaticIRS,annualSales,monthlyGrossSalary,salaryPayments}};
 }
 
