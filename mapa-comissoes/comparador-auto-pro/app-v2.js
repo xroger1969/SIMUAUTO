@@ -1449,7 +1449,7 @@ async function updateAnalysis(patch,analysisId=currentAnalysisId){
 function setAnalysisButtonState(state){
   const button=q("analyzeBtn");if(!button)return;
   button.dataset.state=state;
-  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":state==="partial"?"Pesquisa sem cotação":state==="stopped"?"Avaliação parada":"Analisar viatura";
+  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":state==="partial"?"Pesquisa sem cotação":state==="stopped"?"Avaliação parada":state==="error"?"Tentar avaliar novamente":"Analisar viatura";
   button.setAttribute("aria-busy",String(state==="running"));
 }
 function markAnalysisInputChanged(){
@@ -1516,6 +1516,8 @@ function beginOperation(kind,analysisId=null){
   const cancelable=["analysis","resume","refine","market-refresh"].includes(kind);
   const op={id:++operationSequence,kind,analysisId,owner:session?.user?.id,token:session?.access_token,requestKey:crypto.randomUUID(),jobId:null,isAssessment,resultReady:false,cancelable,cancelled:false,controller:new AbortController()};
   if(q("stopAssessmentStatus"))q("stopAssessmentStatus").hidden=true;
+  q("emptyState").classList.add("hidden");
+  if(q("apiBillingLink"))q("apiBillingLink").hidden=true;
   activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);
   if(isAssessment)setAnalysisButtonState("running");
   return op;
@@ -1527,7 +1529,7 @@ function assertOperation(op){
 function finishOperation(op){
   if(activeOperation===op){
     activeOperation=null;setOperationBusy(false);
-    if(op.isAssessment)setAnalysisButtonState(op.resultReady?(op.resultState||"partial"):"idle");
+    if(op.isAssessment)setAnalysisButtonState(op.failed?"error":op.resultReady?(op.resultState||"partial"):"idle");
     if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;
   }
 }
@@ -2139,6 +2141,32 @@ async function fetchJson(url,options={},timeout=25000){
   }finally{clearTimeout(timer);options.signal?.removeEventListener("abort",abort)}
 }
 function pendingResearchError(message){return Object.assign(new Error(message),{recoverable:true})}
+function marketRequestError(data={}){
+  let message=data.message||data.error||"Falha no radar de mercado.";
+  let code=data.error||"";
+  if(["ai_credits_exhausted","credit_balance_exhausted"].includes(code)||/no credits remaining|credit balance.*exhaust|sem créditos na API/i.test(message)){
+    code="ai_credits_exhausted";
+    message="A conta de IA está sem créditos na API OpenAI. Adiciona saldo na faturação da API e depois volta a avaliar.";
+  }else if(["ai_billing_limit","insufficient_quota","organization_spend_limit_exceeded","project_spend_limit_exceeded","organization_usage_limit_exceeded","usage_limit_exceeded"].includes(code)||/exceeded your current quota|spend limit.*exceeded|limite de utilização da API/i.test(message)){
+    code="ai_billing_limit";
+    message="A conta de IA atingiu um limite de utilização da API. Verifica o saldo e os limites da conta OpenAI antes de voltar a avaliar.";
+  }
+  return Object.assign(new Error(message),{code,billing:["ai_credits_exhausted","ai_billing_limit"].includes(code)});
+}
+function showAssessmentFailure(error,operation){
+  const failure=marketRequestError({error:error?.code,message:String(error?.message||error)});
+  const raw=failure.message;
+  const message=/JSON|Unexpected|position/.test(raw)?"A resposta do serviço ficou inválida. Não foi emitida uma recomendação de compra.":/Load failed|Failed to fetch|NetworkError|network connection/i.test(raw)?"A ligação caiu. A pesquisa fica identificada para evitar duplicações.":raw;
+  operation.failed=true;
+  const panel=q("emptyState");
+  panel.classList.remove("hidden");
+  panel.querySelector("h2").textContent=failure.code==="ai_credits_exhausted"?"Avaliação indisponível: falta saldo":failure.billing?"Avaliação indisponível: limite da API":"Não consegui concluir esta avaliação";
+  panel.querySelector("p").textContent=message+(selectedImages.length?" As fotografias continuam neste ecrã.":"");
+  if(q("apiBillingLink"))q("apiBillingLink").hidden=!failure.billing;
+  panel.scrollIntoView({behavior:"smooth",block:"center"});
+  panel.focus({preventScroll:true});
+  return message;
+}
 function showPendingResearch(operation,message){
   pendingResearch={jobId:operation.jobId||null,analysisId:operation.analysisId||null};
   const panel=q("pendingResearch");if(!panel)return;
@@ -2168,13 +2196,13 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
     if(poll.data.error==="market_job_cancelled"||poll.data.status==="cancelled")throw Object.assign(new Error("Avaliação parada."),{cancelled:true});
     if(poll.response.status===202||["starting","queued","in_progress"].includes(poll.data.status))continue;
     if(!poll.response.ok){
-      const message=poll.data.message||poll.data.error||"Falha no radar de mercado.";
-      const terminal=["market_job_failed","openai_market_failed"].includes(poll.data.error);
+      const error=marketRequestError(poll.data);
+      const terminal=error.billing||["market_job_failed","openai_market_failed","market_start_interrupted"].includes(poll.data.error);
       if(!terminal&&(poll.response.status>=500||[408,429].includes(poll.response.status))){
         if(++consecutiveNetworkFailures<4)continue;
         throw pendingResearchError("Não foi possível consultar o serviço. A pesquisa pode ser retomada.");
       }
-      throw new Error(message);
+      throw error;
     }
     return poll.data;
   }
@@ -2201,9 +2229,10 @@ async function runMarketAnalysis(payload,operation){
   }
   assertOperation(operation);
   if(!start.response.ok){
-    const message=start.data.message||start.data.error||"Falha ao iniciar o radar de mercado.";
-    if(start.response.status>=500||[408,429].includes(start.response.status))throw pendingResearchError(message+" Podes procurar o pedido guardado ao retomar.");
-    throw new Error(message);
+    const error=marketRequestError(start.data);
+    const terminal=error.billing||["market_job_failed","openai_market_failed","market_start_interrupted"].includes(start.data.error);
+    if(!terminal&&(start.response.status>=500||[408,429].includes(start.response.status)))throw pendingResearchError(error.message+" Podes procurar o pedido guardado ao retomar.");
+    throw error;
   }
   if(start.data.subject)return start.data;
   const jobId=start.data.job_id;
@@ -2274,7 +2303,7 @@ async function resumePendingAnalysis(jobId=null,analysisId=null){
     if(operation.cancelled||activeOperation!==operation)return;
     console.warn("Retoma CAP:",error);
     if(error.recoverable)showPendingResearch(operation,error.message);
-    toast(error.message);
+    else showAssessmentFailure(error,operation);
   }
   finally{if(activeOperation===operation){stopProgress();finishOperation(operation)}}
 }
@@ -2443,11 +2472,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     if(operation.cancelled||activeOperation!==operation)return;
     if(err.recoverable){showPendingResearch(operation,err.message);return}
     if(currentResult){toast("A avaliação está disponível. "+String(err?.message||err));return}
-    q("emptyState").classList.remove("hidden");
-    q("emptyState").querySelector("h2").textContent="Não consegui concluir esta leitura";
-    const raw=String(err?.message||err);
-    const message=/JSON|Unexpected|position/.test(raw)?"A resposta do serviço ficou inválida. Não foi emitida uma recomendação de compra.":/Load failed|Failed to fetch|NetworkError|network connection/i.test(raw)?"A ligação caiu. A pesquisa fica identificada para evitar duplicações.":raw;
-    q("emptyState").querySelector("p").textContent=message;
+    const message=showAssessmentFailure(err,operation);
     await updateAnalysis({status:"failed",error_message:message},operation.analysisId).catch(()=>{});
   }finally{
     if(activeOperation===operation){stopProgress();finishOperation(operation);}
@@ -2729,8 +2754,9 @@ async function refineEvaluation(text,{aiData=null,alreadyShown=false}={}){
     toast(refinementAI.learned?"Análise refeita e orientação guardada.":"Análise refeita.");
   }catch(err){
     if(operation.cancelled||activeOperation!==operation)return;
-    const message=String(err?.message||err);
+    const message=marketRequestError({error:err?.code,message:String(err?.message||err)}).message;
     if(err.recoverable){showPendingResearch(operation,message);showRefineDialog("Pesquisa guardada",message,"loading");return}
+    showAssessmentFailure(err,operation);
     addMsg("assistant","Não consegui refazer a análise: "+message);await storeMessage("assistant","Não consegui refazer a análise: "+message);
     q("refineInlineStatus").textContent="Não foi possível refazer a análise.";showRefineDialog("Não foi possível concluir",message,"error");
   }finally{
@@ -2824,7 +2850,7 @@ async function refreshMarketSnapshot(){
   }catch(error){
     if(operation.cancelled||activeOperation!==operation)return;
     if(error.recoverable)showPendingResearch(operation,error.message);
-    toast(error.message||"Não foi possível atualizar o mercado.");
+    else showAssessmentFailure(error,operation);
   }finally{
     if(activeOperation===operation){stopProgress();finishOperation(operation);}
   }

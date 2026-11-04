@@ -7,6 +7,7 @@ const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObser
 const {normalizeVehicleIdentity,selectEligibleComparables,sameModel,modelFamilyKey,canonicalFuel,derivativeCode,listingUrl}=require("../comparador-auto-pro/commercial-identity.js");
 const {boundedAdvisoryMemories,relevantAdvisoryMemories}=require("../lib/teaching");
 const {configuredModel}=require("../lib/model-config");
+const {providerError}=require("../lib/provider-error");
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clip=(v,n)=>String(v??"").slice(0,n);
@@ -812,6 +813,11 @@ async function launchMarketTransition(token,job,nextContext,{recover=false}={}){
     return {ok:true,status:next.status||"queued",job_id:job.id,recovery_step:Number(pending.market_search_step)||0};
   }catch(error){
     if(error?.code==="market_job_cancelled")throw error;
+    if(error?.status===402){
+      await updateJob(token,job.id,{status:"failed",error_message:error.message,
+        context:{...pending,provider_error_code:error.code}});
+      throw error;
+    }
     // Preserve the lease and search context so a dropped connection can be resumed.
     await updateJob(token,job.id,{status:startedResponse?.status||"in_progress",
       ...(startedResponse?.id?{response_id:startedResponse.id}:{}),error_message:clip(error?.message||error,600),
@@ -854,7 +860,7 @@ async function startResponse(context,imageDataUrls,metadata,identify){
       })
     });
     const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw appError(data?.error?.message||"Falha no radar de mercado.",502,"openai_market_error");
+    if(!response.ok)throw providerError(data?.error);
     if(!data.id)throw appError("A pesquisa foi iniciada sem identificador de acompanhamento.",502,"openai_market_error");
   return data;
 }
@@ -871,7 +877,10 @@ module.exports=endpoint(async function handler(req,res){
     const job=await getOwnedJob(token,jobId);
     if(job.status==="cancelled")throw appError("Avaliação parada.",409,"market_job_cancelled");
     if(job.status==="completed"&&job.result)return res.status(200).json(job.result);
-    if(job.status==="failed")return res.status(502).json({error:"market_job_failed",message:job.error_message||"A pesquisa terminou com erro.",job_id:job.id});
+    if(job.status==="failed"){
+      const error=providerError({code:job.context?.provider_error_code,message:job.error_message||"A pesquisa terminou com erro."},"market_job_failed");
+      return res.status(error.status).json({error:error.code,message:error.message,job_id:job.id});
+    }
     if(job.context?.stage==="market_pending"){
       if(!transitionExpired(job.context,job.updated_at))return res.status(202).json({ok:true,status:"in_progress",job_id:job.id});
       if(Number(job.context.transition_retries)>=2){
@@ -907,16 +916,18 @@ module.exports=endpoint(async function handler(req,res){
         await updateJob(token,job.id,{status:"failed",error_message:message});
         return res.status(502).json({error:"market_job_failed",message,job_id:job.id});
       }
-      throw appError(data?.error?.message||"Não foi possível consultar o estado da pesquisa.",502,"openai_market_status_error");
+      const error=providerError(data?.error||{message:"Não foi possível consultar o estado da pesquisa."},"openai_market_status_error");
+      if(error.status===402)await updateJob(token,job.id,{status:"failed",error_message:error.message,context:{...job.context,provider_error_code:error.code}});
+      throw error;
     }
     if(data.status==="queued"||data.status==="in_progress"){
       await updateJob(token,job.id,{status:data.status});
       return res.status(202).json({ok:true,status:data.status,job_id:job.id});
     }
     if(data.status!=="completed"){
-      const message=data?.error?.message||"A pesquisa de mercado terminou sem resultado válido.";
-      await updateJob(token,job.id,{status:"failed",error_message:message});
-      throw appError(message,502,"openai_market_failed");
+      const error=providerError(data?.error||{message:"A pesquisa de mercado terminou sem resultado válido."},"openai_market_failed");
+      await updateJob(token,job.id,{status:"failed",error_message:error.message,context:{...job.context,provider_error_code:error.code}});
+      throw error;
     }
 
     const registration=job.context?.registration_data||null;
@@ -1025,7 +1036,10 @@ module.exports=endpoint(async function handler(req,res){
   if(claim.claimed!==true){
     if(job.status==="cancelled")throw appError("Avaliação parada.",409,"market_job_cancelled");
     if(job.status==="completed"&&job.result)return res.status(200).json(job.result);
-    if(job.status==="failed")return res.status(502).json({error:"market_job_failed",message:job.error_message||"A pesquisa anterior terminou com erro.",job_id:job.id});
+    if(job.status==="failed"){
+      const error=providerError({code:job.context?.provider_error_code,message:job.error_message||"A pesquisa anterior terminou com erro."},"market_job_failed");
+      return res.status(error.status).json({error:error.code,message:error.message,job_id:job.id});
+    }
     return res.status(202).json({ok:true,status:job.status||"starting",job_id:job.id});
   }
 
@@ -1088,7 +1102,7 @@ module.exports=endpoint(async function handler(req,res){
     await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:{...context,registration_data:registrationData}});
     return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData});
   }catch(error){
-    await updateJob(token,job.id,{status:"failed",error_message:String(error?.message||error)}).catch(()=>{});
+    await updateJob(token,job.id,{status:"failed",error_message:String(error?.message||error),context:{...context,provider_error_code:error?.code||null}}).catch(()=>{});
     throw error;
   }
 });

@@ -72,6 +72,7 @@ button:disabled{cursor:wait;opacity:.55}
 #analyzeForm #analyzeBtn[data-state="running"]{background:#facc15;color:#422006;border-color:#eab308;cursor:wait}
 #analyzeForm #analyzeBtn[data-state="complete"]{background:#15803d;color:#fff;border-color:#16a34a}
 #analyzeForm #analyzeBtn[data-state="partial"]{background:#facc15;color:#422006;border-color:#eab308}
+#analyzeForm #analyzeBtn[data-state="error"]{background:#991b1b;color:#fff;border-color:#ef4444}
 #analyzeBtn[data-state="running"]:after{content:"";width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cockpit-spin 1s linear infinite}
 #analyzeBtn[data-state="complete"]:after{content:"✓";font-size:24px}
 #app .stop-assessment{width:100%;min-height:54px;margin-top:12px;background:#b91c1c;color:#fff;border:2px solid #ef4444;border-radius:10px;font-size:18px;font-weight:700}
@@ -192,4 +193,7 @@ button:disabled{cursor:wait;opacity:.55}
 #emptyState{position:relative;min-height:0;padding:24px;background:#15181e;border:1px solid #353943;border-radius:16px;color:#e8eaf0}
 #emptyState h2{color:#fff;font-size:24px;margin:16px 0}
 #emptyState p{color:#c6cad4;font-size:17px;line-height:1.5}
+#analyzeForm #emptyState{margin:12px 0 0;text-align:left;scroll-margin-block:24px}
+#emptyState #apiBillingLink{display:block;min-height:44px;padding:12px 0;color:#ff9c65;font-weight:700;text-decoration:underline}
+#emptyState #apiBillingLink[hidden]{display:none!important}
 #dismissNoticeBtn{display:block;margin-left:auto;min-height:44px;color:#ff8a50;border:1px solid #ff6b24;background:#101216}

@@ -55,6 +55,7 @@ async function boot(preferences=null){
     signIn(){session={user:{id:'${owner}'},access_token:'test'};q('authGate').classList.add('hidden');q('app').classList.remove('hidden');},
     setMarket(handler){runMarketAnalysis=handler;pollMarketJob=handler;},
     setMemories(handler){loadMemories=handler;},
+    setPhotos(){selectedImages=[{name:'viatura.jpeg',data:'data:image/jpeg;base64,YQ=='}];selectedImageData=selectedImages[0].data;setImageStatus('');},
     render:renderResult,needsInfo:renderNeedsVehicleInfo,readerOnly:renderReaderOnly,needsPhotos:renderAuto1NeedsPhotos,
     openHistory:openSavedRevision,resume:resumePendingAnalysis,
     mergeDeal,resetCosts:resetDealCosts,get deal(){return DEAL;},setDeal(value){DEAL=mergeDeal(value);syncDealForm();},loadPreferences:loadDealPreferences,
@@ -307,4 +308,48 @@ test('plate input alone is not shown as a successful plate identification',async
   app.h.setMarket(async()=>data);app.submit('86-QG-72');await until(()=>!app.h.busy);
   assert.match(app.q('adReadStatus').textContent,/Consulta da matrícula indisponível/);
   assert.doesNotMatch(app.q('adReadStatus').textContent,/^Identificação pela matrícula$/);
+});
+
+for(const legacy of [false,true])test('photo billing failure is visible by the button and preserves inputs'+(legacy?' (legacy server)':''),async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  const {h,q,w}=app;h.setPhotos();let calls=0;
+  w.fetch=async(url,options)=>{
+    calls++;assert.equal(url,'/api/comparador-market');
+    assert.equal(JSON.parse(options.body).image_data_urls.length,1);
+    return {ok:false,status:legacy?502:402,json:async()=>({error:legacy?'openai_market_error':'ai_credits_exhausted',message:'You have no credits remaining. Add credits to continue using the API.'})};
+  };
+  app.submit('');await until(()=>!h.busy);
+  assert.equal(calls,1);assert.equal(q('analyzeBtn').disabled,false);
+  assert.equal(q('analyzeBtn').dataset.state,'error');
+  assert.equal(q('analyzeBtn').getAttribute('aria-busy'),'false');
+  assert.equal(q('stopAssessmentBtn').hidden,true);
+  assert.equal(q('emptyState').classList.contains('hidden'),false);
+  assert.equal(q('emptyState').closest('.search-actions')!==null,true);
+  assert.equal(w.document.activeElement,q('emptyState'));
+  assert.match(q('emptyState').textContent,/sem créditos na API OpenAI/);
+  assert.equal(q('apiBillingLink').hidden,false);
+  assert.equal(q('attachmentStatus').classList.contains('hidden'),false);
+  assert.match(q('attachmentList').textContent,/viatura.jpeg/);
+  assert.equal(q('pendingResearch').classList.contains('hidden'),true);
+  assert.equal(h.result,null);
+  h.setMarket(async()=>market(ford,23552));
+  app.submit('');await until(()=>!h.busy);
+  assert.ok(h.result);assert.equal(q('emptyState').classList.contains('hidden'),true);
+  assert.equal(q('apiBillingLink').hidden,true);
+});
+
+test('queued photo failure stops polling and displays billing recovery without discarding photographs',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  const {h,q,w}=app;h.setPhotos();let calls=0;
+  const timer=w.setTimeout.bind(w);w.setTimeout=(fn,ms,...args)=>timer(fn,ms===2200?0:ms,...args);
+  w.fetch=async()=>{
+    calls++;
+    return calls===1?{ok:true,status:202,json:async()=>({job_id:'job-photo',status:'queued'})}
+      :{ok:false,status:402,json:async()=>({error:'ai_credits_exhausted',message:'Sem créditos'})};
+  };
+  app.submit('');await until(()=>!h.busy);
+  assert.equal(calls,2);assert.match(q('emptyState').textContent,/sem créditos na API OpenAI/);
+  assert.equal(q('pendingResearch').classList.contains('hidden'),true);
+  assert.match(q('attachmentList').textContent,/viatura.jpeg/);
+  h.reset();assert.equal(q('emptyState').classList.contains('hidden'),true);
 });
