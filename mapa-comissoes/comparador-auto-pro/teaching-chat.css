@@ -8,7 +8,8 @@
 .voice-button.recording{background:#ffe6e9;color:#a52037;border-color:#d88491;box-shadow:0 0 0 3px #bc314322}
 .voice-button:focus-visible,.teaching-link:focus-visible{outline:3px solid #67a6f7;outline-offset:2px}
 .voice-button:disabled{opacity:.5;cursor:wait}
-.refine-dialog-card{width:min(620px,100%);height:auto;max-height:min(85dvh,var(--conversation-height,85dvh));background:#f6f8fc;color:#182638;border-color:#b7c9df;gap:0}
+/* Keep every choice and the composer reachable when the mobile keyboard reduces the viewport. */
+.refine-dialog-card{width:min(620px,100%);height:auto;max-height:min(85dvh,var(--conversation-height,85dvh));background:#f6f8fc;color:#182638;border-color:#b7c9df;gap:0;overflow-y:auto;overscroll-behavior:contain}
 .refine-dialog-head .eyebrow{color:#42678f}
 .refine-dialog-head strong{font-size:21px}
 .refine-dialog-head small{display:block;margin-top:6px;color:#526276;font-size:13px}
@@ -34,6 +35,8 @@
 .teaching-feedback span{flex-basis:100%;color:#234363}
 .teaching-feedback .btn{min-height:40px;font-size:13px}
 .refine-dialog [hidden]{display:none!important}
+.identity-choices{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;flex-shrink:0;margin:4px 0 12px}
+.identity-choices .btn{min-height:48px;white-space:normal;text-align:left;font-size:15px;line-height:1.35}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:560px){
   .refine-dialog{padding:8px;padding-bottom:max(8px,env(safe-area-inset-bottom));align-items:end}

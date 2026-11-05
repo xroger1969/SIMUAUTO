@@ -1,6 +1,6 @@
 const crypto=require("node:crypto");
 const {rangeSchema,normalizeRange,confirmedRange}=require("../comparador-auto-pro/electric-range.js");
-const {lookupRegistration,normalizeRegistration,displayRegistration}=require("../lib/registration");
+const {lookupRegistration,normalizeRegistration,displayRegistration,hasRegistrationIdentity,registrationMatches}=require("../lib/registration");
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
 const {conditionSchema,normalizeConditionReport,mergeConditionReports,mergeObservedConditionReports,needsConditionResearch}=require("../lib/condition-report");
@@ -24,7 +24,8 @@ function inputSignature(body={}){
     description:String(body.description||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," "),
     mileage_input_km:mileageInput(body.mileage_input_km),
     images:images.map(image=>sha256(image)),
-    corrected_identity:body.previous_subject?identityCacheFields(body.previous_subject):null
+    corrected_identity:body.previous_subject?identityCacheFields(body.previous_subject):null,
+    user_confirmed_identity:confirmedIdentity(body.user_confirmed_identity)
   };
   return "input-v10-wltp-20261024:"+sha256(JSON.stringify(signaturePayload));
 }
@@ -73,7 +74,9 @@ async function cachedRegistration(token,value){
       "&expires_at=gt."+encodeURIComponent(nowIso())+"&limit=1"
     );
     const row=Array.isArray(rows)?rows[0]:null;
-    return row?.data&&typeof row.data==="object"?row.data:null;
+    // Legacy partial/error payloads must not hide a usable provider result for
+    // 365 days. Nor may a corrupt entry identify a different registration.
+    return hasRegistrationIdentity(row?.data)&&registrationMatches(row.data,plate)?row.data:null;
   }catch(error){
     console.warn("registration_cache_read_failed",{code:error?.code||"unknown"});
     return null;
@@ -82,7 +85,7 @@ async function cachedRegistration(token,value){
 
 async function storeRegistrationCache(token,value,data){
   const plate=normalizeRegistration(value);
-  if(!plate||!data||typeof data!=="object")return;
+  if(!plate||!hasRegistrationIdentity(data)||!registrationMatches(data,plate))return;
   try{
     await rest(
       token,
@@ -104,21 +107,30 @@ async function storeRegistrationCache(token,value,data){
   }
 }
 
+const registrationLookups=new Map();
 async function lookupRegistrationCached(token,value){
   const plate=normalizeRegistration(value);
   if(!plate)throw appError("Matrícula portuguesa inválida.",400,"invalid_registration");
-  const cached=await cachedRegistration(token,plate);
-  if(cached){
-    // Migrar em memória resultados Spottd antigos que guardavam a data PT
-    // no campo de primeira matrícula original. Não consumir um novo crédito.
-    if(cached.provider==="spottd"&&!cached.registration_date_pt&&cached.first_registration){
-      return {...cached,registration_date_pt:cached.first_registration,first_registration:null,cache_hit:true};
+  const key=sha256(token+"|"+plate);
+  if(registrationLookups.has(key))return registrationLookups.get(key);
+  const task=(async()=>{
+    const cached=await cachedRegistration(token,plate);
+    if(cached){
+      // Migrar em memória resultados Spottd antigos que guardavam a data PT
+      // no campo de primeira matrícula original. Não consumir um novo crédito.
+      const result={...cached,registration:displayRegistration(plate),cache_hit:true};
+      if(cached.provider==="spottd"&&!cached.registration_date_pt&&cached.first_registration){
+        return {...result,registration_date_pt:cached.first_registration,first_registration:null};
+      }
+      return result;
     }
-    return {...cached,cache_hit:true};
-  }
-  const fresh=await lookupRegistration(plate);
-  await storeRegistrationCache(token,plate,fresh);
-  return {...fresh,cache_hit:false};
+    const fresh=await lookupRegistration(plate);
+    if(!registrationMatches(fresh,plate))throw appError("O fornecedor devolveu uma matrícula diferente da pedida.",502,"registration_mismatch");
+    await storeRegistrationCache(token,plate,fresh);
+    return {...fresh,cache_hit:false};
+  })();
+  registrationLookups.set(key,task);
+  try{return await task;}finally{if(registrationLookups.get(key)===task)registrationLookups.delete(key);}
 }
 
 function registrationFromMetadata(meta={}){
@@ -171,11 +183,49 @@ function registrationCompatible(subject,registration){
     if(sc&&rc&&sc!==rc)return false;
     if(s.generation&&r.generation&&normalizeIdentity(s.generation)!==normalizeIdentity(r.generation))return false;
   }
+  if(a==="mini"&&b==="mini"&&normalizeIdentity(subject?.model)&&normalizeIdentity(registration?.model)){
+    // MINI versions may be split between model and trim in either source.
+    // Keep both fields while checking Cooper D / SD / SE and body identities.
+    return sameModel(normalizeVehicleIdentity(subject),normalizeVehicleIdentity(registration));
+  }
   return modelCompatible(subject?.model,registration?.model,subject?.make||registration?.make);
 }
 function registrationConflictMessage(subject,registration){
   const title=v=>[v?.make,v?.model,v?.trim].filter(Boolean).join(" ");
   return "A identificação fornecida ("+title(subject)+") difere da consulta da matrícula ("+title(registration)+"). Confirma a matrícula, o modelo e a versão antes de continuar.";
+}
+function confirmedIdentity(value){
+  if(value===null||value===undefined)return null;
+  if(typeof value!=="object"||Array.isArray(value)||!hasRegistrationIdentity(value))throw appError("Confirma a marca e o modelo da viatura.",400,"invalid_identity_confirmation");
+  const identity={};
+  for(const key of ["make","model","trim"]){
+    if(key==="trim"&&!Object.hasOwn(value,key))continue;
+    if(key==="trim"&&value[key]===null){identity.trim=null;continue;}
+    if(typeof value[key]!=="string"||value[key].trim().length>120||!value[key].trim())throw appError("A identificação confirmada não é válida.",400,"invalid_identity_confirmation");
+    identity[key]=value[key].trim();
+  }
+  if(Object.hasOwn(value,"registration")){
+    if(!normalizeRegistration(value.registration))throw appError("Confirma uma matrícula portuguesa válida.",400,"invalid_identity_confirmation");
+    identity.registration=displayRegistration(value.registration);
+  }
+  return identity;
+}
+function applyConfirmedIdentity(subject,confirmation){
+  if(!confirmation)return subject;
+  // Do not carry a different vehicle's engine/battery/year/price into the new
+  // selection. Explicit mileage is reapplied from the structured user input.
+  const oldPlate=normalizeRegistration(subject?.registration),chosenPlate=normalizeRegistration(confirmation.registration);
+  const differentPlate=oldPlate&&chosenPlate&&oldPlate!==chosenPlate;
+  const base=!differentPlate&&registrationCompatible(subject,confirmation)?{...subject}:{registration:subject?.registration||null,mileage_km:null,price:null,equipment:[]};
+  return normalizeVehicleIdentity({...base,...confirmation,identity_source:"user_confirmed"});
+}
+function identityCandidate(source,vehicle){
+  if(!vehicle||!hasRegistrationIdentity(vehicle))return null;
+  const v=normalizeVehicleIdentity(vehicle);
+  return {source,label:[v.make,v.model,v.trim].filter(Boolean).join(" "),vehicle:{
+    make:v.make,model:v.model,trim:v.trim||null,registration:displayRegistration(v.registration)||null,
+    year:v.year||null,fuel:v.fuel||null
+  }};
 }
 function missingIdentity(subject={}){
   const known=v=>v!==null&&v!==undefined&&String(v).trim()!==""&&!/^(unknown|desconhecido|por confirmar|n\/a)$/i.test(String(v).trim());
@@ -312,29 +362,40 @@ function estimateMileage(result){
   return result;
 }
 
-async function finalizeMarketResponse(data,registrationData=null,token=null){
+async function finalizeMarketResponse(data,registrationData=null,token=null,userConfirmation=null){
   const parsed=structuredResult(data);
   if(!parsed.subject||!Array.isArray(parsed.comparables))throw appError("Resposta de mercado sem ficha válida.",502,"invalid_market_result");
 
   const metadata=data.metadata||{};
+  const confirmation=confirmedIdentity(userConfirmation);
   const submittedPlate=normalizeRegistration(metadata.cap_registration);
   const observedPlate=normalizeRegistration(parsed.subject?.registration);
   let registration=registrationData||registrationFromMetadata(metadata);
+  const observedCandidate=identityCandidate("photos",parsed.subject);
+  let registrationCandidate=identityCandidate("registration",registration);
   let registrationConflictWarning="";
   let registrationLookupWarning=metadata.cap_registration_lookup==="unavailable"
     ?"A matrícula foi mantida, mas o fornecedor externo de matrícula está indisponível. A avaliação continua com a identificação pelas fotografias/anúncio e pela pesquisa de mercado."
     :"";
 
-  if(submittedPlate&&observedPlate&&submittedPlate!==observedPlate){
+  if(submittedPlate&&observedPlate&&submittedPlate!==observedPlate&&!confirmation?.registration){
     registrationConflictWarning="A matrícula indicada ("+displayRegistration(submittedPlate)+") não coincide com a matrícula lida nas fotografias ("+displayRegistration(observedPlate)+"). Confirma a matrícula ou envia outra fotografia.";
   }else if(submittedPlate&&!observedPlate){
     parsed.subject.registration=displayRegistration(submittedPlate);
   }
 
+  if(confirmation){
+    parsed.subject=applyConfirmedIdentity(parsed.subject,confirmation);
+    // This explicit user choice may reject the supplier's identity. Do not
+    // restore it on the next poll or make another paid lookup for that dispute.
+    if(registration&&(!registrationCompatible(parsed.subject,registration)||!registrationMatches(registration,confirmation.registration||submittedPlate)))registration=null;
+  }
+
   const plateToValidate=normalizeRegistration(parsed.subject?.registration)||submittedPlate;
-  if(!registration&&plateToValidate&&!registrationConflictWarning&&!registrationLookupWarning){
+  if(!registration&&!confirmation&&plateToValidate&&!registrationConflictWarning&&!registrationLookupWarning){
     try{
       const lookedUp=token?await lookupRegistrationCached(token,plateToValidate):await lookupRegistration(plateToValidate);
+      registrationCandidate=identityCandidate("registration",lookedUp);
       if(registrationCompatible(parsed.subject,lookedUp)){
         registration=lookedUp;
       }else{
@@ -351,6 +412,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
 
   const originalYear=Number(parsed.subject?.year);
   parsed.subject=normalizeVehicleIdentity(mergeRegistration(parsed.subject,registration));
+  if(confirmation)parsed.subject=applyConfirmedIdentity(parsed.subject,confirmation);
   if(parsed.subject.power_cv_observed&&parsed.subject.power_cv_source==="spottd"){
     parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
     const note="Potência usada na comparação: "+parsed.subject.power_cv+" cv (Spottd, mesma versão). A leitura das fotografias indica "+parsed.subject.power_cv_observed+" cv; ambas as leituras foram conservadas.";
@@ -378,6 +440,20 @@ async function finalizeMarketResponse(data,registrationData=null,token=null){
       parsed.risk_flags.unshift({code:"registration_lookup_unavailable",label:registrationLookupWarning,severity:"low",reserve_eur:0});
       parsed.data_quality.notes=[parsed.data_quality.notes,registrationLookupWarning].filter(Boolean).join(" ");
     }
+  }
+  if(confirmation){
+    parsed.user_confirmed_identity={...confirmation,source:"user",confirmed_at:nowIso()};
+    parsed.risk_flags=(Array.isArray(parsed.risk_flags)?parsed.risk_flags:[]).filter(flag=>flag.code!=="identity_user_confirmed"&&(registrationConflictWarning||flag.code!=="registration_unconfirmed"));
+    parsed.risk_flags.push({code:"identity_user_confirmed",label:"Identidade confirmada pelo utilizador. A avaliação mantém-se provisória até confirmação independente.",severity:"low",reserve_eur:0});
+  }
+  if(registrationConflictWarning){
+    if(!registrationCandidate&&submittedPlate&&observedPlate&&submittedPlate!==observedPlate&&observedCandidate){
+      registrationCandidate={...identityCandidate("registration",{...observedCandidate.vehicle,registration:displayRegistration(submittedPlate)}),
+        source_label:"Matrícula indicada por ti",unverified:true};
+    }
+    parsed.identity_candidates=[observedCandidate,registrationCandidate].filter(Boolean);
+    parsed.identity_conflict={input_registration:displayRegistration(submittedPlate),observed_registration:displayRegistration(observedPlate),
+      kind:submittedPlate&&observedPlate&&submittedPlate!==observedPlate?"registration":"vehicle"};
   }
   const original=canonicalUrl(data.metadata?.cap_source_url||"");
   const sources=searchSources(data);
@@ -555,6 +631,7 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
     auction_context:currentEvidence.auction_context||null,
     data_quality:currentEvidence.data_quality||{},
     registration_data:registrationData||base.registration_data||null,
+    ...(currentEvidence.user_confirmed_identity?{user_confirmed_identity:currentEvidence.user_confirmed_identity}:{}),
     market_cache:{
       hit:true,
       key,
@@ -588,6 +665,8 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
   const page=body.page&&typeof body.page==="object"?body.page:{};
   const memories=Array.isArray(body.dealer_memories)?body.dealer_memories:[];
   const refinements=Array.isArray(body.refinement_history)?body.refinement_history:[];
+  const confirmation=confirmedIdentity(body.user_confirmed_identity);
+  const images=Array.isArray(body.image_data_urls)?body.image_data_urls:(body.image_data_url?[body.image_data_url]:[]);
   return {
     title:clip(page.title,600),
     description:clip(page.description,2200),
@@ -599,9 +678,11 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
     original_url:body.url||null,
     manual_description:body.mode==="manual"?clip(body.description,4000):null,
     input_mode:body.mode==="manual"?"manual":"url",
-    registration_input:displayRegistration(body.registration||body.registration_data?.registration)||null,
+    registration_input:displayRegistration(confirmation?.registration||body.registration||body.registration_data?.registration)||null,
     registration_lookup_warning:clip(registrationLookupWarning,500)||null,
     registration_data:registrationData,
+    user_confirmed_identity:confirmation,
+    identity_confirmation_only:body.identity_confirmation_only===true,
     mileage_input_km:mileageInput(body.mileage_input_km),
     previous_subject:body.previous_subject&&typeof body.previous_subject==="object"?{...body.previous_subject,...(body.previous_subject.mileage_estimated?{mileage_km:null,mileage_estimated:false,mileage_estimate:null}:{})}:null,
     previous_condition_report:body.previous_condition_report&&typeof body.previous_condition_report==="object"?normalizeConditionReport(body.previous_condition_report):null,
@@ -610,8 +691,8 @@ function boundedContext(body,registrationData,registrationLookupWarning=""){
     memory_candidates:boundedAdvisoryMemories(memories),
     dealer_memories:[],
     refinement_history:refinements.slice(-5).map(text=>clip(text,650)),
-    image_attached:Array.isArray(body.image_data_urls)&&body.image_data_urls.length>0,
-    image_count:Array.isArray(body.image_data_urls)?body.image_data_urls.length:0,
+    image_attached:images.length>0,
+    image_count:images.length,
     input_signature:inputSignature(body),
     initial_started_at:nowIso(),
     transition_id:crypto.randomUUID(),
@@ -698,6 +779,7 @@ const instructions=[
   "Se registration_input existir mas registration_data não existir, mantém essa matrícula como dado fornecido pelo utilizador. Não deduzas marca/modelo pelos caracteres da matrícula. Usa fotografias, anúncio e pesquisa para identificar a viatura.",
   "Uma indisponibilidade do fornecedor externo de matrícula não é, por si só, um conflito de identidade e não deve bloquear a avaliação. Só um conflito real entre matrícula, fotografias/anúncio e marca/modelo deve bloquear.",
   "Se previous_subject existir, preserva campos previamente confirmados quando não houver evidência nova e melhor.",
+  "user_confirmed_identity contém a marca/modelo/versão e, quando indicada, a matrícula escolhida explicitamente pelo utilizador após esclarecer uma dúvida. Preserva esta escolha como informação do utilizador; não a apresentes como confirmação independente do fornecedor. Mantém em falta os dados técnicos que não estejam confirmados para essa identidade.",
   "dealer_memories contém observações anteriores do comerciante. Trata-as como hipóteses a testar, não como factos. Pesquisa para as confirmar, contrariar ou deixar não confirmadas. Nunca alteres um preço apenas para concordar com uma memória.",
   "refinement_history contém indicações desta análise. Usa-as sem repetir ou acumular texto arbitrariamente.",
   "Se houver fotografias, lê em conjunto apenas os dados claramente visíveis.",
@@ -941,11 +1023,40 @@ async function pollMarketJob(token,jobId,res){
     }
 
     const registration=job.context?.registration_data||null;
-    const resultData=job.context?.stage==="market"&&job.context.previous_subject
-      ?{...data,output_text:JSON.stringify({...structuredResult(data),subject:job.context.previous_subject,
-        condition_report:mergeConditionReports(job.context.previous_condition_report,structuredResult(data).condition_report),
-        auction_context:job.context.previous_auction_context||structuredResult(data).auction_context})}:data;
-    const result=applyMileageInput(await finalizeMarketResponse(resultData,registration,token),job.context);
+    let result;
+    try{
+      const metadata={...(data.metadata||{}),
+        ...(job.context?.registration_input?{cap_registration:job.context.registration_input}:{}),
+        ...(job.context?.registration_lookup_warning?{cap_registration_lookup:"unavailable"}:{})};
+      // The durable context carries the supplier outcome across every stage;
+      // do not retry an unavailable paid supplier on each market poll/recovery.
+      const parsed=structuredResult(data);
+      let confirmation=job.context?.user_confirmed_identity||null;
+      let registrationEvidence=registration,previousChoice=null;
+      const newPlate=normalizeRegistration(parsed.subject?.registration),confirmedPlate=normalizeRegistration(confirmation?.registration);
+      if(job.context?.stage==="identify"&&!job.context.identity_confirmation_only&&confirmation&&hasRegistrationIdentity(parsed.subject)
+        &&(!registrationCompatible(parsed.subject,confirmation)||(newPlate&&confirmedPlate&&newPlate!==confirmedPlate))){
+        // A later correction can supersede an earlier answer. Ask a fresh,
+        // explicit question instead of silently restoring the old selection.
+        previousChoice=confirmation;
+        registrationEvidence={...confirmation,provider:"user_confirmed"};
+        confirmation=null;
+      }
+      const resultData=job.context?.stage==="market"&&job.context.previous_subject
+        ?{...data,metadata,output_text:JSON.stringify({...parsed,subject:job.context.previous_subject,
+          condition_report:mergeConditionReports(job.context.previous_condition_report,parsed.condition_report),
+          auction_context:job.context.previous_auction_context||parsed.auction_context})}:{...data,metadata};
+      result=applyMileageInput(await finalizeMarketResponse(resultData,registrationEvidence,token,confirmation),job.context);
+      if(previousChoice&&result.identity_candidates){
+        for(const candidate of result.identity_candidates)if(candidate.source==="registration"){
+          candidate.source_label="Confirmado anteriormente por ti";candidate.unverified=true;
+        }
+      }
+    }catch(error){
+      const message=String(error?.message||"A IA não devolveu uma ficha válida. Repete a avaliação.");
+      await updateJob(token,job.id,{status:"failed",error_message:message,context:{...job.context,provider_error_code:"invalid_market_result"}});
+      throw appError(message,502,"invalid_market_result");
+    }
     const reference=job.context?.market_reference;
     if(job.context?.stage==="market"&&!result.valuation_blocked&&Array.isArray(reference?.comparables)&&reference.comparables.length){
       result.comparables=reference.comparables;
@@ -995,7 +1106,9 @@ async function pollMarketJob(token,jobId,res){
           market_cache:{hit:true,key,snapshot_at:cached.snapshot_at,source_job_id:cached.id,max_age_hours:MARKET_CACHE_HOURS,reuse_mode:"comparables_only"}
         }:null;
         const nextContext={...job.context,previous_subject:result.subject,previous_condition_report:result.condition_report,
-          previous_auction_context:result.auction_context,registration_data:result.registration_data,market_key:key,market_reference:marketReference,market_search_step:0};
+          previous_auction_context:result.auction_context,registration_data:result.registration_data,
+          registration_lookup_warning:job.context.registration_lookup_warning||result.risk_flags?.find(flag=>flag.code==="registration_lookup_unavailable")?.label||null,
+          market_key:key,market_reference:marketReference,market_search_step:0};
         return res.status(202).json(await launchMarketTransition(token,job,nextContext));
       }
     }
@@ -1045,16 +1158,11 @@ module.exports=endpoint(async function handler(req,res){
   const registration=clip(req.body?.registration,20).trim();
   let registrationData=null;
   let registrationLookupWarning="";
-  const suppliedPlate=normalizeRegistration(registration||req.body?.registration_data?.registration);
-  if(suppliedPlate){
-    try{registrationData=await lookupRegistrationCached(token,suppliedPlate)}
-    catch(error){
-      registrationLookupWarning=clip(error?.message||error,500);
-      console.warn("registration_lookup_unavailable",{status:error?.status||502});
-    }
-  }
-
-  const context={...boundedContext(req.body,registrationData,registrationLookupWarning),stage:"identify"};
+  const confirmation=confirmedIdentity(req.body?.user_confirmed_identity);
+  const suppliedPlate=normalizeRegistration(confirmation?.registration||registration||req.body?.registration_data?.registration);
+  // Claim the request before any paid lookup. Duplicate submissions and a stop
+  // requested during startup must observe the same durable job immediately.
+  let context={...boundedContext(req.body,null),stage:"identify"};
   const claim=await rest(token,"rpc/cap_claim_job",{method:"POST",body:{p_analysis:analysisId,p_request:requestKey,p_context:context}});
   const job=claim?.job;
   if(!job?.id)throw appError("Não foi possível criar a pesquisa.",503,"job_create_failed");
@@ -1082,29 +1190,56 @@ module.exports=endpoint(async function handler(req,res){
     }
   }
 
-  await takeQuota(token,"market");
   const metadata={cap_job_id:job.id,cap_source_url:clip(url,480)};
   if(suppliedPlate)metadata.cap_registration=clip(displayRegistration(suppliedPlate)||suppliedPlate,20);
-  if(registrationLookupWarning)metadata.cap_registration_lookup="unavailable";
   // Todos os dados técnicos da Spottd já estão em context.registration_data,
   // guardado no job. Não duplicar dezenas de campos em Responses.metadata
   // (limite da API: 16 propriedades), nem perder a ficha da matrícula.
 
+  let startedResponse=null,startedContext=null;
   try{
-    const forcedBase=context.force_market_refresh&&context.previous_subject&&typeof context.previous_subject==="object"
+    await takeQuota(token,"market");
+    if(suppliedPlate){
+      try{
+        registrationData=confirmation?await cachedRegistration(token,suppliedPlate):await lookupRegistrationCached(token,suppliedPlate);
+        if(confirmation&&registrationData&&!registrationCompatible(confirmation,registrationData))registrationData=null;
+      }
+      catch(error){
+        registrationLookupWarning=clip(error?.message||error,500);
+        console.warn("registration_lookup_unavailable",{status:error?.status||502});
+      }
+      context={...context,registration_data:registrationData,registration_lookup_warning:registrationLookupWarning||null};
+      if(registrationLookupWarning)metadata.cap_registration_lookup="unavailable";
+    }
+    // This guarded write also observes cancellation while the provider lookup
+    // was in flight, before starting a new AI response.
+    context={...context,pending_started_at:nowIso()};
+    await updateJob(token,job.id,{context});
+    const confirmedBase=confirmation?applyMileageInput({subject:mergeRegistration(applyConfirmedIdentity(context.previous_subject||{},confirmation),registrationData)},context).subject:null;
+    if(confirmedBase&&req.body?.identity_confirmation_only===true&&marketReady(confirmedBase)&&!imageDataUrls.length){
+      const marketContext={...context,stage:"market",previous_subject:confirmedBase,registration_data:registrationData,market_key:marketCacheKey(confirmedBase,context)};
+      const data=await startResponse(marketContext,[],metadata,false);
+      startedResponse=data;startedContext=marketContext;
+      await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
+      continueOwnedJob(token,job.id,requestStartedAt);
+      return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,user_confirmed_identity:confirmation});
+    }
+    const forcedBase=!confirmation&&context.force_market_refresh&&context.previous_subject&&typeof context.previous_subject==="object"
       ?mergeRegistration({...context.previous_subject},registrationData)
       :null;
     if(forcedBase&&marketReady(forcedBase)){
       const key=marketCacheKey(forcedBase,context);
       const marketContext={...context,stage:"market",previous_subject:forcedBase,registration_data:registrationData,market_key:key};
       const data=await startResponse(marketContext,[],metadata,false);
+      startedResponse=data;startedContext=marketContext;
       await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
       continueOwnedJob(token,job.id,requestStartedAt);
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,forced_refresh:true});
     }
 
     const registrationSubject=registrationData?applyMileageInput({subject:mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData)},context).subject:null;
-    const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
+    const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!confirmation&&!context.previous_subject&&!context.refinement_history.length
+      &&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
     if(registrationOnly){
       const subject=registrationSubject;
       const key=marketCacheKey(subject,context);
@@ -1122,19 +1257,30 @@ module.exports=endpoint(async function handler(req,res){
         }
       }
       const data=await startResponse(marketContext,[],metadata,false);
+      startedResponse=data;startedContext=marketContext;
       await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
       continueOwnedJob(token,job.id,requestStartedAt);
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true});
     }
     const data=await startResponse(context,imageDataUrls,metadata,true);
+    startedResponse=data;startedContext=context;
     await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:{...context,registration_data:registrationData}});
     continueOwnedJob(token,job.id,requestStartedAt);
     return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData});
   }catch(error){
+    if(error?.code==="market_job_cancelled")throw error;
+    // A transient database write must not discard a provider response that
+    // already exists or force the user to pay for another identification.
+    if(startedResponse?.id){
+      await updateJob(token,job.id,{response_id:startedResponse.id,status:startedResponse.status||"queued",context:startedContext,
+        error_message:clip(error?.message||error,600)});
+      continueOwnedJob(token,job.id,requestStartedAt);
+      return res.status(202).json({ok:true,status:startedResponse.status||"queued",job_id:job.id,registration_data:registrationData,retryable:true});
+    }
     await updateJob(token,job.id,{status:"failed",error_message:String(error?.message||error),context:{...context,provider_error_code:error?.code||null}}).catch(()=>{});
     throw error;
   }
 });
 
-module.exports._test={jobProgress,pollMarketJob,cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={confirmedIdentity,applyConfirmedIdentity,jobProgress,pollMarketJob,cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
 

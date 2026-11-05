@@ -15,7 +15,7 @@ function element(){
 function harness(extra={}){
  const elements=new Map();
  const q=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
- const ctx={q,console,Date,Number,String,Object,Math,Array,JSON,Intl,Set,
+ const ctx={q,console,Date,Number,String,Object,Math,Array,JSON,Intl,Set,AbortController,setTimeout,clearTimeout,
  historyDate:new Intl.DateTimeFormat('pt-PT',{dateStyle:'short',timeStyle:'short'}),
  fmt:value=>value==null?'—':String(value),session:{user:{id:'user-one'}},activeOperation:null,
  currentHistoryRevision:null,historyControlStates:[],currentMarketData:null,currentAnalysisId:null,currentResult:null,lastAnalysisContext:null,
@@ -27,6 +27,7 @@ function harness(extra={}){
  renderResult(result,host,risks){ctx.rendered={result,host,risks};ctx.currentResult=result;},
  closeHistory(){ctx.closed=true;},...extra};
  vm.createContext(ctx);
+ vm.runInContext(source('async function storageRequest','async function fetchJson'),ctx);
  vm.runInContext(source('function publishAssessment','publishAssessment(null);'),ctx);
  vm.runInContext(source('// Reading a revision never','function openHistory'),ctx);
  return ctx;
@@ -165,7 +166,7 @@ test('a clean reset clears all current assessment state without deleting history
  const ctx=harness({pendingResearch:{jobId:'old'},currentVehicle:{make:'Tesla'},currentResult:{},currentMarketData:{},lastAnalysisContext:{},currentAnalysisId:'old',conversation:['old'],
  resetDealCosts(){},resetSearchInput(){ctx.q('vehicleUrl').value='';ctx.q('vehicleMileage').value='';},stopProgress(){ctx.q('progressPanel').classList.add('hidden');},hideVehicleFollowup(){},
  setTimeout(){throw Error('unexpected focus timer');}});
- vm.runInContext(source('function resetAnalysisView','function loadImageElement'),ctx);
+ vm.runInContext(source('function resetAnalysisView','function setImagePreparationStatus'),ctx);
  ctx.resetAnalysisView({announce:false,focus:false,scroll:false});
  for(const field of ['currentVehicle','currentResult','currentMarketData','lastAnalysisContext','currentAnalysisId','pendingResearch'])assert.equal(ctx[field],null,field);
  assert.equal(ctx.q('result').classList.contains('hidden'),true);
@@ -173,6 +174,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261104-background-recovery-v1/);
+ assert.match(html,/app-v2\.js\?v=20261105-reliability-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });
