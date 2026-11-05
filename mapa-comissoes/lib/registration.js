@@ -22,6 +22,17 @@ function displayRegistration(value){
   const plate=normalizeRegistration(value);
   return plate?plate.replace(/(.{2})(.{2})(.{2})/,'$1-$2-$3'):null;
 }
+function hasRegistrationIdentity(data){
+  const known=value=>{
+    const text=field(value);
+    return !!text&&!/^(?:\?|[-–—]|0|n\/?a|unknown|null|undefined|desconhecido|por confirmar)$/i.test(text);
+  };
+  return !!data&&typeof data==='object'&&!Array.isArray(data)&&known(data.make)&&known(data.model);
+}
+function registrationMatches(data,value){
+  const requested=normalizeRegistration(value),returned=field(data?.registration);
+  return !requested||!returned||normalizeRegistration(returned)===requested;
+}
 function normalizeDate(value){
   const text=field(value);
   if(!text)return null;
@@ -45,7 +56,7 @@ function decodeVehicleJson(xml){
 function parseRegistrationData(data,provider='matricula.co.pt'){
   const make=field(data.CarMake)||field(data.MakeDescription);
   const model=field(data.CarModel)||field(data.ModelDescription);
-  if(!make||!model)throw failure('Não foi possível identificar a viatura por esta matrícula.');
+  if(!hasRegistrationIdentity({make,model}))throw failure('Não foi possível identificar a viatura por esta matrícula.');
   const year=Number(field(data.RegistrationYear));
   const engine=intField(data.EngineSize);
   const doors=intField(data.NumberOfDoors);
@@ -95,9 +106,10 @@ function inferModelFromOptions(make,options){
   if(generic.has(firstKey)||firstKey.length<2)return '';
   return prefix.join(' ').trim();
 }
-function parseMyCarPlateData(payload){
+function parseMyCarPlateData(payload,requestedPlate){
   const data=payload&&typeof payload==='object'&&payload.data&&typeof payload.data==='object'?payload.data:payload;
   if(!data||typeof data!=='object')throw failure('O MyCarPlate não devolveu uma ficha válida para esta matrícula.');
+  if(!registrationMatches({registration:data.plate},requestedPlate))throw failure('A matrícula devolvida pelo MyCarPlate não coincide com a matrícula pedida.');
   const make=field(data.make);
   const versionOptions=(Array.isArray(data.versionOptions)?data.versionOptions:[]).map(v=>field(v)).filter(Boolean).slice(0,20);
   const model=field(data.model)||inferModelFromOptions(make,versionOptions);
@@ -145,9 +157,9 @@ function parseSpottdData(payload,requestedPlate){
   if(!data)throw failure('A Spottd não devolveu uma ficha válida para esta matrícula.');
   const requested=normalizeRegistration(requestedPlate);
   const returned=normalizeRegistration(data.license_plate);
-  if(requested&&returned&&requested!==returned)throw failure('A matrícula devolvida pela Spottd não coincide com a matrícula pedida.');
+  if(!registrationMatches({registration:data.license_plate},requested))throw failure('A matrícula devolvida pela Spottd não coincide com a matrícula pedida.');
   const make=field(data.make),model=field(data.model)||field(data.commercial_model);
-  if(!make||!model)throw failure('A Spottd não conseguiu identificar a marca e o modelo desta matrícula.',404);
+  if(!hasRegistrationIdentity({make,model}))throw failure('A Spottd não conseguiu identificar a marca e o modelo desta matrícula.',404);
   const power=numberField(data.engine_power);
   const engine=intField(data.engine_displacement);
   const seats=intField(data.seats);
@@ -221,7 +233,7 @@ async function lookupRegistration(value,{
     }
   }
 
-  let myCarPlateStatus=null,myCarPlateTransportError=null;
+  let myCarPlateStatus=null,myCarPlateTransportError=null,partialResult=null;
   try{
     const headers={accept:'application/json','user-agent':'AvaliadorAutoPro/1.0'};
     if(myCarPlateApiKey)headers['X-API-Key']=myCarPlateApiKey.trim();
@@ -233,9 +245,12 @@ async function lookupRegistration(value,{
     if(response.ok){
       const json=await response.json();
       if(json?.success!==false){
-        const result=parseMyCarPlateData(json);
+        const result=parseMyCarPlateData(json,plate);
         result.registration=result.registration||displayRegistration(plate);
-        return result;
+        if(hasRegistrationIdentity(result))return result;
+        // A make-only record is useful context, but must not prevent another
+        // configured source from finding the model, or enter the yearly cache.
+        partialResult=result;
       }
     }else if(response.status!==404&&response.status!==422){
       console.warn('mycarplate_http_failure',{status:response.status});
@@ -251,6 +266,7 @@ async function lookupRegistration(value,{
   }
 
   if(!username){
+    if(partialResult)return partialResult;
     if(myCarPlateStatus===429)throw failure('O limite gratuito da consulta de matrícula foi atingido. A avaliação pode continuar pelas fotografias e pesquisa de mercado.',429);
     if(myCarPlateTransportError)throw failure('Não foi possível ligar ao serviço gratuito de matrículas. A avaliação pode continuar pelas fotografias e pesquisa de mercado.');
     throw failure('Não foi possível identificar automaticamente esta matrícula. A avaliação pode continuar pelas fotografias e pesquisa de mercado.',404);
@@ -297,14 +313,20 @@ async function lookupRegistration(value,{
       continue;
     }
     if(!response.ok){httpError=response.status;continue;}
-    const xml=await response.text();
-    if(xml.length>200000)throw failure('Resposta demasiado extensa do fornecedor.');
-    const result=parseRegistration(xml);
-    result.registration=displayRegistration(plate);
-    return result;
+    try{
+      const xml=await response.text();
+      if(xml.length>200000)throw failure('Resposta demasiado extensa do fornecedor.');
+      const result=parseRegistration(xml);
+      result.registration=displayRegistration(plate);
+      return result;
+    }catch(error){
+      transportError=error;
+      console.warn('registration_payload_failure',{host:new URL(endpoint).hostname,kind:error?.name||'unknown'});
+    }
   }
+  if(partialResult)return partialResult;
   if(httpError)throw failure('Consulta de matrícula indisponível. Verifica o acesso e os créditos do fornecedor.');
   if(transportError)throw failure('Não foi possível ligar ao serviço de matrículas. Tenta novamente dentro de instantes.');
   throw failure('Não foi possível consultar esta matrícula.');
 }
-module.exports={lookupRegistration,parseRegistration,parseRegistrationData,parseMyCarPlateData,parseSpottdData,spottdEndpoint,inferModelFromOptions,normalizeRegistration,displayRegistration};
+module.exports={lookupRegistration,parseRegistration,parseRegistrationData,parseMyCarPlateData,parseSpottdData,spottdEndpoint,inferModelFromOptions,normalizeRegistration,displayRegistration,hasRegistrationIdentity,registrationMatches};

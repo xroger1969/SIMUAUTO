@@ -37,8 +37,8 @@
   <link rel="stylesheet" href="./light-panels.css?v=20261023-supervised-v1">
   <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
   <link rel="stylesheet" href="./form-layout.css?v=20261024-wltp-v1">
-  <link rel="stylesheet" href="./teaching-chat.css?v=20261023-voice-v2-screen-v1">
-  <link rel="stylesheet" href="./cockpit.css?v=20261104-visible-errors-v1">
+  <link rel="stylesheet" href="./teaching-chat.css?v=20261105-identity-dialogue-v1">
+  <link rel="stylesheet" href="./cockpit.css?v=20261105-reliability-v1">
 </head>
 <body class="cockpit-theme">
   <div class="auth-gate" id="authGate">
@@ -87,7 +87,7 @@
           <button type="button" id="linkModeBtn" class="mode-button" data-mode="link" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 13 4-4M8 16l-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0m0 2 1-1a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0" transform="translate(2 0)"/></svg><span>Link</span></button>
           <button type="button" id="photosModeBtn" class="mode-button" data-mode="photos" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h4l2-3h6l2 3h4v14H3Z"/><circle cx="12" cy="12" r="4"/></svg><span>Fotos</span></button>
           <button type="button" id="micBtn" class="mode-button" data-mode="voice" aria-pressed="false" aria-label="Ditar por voz" title="Ditar por voz"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>Voz</span></button>
-          <input id="vehiclePhoto" type="file" accept="image/*" multiple hidden>
+          <input id="vehiclePhoto" type="file" accept="image/*,.jpg,.jpeg,.png,.heic,.heif,.webp,.avif" multiple hidden>
         </div>
         <div class="cockpit-entry">
           <label for="vehicleUrl" id="vehicleInputLabel">Matrícula da viatura</label>
@@ -122,6 +122,7 @@
             <button class="btn ghost" type="button" id="dismissNoticeBtn" aria-label="Fechar aviso">Fechar aviso ×</button>
             <h2></h2>
             <p></p>
+            <button class="btn primary small" type="button" id="openIdentityDialogBtn" hidden>Responder e continuar</button>
             <a id="apiBillingLink" href="https://platform.openai.com/settings/organization/billing/" target="_blank" rel="noopener noreferrer" hidden>Abrir faturação da API OpenAI ↗</a>
           </section>
           <button class="btn stop-assessment" type="button" id="stopAssessmentBtn" hidden>Parar avaliação</button>
@@ -512,6 +513,7 @@
       <div class="refine-dialog-messages" id="refineDialogMessages" aria-live="polite">
         <div class="refine-dialog-message assistant" id="refineDialogText">Diz-me o que sabes sobre este carro.</div>
       </div>
+      <div class="identity-choices" id="identityChoices" hidden aria-label="Confirmar a viatura"></div>
       <div class="teaching-feedback" id="teachingFeedback" hidden>
         <span id="teachingFeedbackText"></span>
         <button type="button" class="btn primary small" id="teachingFeedbackSave">Confirmar e guardar</button>
@@ -538,9 +540,9 @@
   <div class="toast" id="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
-  <script src="./commercial-identity.js?v=20261104-fuel-model-v1"></script>
+  <script src="./commercial-identity.js?v=20261105-reliability-v1"></script>
   <script src="./electric-range.js?v=20261104-costs-range-v1"></script>
-  <script type="module" src="./app-v2.js?v=20261104-background-recovery-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261105-reliability-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261104-costs-range-v1"></script>
   <script type="module" src="./cockpit.js?v=20261026-reset-v1"></script>
   <!-- detailed-readout-deploy-retry -->

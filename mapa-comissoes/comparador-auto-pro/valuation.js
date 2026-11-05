@@ -1,4 +1,4 @@
-export const ENGINE_VERSION="2026-11-04-zero-costs-v1";
+export const ENGINE_VERSION="2026-11-05-identity-confirmation-v1";
 const identity=globalThis.CommercialIdentity;
 if(!identity)throw new Error("CommercialIdentity must load before the valuation engine");
 export const normalizeVehicleIdentity=identity.normalizeVehicleIdentity;
@@ -370,6 +370,8 @@ export function evaluatePurchase(input,custom={}){
 
   const identityBlocked=input.valuation_blocked===true||(input.risk_flags||[]).some(r=>r.code==="registration_unconfirmed");
   if(identityBlocked)warnings.push("Confirma a matrícula e a identificação da viatura antes de avaliar.");
+  const identityUserConfirmed=s.identity_source==="user_confirmed"||(input.risk_flags||[]).some(r=>r.code==="identity_user_confirmed");
+  if(identityUserConfirmed)warnings.push("Identidade confirmada por ti. A avaliação mantém-se provisória até a identificação ser verificada por uma fonte independente.");
   const criticalMissing=missing.filter(k=>k==="make"||k==="model");
   const avgSim=valid.length?valid.reduce((t,r)=>t+r.similarity,0)/valid.length:0;
   const completeness=(6-missing.length)/6;
@@ -387,7 +389,7 @@ export function evaluatePurchase(input,custom={}){
     :verified.length===0?47:92;
   const completenessCap=s.mileage_estimated||!known(s.mileage_km)?45:missing.length?58:95;
   const confidencePct=valid.length
-    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,powerConflicts.length?45:95,searchTier===3?25:(dispersion>.45||broadenedMarket)?35:95),0,95))
+    ?Math.round(clamp(Math.min(rawConfidence,comparableCountCap,evidenceCap,completenessCap,identityUserConfirmed?45:95,powerConflicts.length?45:95,searchTier===3?25:(dispersion>.45||broadenedMarket)?35:95),0,95))
     :0;
   const reconditioning=estimateReconditioning(input.condition_report,input.reconditioning_settings,s,input.costs?.reconditioning,input.tax?.mode,num(input.tax?.vat_rate,.23));
   const evidenceEligible=!broadenedMarket&&!powerConflicts.length&&!s.mileage_estimated&&Number.isFinite(marketValue)&&!missing.length
@@ -399,7 +401,7 @@ export function evaluatePurchase(input,custom={}){
   const quoteSaleGross=priceScenario?Math.round(knownPrice*(1-num(input.negotiation_discount_pct,config.negotiationDiscountPct))):saleLikely;
   const provisionalEligible=!identityBlocked&&!criticalMissing.length
     &&(Number.isFinite(marketValue)&&valid.length>=1||priceScenario);
-  const eligible=!identityBlocked&&evidenceEligible&&!acquisition.needsLocationConfirmation&&!reconditioning.hasUnpriced;
+  const eligible=!identityBlocked&&!identityUserConfirmed&&evidenceEligible&&!acquisition.needsLocationConfirmation&&!reconditioning.hasUnpriced;
   if(reconditioning.hasUnpriced)warnings.push("Há "+reconditioning.unpriced+" intervenção(ões) ou zona(s) por confirmar/orçamentar. O teto de compra é provisório e pode descer com os custos em falta.");
   if(reconditioning.hasCriticalUnpriced)warnings.push("Há um problema potencialmente crítico por confirmar. É necessário diagnóstico antes da compra.");
   warnings.push(...reconditioning.notes);

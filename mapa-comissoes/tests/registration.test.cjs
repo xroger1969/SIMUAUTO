@@ -90,3 +90,42 @@ test('Spottd imported Mercedes: 2020 manufacture and July 2024 Portugal plate ar
   assert.equal(r.weight_kg,2075);
   assert.equal(r.provider,'spottd');
 });
+
+test('MyCarPlate response for another plate is rejected and a configured fallback is tried',async()=>{
+  const {parseMyCarPlateData}=require('../lib/registration');
+  assert.throws(()=>parseMyCarPlateData({data:{plate:'11AA11',make:'BMW',model:'320d'}},'AA00AA'),/não coincide/);
+  const calls=[];
+  const result=await lookupRegistration('AA00AA',{username:'test-only',apiKey:'',spottdApiKey:'',fetcher:async url=>{
+    calls.push(url);
+    if(url.includes('mycarplate'))return {ok:true,status:200,json:async()=>({data:{plate:'11AA11',make:'BMW',model:'320d'}})};
+    return {ok:true,text:async()=>xml({CarMake:'MINI',CarModel:'Countryman'})};
+  }});
+  assert.equal(result.registration,'AA-00-AA');assert.equal(result.make,'MINI');
+  assert.equal(calls.length,2);
+});
+
+test('an invalid first XML payload does not prevent the alternate endpoint from identifying the plate',async()=>{
+  const calls=[];
+  const result=await lookupRegistration('AA00AA',{username:'test-only',apiKey:'',spottdApiKey:'',fetcher:async url=>{
+    calls.push(url);
+    if(url.includes('mycarplate'))return {ok:false,status:404};
+    return {ok:true,text:async()=>url.includes('matricula.co.pt')?'<error>temporarily unavailable</error>':xml({CarMake:'Ford',CarModel:'Focus'})};
+  }});
+  assert.equal(result.model,'Focus');assert.equal(calls.length,3);
+  assert.equal(new Set(calls).size,calls.length);
+});
+
+test('a make-only MyCarPlate response does not skip a configured source with a complete model',async()=>{
+  const result=await lookupRegistration('AA00AA',{username:'test-only',apiKey:'',spottdApiKey:'',fetcher:async url=>{
+    if(url.includes('mycarplate'))return {ok:true,status:200,json:async()=>({data:{make:'MINI',plate:'AA00AA'}})};
+    return {ok:true,text:async()=>xml({CarMake:'MINI',CarModel:'Countryman'})};
+  }});
+  assert.equal(result.model,'Countryman');assert.equal(result.provider,'matricula.co.pt');
+});
+
+test('placeholder Spottd models and explicit invalid returned plates do not become confirmed identities',()=>{
+  const {parseSpottdData}=require('../lib/registration');
+  for(const patch of [{model:'?'},{model:'unknown'},{license_plate:'not-a-plate'}]){
+    assert.throws(()=>parseSpottdData({data:{make:'MINI',model:'Countryman',license_plate:'AA00AA',...patch}},'AA00AA'));
+  }
+});

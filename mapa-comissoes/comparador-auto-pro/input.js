@@ -10,7 +10,8 @@ const PORTUGUESE_PLATE=/^(?:[A-Z]{2}\d{4}|\d{4}[A-Z]{2}|\d{2}[A-Z]{2}\d{2}|[A-Z]
 
 // Apenas matrículas portuguesas completas: nunca interpretar uma descrição livre como matrícula.
 export function formatVehiclePlate(raw){
-  const cleaned=String(raw||"").trim().toUpperCase().replace(/[\s.\-]/g,"");
+  // iPhone dictation, documents and shared text often use a typographic dash.
+  const cleaned=String(raw||"").normalize("NFKC").trim().toUpperCase().replace(/[\s.\-\u2010-\u2015\u2212]/g,"");
   if(!PORTUGUESE_PLATE.test(cleaned))return null;
   return cleaned.replace(/^(.{2})(.{2})(.{2})$/,"$1-$2-$3");
 }

@@ -25,7 +25,17 @@ test("market jobs are owner-bound and research is required",()=>{
   assert.match(src,/job_id/);
   assert.match(src,/tool_choice:"required"/);
   assert.match(src,/source_url_verified/);
-  assert.doesNotMatch(src,/mileage_km:null,price:null/);
+});
+
+test("registration enrichment preserves confirmed price and km; identity replacement clears unrelated vehicle data",()=>{
+  const {mergeRegistration,applyConfirmedIdentity}=require('../api/comparador-market')._test;
+  const subject={make:'MINI',model:'Countryman',trim:'Cooper D',year:2017,mileage_km:120000,price:19900,power_cv:150};
+  const enriched=mergeRegistration(subject,{make:'MINI',model:'Countryman',mileage_km:0,price:1,power_cv:116});
+  assert.equal(enriched.mileage_km,120000);assert.equal(enriched.price,19900);assert.equal(enriched.power_cv,150);
+  const same=applyConfirmedIdentity(subject,{make:'MINI',model:'Countryman',trim:'Cooper D'});
+  assert.equal(same.mileage_km,120000);assert.equal(same.price,19900);
+  const replaced=applyConfirmedIdentity(subject,{make:'Tesla',model:'Model Y'});
+  assert.equal(replaced.mileage_km,null);assert.equal(replaced.price,null);assert.equal(replaced.power_cv,undefined);
 });
 
 test("public reader requires auth and a quota before outbound reading",()=>{

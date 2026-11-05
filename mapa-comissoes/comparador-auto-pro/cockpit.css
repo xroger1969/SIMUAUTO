@@ -72,6 +72,7 @@ button:disabled{cursor:wait;opacity:.55}
 #analyzeForm #analyzeBtn[data-state="running"]{background:#facc15;color:#422006;border-color:#eab308;cursor:wait}
 #analyzeForm #analyzeBtn[data-state="complete"]{background:#15803d;color:#fff;border-color:#16a34a}
 #analyzeForm #analyzeBtn[data-state="partial"]{background:#facc15;color:#422006;border-color:#eab308}
+#analyzeForm #analyzeBtn[data-state="needs-info"]{background:#facc15;color:#422006;border-color:#eab308}
 #analyzeForm #analyzeBtn[data-state="error"]{background:#991b1b;color:#fff;border-color:#ef4444}
 #analyzeBtn[data-state="running"]:after{content:"";width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cockpit-spin 1s linear infinite}
 #analyzeBtn[data-state="complete"]:after{content:"✓";font-size:24px}

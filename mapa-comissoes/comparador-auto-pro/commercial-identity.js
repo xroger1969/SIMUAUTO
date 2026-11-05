@@ -30,10 +30,22 @@ const sellerType=c=>{
 // Keep original provider fields available while evaluating a commercial identity.
 function canonicalDrive(value){
   const v=norm(value).replace(/[-_]+/g," ");
-  if(/\b(awd|4wd|4x4|xdrive|quattro|4matic)\b|tracao integral|dual motor|all wheel/.test(v))return "awd";
+  if(/\b(awd|4wd|4x4|xdrive|quattro|4matic|all4)\b|tracao integral|dual motor|all wheel/.test(v))return "awd";
   if(/\brwd\b|rear wheel|tracao traseira/.test(v))return "rwd";
   if(/\bfwd\b|front wheel|tracao dianteira/.test(v))return "fwd";
   return v;
+}
+function miniFamily(model){
+  // A body name is required: a generic MINI Cooper must not become a Countryman.
+  const matches=norm(model).match(/\b(countryman|clubman|paceman|roadster|cabrio(?:let)?|coupe)\b/g)||[];
+  const families=[...new Set(matches.map(name=>name==="cabriolet"?"cabrio":name))];
+  return families.length===1?families[0]:null;
+}
+function miniDerivative(vehicle={}){
+  const text=norm((vehicle.model||"")+" "+(vehicle.trim||""));
+  if(/\bjohn cooper works\b|\bjcw\b/.test(text))return "jcw";
+  const variant=text.match(/\b(cooper|one)\s+(s\s*e|s\s*d|d|s|e|c)\b/);
+  return variant?variant[1]+" "+variant[2].replace(/\s+/g,""):null;
 }
 function normalizeVehicleIdentity(vehicle={}){
   const v={...vehicle},raw=vehicle.commercial_identity?.raw||{make:vehicle.make??null,model:vehicle.model??null,trim:vehicle.trim??null,drivetrain:vehicle.drivetrain??null};
@@ -63,6 +75,20 @@ function normalizeVehicleIdentity(vehicle={}){
     const generation=bmwModel.match(/\b(f45|f46|u06)\b/)?.[0];
     if(generation&&!known(v.generation))v.generation=generation.toUpperCase();
   }
+  // Spottd may place the MINI version and a homologation suffix in model,
+  // e.g. "Countryman Cooper D (FMX)". Keep that raw identity, but compare the
+  // explicit body name and version separately, just as the portals do.
+  const miniBody=make==="mini"?miniFamily(model):null;
+  if(miniBody){
+    const modelTrim=model.replace(/\([^)]*\)/g," ").replace(/^mini\s+/i,"")
+      .replace(/\b(countryman|clubman|paceman|roadster|cabrio(?:let)?|coup[eé])\b/i," ")
+      .replace(/\s+/g," ").trim();
+    model=miniBody[0].toUpperCase()+miniBody.slice(1);
+    const fromModel=miniDerivative({trim:modelTrim}),fromTrim=miniDerivative({trim});
+    if(fromModel&&fromTrim&&fromModel!==fromTrim)v.mini_version_conflict=true;
+    if(modelTrim&&!trim)trim=modelTrim;
+    else if(modelTrim&&fromModel&&!fromTrim&&!norm(trim).includes(norm(modelTrim)))trim=modelTrim+" "+trim;
+  }
   const explicitDrive=known(v.drivetrain)?canonicalDrive(v.drivetrain):"";
   const joinedDrive=canonicalDrive(joined);
   const inferredDrive=["awd","rwd","fwd"].includes(joinedDrive)?joinedDrive:"";
@@ -80,7 +106,7 @@ function normalizeVehicleIdentity(vehicle={}){
   return {...v,make:canonicalMake,model:model||v.model,trim:trim||null,
     fuel:known(v.fuel)?fuel(v.fuel):v.fuel,
     drivetrain:explicitDrive||inferredDrive||v.drivetrain||null,
-    commercial_identity:{version:"commercial-v2",raw,variant,
+    commercial_identity:{version:"commercial-v3",raw,variant,
       drivetrain_conflict:vehicle.commercial_identity?.drivetrain_conflict===true||(!!explicitDrive&&!!inferredDrive&&explicitDrive!==inferredDrive)}};
 }
 function explicitVariantMatch(s,c){
@@ -139,6 +165,8 @@ function modelFamilyKey(make,model){
   const m=norm(make);
   let v=modelKey(make,model);
   if(!v)return "";
+
+  if(m==="mini"&&miniFamily(model))return miniFamily(model);
 
   // Famílias com sintaxe própria: são tratadas antes do fallback genérico.
   if(["mercedes","mercedes benz","mercedes-benz","mercedesbenz"].includes(m))return v;
@@ -229,6 +257,10 @@ function modelMatchLevel(s,c){
     if(sa&&cb&&sa!==cb)return 0;
     const bare=v=>/^\d{3}$/.test(norm(v?.model).replace(/\s+/g,""));
     if((sa&&!cb&&bare(c))||(cb&&!sa&&bare(s)))return 0;
+  }
+  if(norm(s.make)==="mini"&&norm(c.make)==="mini"){
+    const sa=miniDerivative(s),cb=miniDerivative(c);
+    if(s.mini_version_conflict||c.mini_version_conflict||(sa&&cb&&sa!==cb))return 0;
   }
   const a=modelKey(s.make,s.model),b=modelKey(c.make,c.model);
   if(a===b)return 2;

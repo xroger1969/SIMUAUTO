@@ -148,10 +148,10 @@ test('history exposes an old pending job without a recent-time cutoff',async()=>
 
 
 test('real page loads the shared identity module before the current valuation engine',()=>{
-  const shared=html.indexOf('src="./commercial-identity.js?v=20261104-fuel-model-v1"');
+  const shared=html.indexOf('src="./commercial-identity.js?v=20261105-reliability-v1"');
   const appModule=html.indexOf('type="module" src="./app-v2.js?');
   assert.ok(shared>=0&&shared<appModule);
-  assert.match(app,/valuation\.js\?v=20261104-zero-costs-v1/);
+  assert.match(app,/valuation\.js\?v=20261105-identity-confirmation-v1/);
   assert.match(html,/tax-simulator-ui\.js\?v=20261104-costs-range-v1/);
 });
 

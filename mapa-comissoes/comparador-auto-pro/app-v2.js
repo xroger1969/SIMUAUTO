@@ -1,6 +1,7 @@
-import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261104-zero-costs-v1";
+import { evaluatePurchase as evaluateBasePurchase, buildFeedbackRecord, feedbackRecordId } from "./valuation.js?v=20261105-identity-confirmation-v1";
 import { relevantMemories } from "./memory.js?v=20261023-voice-v1";
-import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261022-optional-mileage-v1";
+import { parseVehicleInput,manualMissing,formatVehiclePlate,parseOptionalMileage } from "./input.js?v=20261105-input-reliability-v1";
+import { prepareVehicleImage,isVehicleImageFile } from "./image-input.js?v=20261105-image-reliability-v1";
 import { createVoiceInput } from "./voice-input.js?v=20261023-voice-v2";
 import { createScreenWakeLock } from "./screen-wake-lock.js?v=20261023-wake-v1";
 
@@ -42,6 +43,7 @@ let conversation=[];
 let selectedImageData=null;
 let selectedImages=[];
 let preparingImages=false;
+let imagePreparationController=null;
 let imageGeneration=0;
 const MAX_IMAGES=6;
 let selectedImageName="";
@@ -111,11 +113,13 @@ function renderLearning(result){
 async function saveSupervisedFeedback(kind,value,feesConfirmed=false){
   const owner=session?.user?.id,analysisId=currentAnalysisId;
   if(!owner||!analysisId||!currentResult)throw Error("Conclui uma avaliação primeiro.");
+  const operation=activeOperation;
   const row=buildFeedbackRecord({userId:owner,analysisId,vehicle:currentVehicle,result:currentResult,kind,value,feesConfirmed,
     sourceUrl:currentMarketData?.marketPayload?.url||null});
   row.id=await feedbackRecordId(owner,analysisId,kind);
-  const {error}=await db.from("cap_memory_rules").upsert(row,{onConflict:"id"});
+  const {error}=await storageRequest(db.from("cap_memory_rules").upsert(row,{onConflict:"id"}),{signal:operation?.controller?.signal});
   if(error)throw Error("Não foi possível guardar a aprendizagem. Podes tentar novamente.");
+  if(session?.user?.id!==owner||currentAnalysisId!==analysisId)throw Error("A avaliação mudou. Abre a avaliação correspondente para consultar este registo.");
   lastLearningRecord={id:row.id,owner,analysisId};
   await loadMemories();
   await refreshMemoryCount();
@@ -162,6 +166,7 @@ q("learningUndoBtn")?.addEventListener("click",async()=>{
 let lastRefineFocus=null;
 let auctionLocationOverride=null;
 let awaitingVehicleDetails=false;
+let pendingVehicleIdentity=null;
 let historyOffset=0;
 const HISTORY_PAGE_SIZE=40;
 
@@ -383,9 +388,9 @@ async function openSavedRevision(revisionId){
   const operation=beginOperation("history");
   q("historyStatus").textContent="A abrir a avaliação guardada…";
   try{
-    const {data:row,error}=await db.from("cap_revisions")
+    const {data:row,error}=await storageRequest(db.from("cap_revisions")
       .select("id,analysis_id,user_id,created_at,snapshot")
-      .eq("user_id",owner).eq("id",revisionId).maybeSingle();
+      .eq("user_id",owner).eq("id",revisionId).maybeSingle(),{signal:operation.controller?.signal});
     assertOperation(operation);
     if(session?.user?.id!==owner)return;
     if(error||!row||row.user_id!==owner)throw new Error("Não foi possível abrir esta avaliação guardada. Tenta novamente.");
@@ -513,14 +518,16 @@ async function storeMessage(role,content,rules=[],scope=null){
   const owner=scope?.owner||session?.user?.id,analysisId=scope?.analysisId||currentAnalysisId;
   if(!owner||session?.user?.id!==owner)return;
   try{
-    const {error}=await db.from("cap_messages").insert({analysis_id:analysisId,user_id:owner,role,content,extracted_rules:rules});
+    const {error}=await storageRequest(db.from("cap_messages").insert({analysis_id:analysisId,user_id:owner,role,content,extracted_rules:rules}),{signal:scope?.controller?.signal});
     if(error)throw error;
   }catch{toast("Não foi possível guardar esta mensagem no histórico.")}
 }
 async function refreshMemoryCount(){
   if(!session)return;
-  const {count}=await db.from("cap_memory_rules").select("id",{count:"exact",head:true}).eq("active",true).eq("user_id",session.user.id);
-  q("memoryCount").textContent=(count||0)+" "+((count||0)===1?"regra":"regras");
+  const owner=session.user.id;
+  const {count,error}=await storageRequest(db.from("cap_memory_rules").select("id",{count:"exact",head:true}).eq("active",true).eq("user_id",owner),{signal:activeOperation?.controller?.signal});
+  if(error)throw new Error("Não foi possível atualizar o total de orientações guardadas.");
+  if(session?.user?.id===owner)q("memoryCount").textContent=(count||0)+" "+((count||0)===1?"regra":"regras");
 }
 
 async function requestTeachingReply(text,operation){
@@ -610,7 +617,9 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     let label="Leitura do anúncio por confirmar",tone="warn";
     const length=Number(page.text_length)||String(page.text_sample||"").length||0;
     const chars=length?Number(length).toLocaleString("pt-PT")+" carateres":"";
-    if(context?.entry?.registration||String(context?.entry?.sourceUrl||"").startsWith("plate:")){
+    if(v.identity_source==="user_confirmed"){
+      label="Marca e modelo confirmados por ti · avaliação provisória";tone="warn";
+    }else if(context?.entry?.registration||String(context?.entry?.sourceUrl||"").startsWith("plate:")){
       const identified=!!(market?.registration_data?.make&&market?.registration_data?.model);
       const unavailable=market?.risk_flags?.some(r=>r.code==="registration_lookup_unavailable");
       label=identified?"Identificação pela matrícula":unavailable?"Consulta da matrícula indisponível · confirma a matrícula ou indica os dados":"Identificação pela matrícula por confirmar";tone=identified?"ok":"warn";
@@ -636,7 +645,9 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
 
   const summary=q("adSummary");
   if(summary){
-    summary.textContent=String(v.ad_summary||(context?.entry?.registration?"Identificação obtida pela matrícula.":page.description)||"Sem descrição adicional.").trim();
+    summary.textContent=v.identity_source==="user_confirmed"
+      ?"A avaliação usa a marca e o modelo que confirmaste na conversa. Os dados técnicos mantêm as respetivas fontes."
+      :String(v.ad_summary||(context?.entry?.registration?"Identificação obtida pela matrícula.":page.description)||"Sem descrição adicional.").trim();
   }
 
   const facts=[
@@ -755,6 +766,7 @@ function followupQuestion(vehicle,missing,market={}){
 }
 function hideVehicleFollowup(){
   awaitingVehicleDetails=false;
+  clearIdentityQuestion();
   q("vehicleFollowup")?.classList.add("hidden");
   if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
 }
@@ -775,7 +787,7 @@ function showVehicleFollowup(vehicle,missing,{scroll=true}={}){
     ?"Já calculei uma avaliação provisória. Para aumentar a confiança, confirma "+labels.join(", ")+"."
     :canSearch
       ?"A pesquisa terminou sem anúncios utilizáveis. Para afinar a próxima tentativa, podes indicar "+labels.join(", ")+". Estes dados ajudam a comparação por aproximação."
-      :followupQuestion(vehicle,missing,currentMarketData||{});
+      :followupQuestion(vehicle,missing,currentMarketData?.market||{});
   if(q("vehicleFollowupBtn"))q("vehicleFollowupBtn").textContent=optional?"Atualizar avaliação":"Continuar análise";
   const tags=q("vehicleFollowupMissing");tags.replaceChildren();
   labels.forEach(label=>{const tag=document.createElement("span");tag.textContent=label;tags.appendChild(tag)});
@@ -793,7 +805,7 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   q("auctionLocationQuestion")?.classList.add("hidden");
   q("emptyState").classList.add("hidden");
   q("result").classList.remove("hidden");
-  q("sourceLabel").textContent=sourceName(sourceHost);
+  q("sourceLabel").textContent=currentVehicle.identity_source==="user_confirmed"?"Identificação confirmada por ti":sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(confirmedText).join(" ")||reader?.page?.title||"Viatura por identificar";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   const readout=q("vehicleReadout");if(readout)readout.open=false;
@@ -813,7 +825,7 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   q("decisionText").textContent="Preciso de confirmar a viatura antes de calcular.";
   q("gapText").textContent="—";
   if(q("qualityNote"))q("qualityNote").textContent="A IA não vai inventar ano, quilómetros, combustível ou versão para emitir uma cotação.";
-  q("marketSummary").textContent="A pesquisa de mercado já foi iniciada, mas os comparáveis só entram no cálculo depois de a viatura ficar suficientemente identificada.";
+  q("marketSummary").textContent="A pesquisa de preços aguarda a confirmação da identidade da viatura. Responde à indicação abaixo para continuar.";
   q("comparableList").innerHTML="";
   q("allComparableList").innerHTML="";
   q("excludedList").innerHTML='<div class="evidence-empty">A aguardar confirmação dos dados essenciais da viatura.</div>';
@@ -821,8 +833,94 @@ function renderNeedsVehicleInfo(subject,market,reader,sourceHost,missing){
   renderRisks(market?.risk_flags||[],["Faltam dados essenciais da viatura: "+missing.map(item=>item.label).join(", ")+"."]);
   const calcBox=q("calcBox");if(calcBox)calcBox.textContent="O cálculo fica bloqueado até confirmar os dados essenciais. Assim evitamos uma cotação falsa com base numa versão, ano ou quilometragem errados.";
   syncDealForm();
+  if(activeOperation?.isAssessment){activeOperation.resultReady=true;activeOperation.resultState="needs-info";}
+  clearResearchCheckpoint(activeOperation);
+  syncStopControls();
+  const notice=q("emptyState");
+  notice.classList.remove("hidden");
+  notice.querySelector("h2").textContent="Confirma a identificação para continuar";
+  notice.querySelector("p").textContent=followupQuestion(currentVehicle,missing,market)+" Responde em «Continuar análise» abaixo.";
   showVehicleFollowup(currentVehicle,missing);
+  showIdentityQuestion(currentVehicle,market);
 }
+
+function identityLabel(vehicle={}){
+  const normalized=globalThis.CommercialIdentity?.normalizeVehicleIdentity(vehicle)||vehicle;
+  return [normalized.make,normalized.model,normalized.trim].filter(confirmedText).join(" ");
+}
+function identityChoices(subject={},market={}){
+  const supplied=Array.isArray(market.identity_candidates)?market.identity_candidates:[];
+  const candidates=supplied.length?supplied:[{source:"read",vehicle:subject},{source:"registration",vehicle:market.registration_data}];
+  const choices=[],seen=new Set();
+  for(const item of candidates){
+    const original=item?.vehicle||item;
+    if(!confirmedText(original?.make)||!confirmedText(original?.model))continue;
+    const normalized=globalThis.CommercialIdentity?.normalizeVehicleIdentity(original)||original;
+    const vehicle={make:String(normalized.make),model:String(normalized.model)};
+    if(confirmedText(normalized.trim))vehicle.trim=String(normalized.trim);
+    const plate=formatVehiclePlate(normalized.registration);
+    if(plate)vehicle.registration=plate;
+    const key=JSON.stringify(vehicle).toLocaleLowerCase("pt-PT");
+    if(seen.has(key))continue;
+    seen.add(key);choices.push({vehicle,source:item.source||"read"});
+    if(choices.length===3)break;
+  }
+  return choices;
+}
+function clearIdentityQuestion(){
+  pendingVehicleIdentity=null;
+  const actions=q("identityChoices");if(actions){actions.hidden=true;actions.replaceChildren();}
+  if(q("openIdentityDialogBtn"))q("openIdentityDialogBtn").hidden=true;
+  if(q("refineDialogTitle"))q("refineDialogTitle").textContent="Conversar e ensinar";
+  if(q("teachingInput"))q("teachingInput").placeholder="Fala pelo microfone ou escreve…";
+}
+function showIdentityQuestion(subject={},market={}){
+  pendingTeachingFeedback=null;
+  if(q("teachingFeedback"))q("teachingFeedback").hidden=true;
+  const candidates=identityChoices(subject,market);
+  const labels=candidates.map(({vehicle})=>identityLabel(vehicle)+(vehicle.registration?" (matrícula "+vehicle.registration+")":""));
+  const question=labels.length>1
+    ?"Encontrei identificações diferentes: "+labels.join(" e ")+". Qual é o carro que estás a avaliar?"
+    :labels.length===1
+      ?"Identifiquei "+labels[0]+". É este o carro que estás a avaliar?"
+      :"Que carro é este? Diz-me a marca e o modelo. Podes escrever ou responder pelo microfone.";
+  pendingVehicleIdentity={analysisId:currentAnalysisId,owner:session?.user?.id,candidates,question};
+  q("refineDialogTitle").textContent="Vamos confirmar a viatura";
+  q("teachingVehicle").textContent="A tua resposta permite continuar a avaliação.";
+  q("teachingInput").value="";q("teachingInput").placeholder="Escreve a marca e o modelo corretos…";
+  showRefineDialog("Qual é o carro?",question,"question",true);
+  const actions=q("identityChoices");actions.replaceChildren();
+  for(const candidate of candidates){
+    const button=document.createElement("button");button.type="button";button.className="btn primary small";
+    button.textContent=(candidates.length===1?"Sim, é ":"É ")+identityLabel(candidate.vehicle)+(candidate.vehicle.registration?" · "+candidate.vehicle.registration:"");
+    button.disabled=!!activeOperation;
+    button.addEventListener("click",()=>confirmVehicleIdentity(candidate.vehicle));actions.appendChild(button);
+  }
+  if(candidates.length){
+    const other=document.createElement("button");other.type="button";other.className="btn ghost small";other.textContent="É outro carro";
+    other.disabled=!!activeOperation;
+    other.addEventListener("click",()=>{
+      if(activeOperation||!pendingVehicleIdentity)return;
+      pendingVehicleIdentity.candidates=[];actions.hidden=true;
+      showRefineDialog("Qual é a marca e o modelo?","Diz-me qual é a marca e o modelo corretos. Não precisas de repetir os outros dados da avaliação.","question");
+      q("teachingInput").focus({preventScroll:true});
+    });actions.appendChild(other);
+  }
+  actions.hidden=!candidates.length;
+  q("openIdentityDialogBtn").hidden=false;
+  lastTeachingReply=question;q("teachingListenBtn").hidden=!window.speechSynthesis;
+}
+async function confirmVehicleIdentity(vehicle){
+  const pending=pendingVehicleIdentity;
+  if(activeOperation||!pending||pending.analysisId!==currentAnalysisId||pending.owner!==session?.user?.id)return;
+  const confirmation={make:vehicle.make,model:vehicle.model,...(vehicle.trim?{trim:vehicle.trim}:{}),...(vehicle.registration?{registration:vehicle.registration}:{})};
+  const message="Confirmo que é "+identityLabel(confirmation)+(confirmation.registration?", matrícula "+confirmation.registration:"")+".";
+  await refineEvaluation(message,{confirmedIdentity:confirmation});
+}
+q("openIdentityDialogBtn")?.addEventListener("click",()=>{
+  if(activeOperation||!awaitingVehicleDetails||!currentVehicle)return;
+  showIdentityQuestion(currentVehicle,currentMarketData?.market||{});
+});
 
 function purchaseSignal(result){
   const purchase=result?.purchase||{};
@@ -984,7 +1082,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(shareBar)shareBar.classList.add("hidden");
   const vehicleReadout=q("vehicleReadout");if(vehicleReadout)vehicleReadout.open=false;
   q("emptyState").classList.add("hidden");q("result").classList.remove("hidden");
-  q("sourceLabel").textContent=sourceName(sourceHost);
+  q("sourceLabel").textContent=currentVehicle.identity_source==="user_confirmed"?"Identificação confirmada por ti":sourceName(sourceHost);
   q("vehicleTitle").textContent=[currentVehicle.make,currentVehicle.model,currentVehicle.trim].filter(Boolean).join(" ")||"Viatura";
   q("vehicleMeta").textContent=vehicleMeta(currentVehicle);
   renderVehicleReadout(currentVehicle,currentMarketData);
@@ -1434,31 +1532,34 @@ function renderReaderOnly(reader,url){
 }
 
 async function createAnalysis(url,host){
-  const {data,error}=await db.from("cap_analyses").insert({
+  const {data,error}=await storageRequest(db.from("cap_analyses").insert({
     user_id:session.user.id,source_url:url,source_domain:host,status:"reading"
-  }).select("id").single();
-  if(error)throw error;
+  }).select("id").single(),{signal:activeOperation?.controller?.signal});
+  if(error||!data?.id)throw new Error("Não foi possível iniciar o registo da avaliação. Confirma a ligação e tenta novamente.");
   return data.id;
 }
 async function updateAnalysis(patch,analysisId=currentAnalysisId){
   if(!analysisId)return;
   const payload={...patch,updated_at:new Date().toISOString()};
-  const {error}=await db.from("cap_analyses").update(payload).eq("id",analysisId);
+  const {error}=await storageRequest(db.from("cap_analyses").update(payload).eq("id",analysisId),{signal:activeOperation?.controller?.signal});
   if(error)throw new Error("Não foi possível guardar o estado da análise.");
 }
 function setAnalysisButtonState(state){
   const button=q("analyzeBtn");if(!button)return;
   button.dataset.state=state;
-  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":state==="partial"?"Pesquisa sem cotação":state==="stopped"?"Avaliação parada":state==="error"?"Tentar avaliar novamente":"Analisar viatura";
+  button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":state==="partial"?"Pesquisa sem cotação":state==="needs-info"?"Aguarda confirmação abaixo":state==="stopped"?"Avaliação parada":state==="error"?"Tentar avaliar novamente":"Analisar viatura";
   button.setAttribute("aria-busy",String(state==="running"));
 }
 function markAnalysisInputChanged(){
   if(!activeOperation)setAnalysisButtonState("idle");
 }
 function setOperationBusy(busy){
-  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","refineMicBtn","teachingMicBtn","teachingSendBtn","teachingFeedbackSave","teachingUndoBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehicleMargin","plateModeBtn","linkModeBtn","photosModeBtn","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
+  for(const id of ["resumeResearchBtn","retryAnalysisSaveBtn","analyzeBtn","refineBtn","refineMicBtn","teachingMicBtn","teachingSendBtn","teachingFeedbackSave","teachingUndoBtn","logoutBtn","historyBtn","refreshMarketBtn","applyConditionCostsBtn","vehicleUrl","vehicleMileage","vehicleMargin","plateModeBtn","linkModeBtn","photosModeBtn","vehiclePhoto","micBtn","resetSearchBtn","newSearchBtn","startNewAnalysisBtn","clearAssessmentBtn","removeImage","shareValuationBtn","printValuationBtn","vehicleFollowupInput","vehicleFollowupBtn"]){
     if(q(id))q(id).disabled=!!busy;
   }
+  for(const button of q("attachmentList")?.querySelectorAll("button")||[])button.disabled=!!busy;
+  for(const button of q("identityChoices")?.querySelectorAll("button")||[])button.disabled=!!busy;
+  if(q("openIdentityDialogBtn"))q("openIdentityDialogBtn").disabled=!!busy;
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
   if(chatButton)chatButton.disabled=!!busy;
   syncStopControls();
@@ -1513,6 +1614,7 @@ function stopActiveAssessment(){
 function beginOperation(kind,analysisId=null){
   if(currentHistoryRevision&&!["history","learning","learning-undo","conversation"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
+  if(preparingImages){cancelImagePreparation();imageGeneration++;}
   const isAssessment=["analysis","resume","refine","market-refresh","auction-location","condition-costs","recalculate"].includes(kind);
   const cancelable=["analysis","resume","refine","market-refresh"].includes(kind);
   const op={id:++operationSequence,kind,analysisId,owner:session?.user?.id,token:session?.access_token,requestKey:crypto.randomUUID(),jobId:null,isAssessment,resultReady:false,cancelable,cancelled:false,controller:new AbortController()};
@@ -1590,13 +1692,13 @@ function dealFromForm(){
   });
 }
 async function saveDealPreferences(){
-  const {error}=await db.from("cap_preferences").upsert({
+  const {error}=await storageRequest(db.from("cap_preferences").upsert({
     user_id:session.user.id,settings:{...DEAL,costs:{...DEFAULT_DEAL.costs},risk_reserve:0},updated_at:new Date().toISOString()
-  },{onConflict:"user_id"});
+  },{onConflict:"user_id"}),{signal:activeOperation?.controller?.signal});
   if(error)throw new Error("Não foi possível guardar as premissas.");
 }
 async function saveAnalysisSnapshot(analysisId,snapshot){
-  const {error}=await db.rpc("cap_save_analysis",{p_id:analysisId,p_snapshot:snapshot});
+  const {error}=await storageRequest(db.rpc("cap_save_analysis",{p_id:analysisId,p_snapshot:snapshot}));
   if(error)throw new Error("A análise foi calculada, mas não foi possível guardar toda a evidência.");
 }
 function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="analysis"){
@@ -1606,6 +1708,7 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
     result:{...result,tax_simulation:result.tax_simulation||globalThis.AutoProTaxSimulation?.snapshot()},
     research:{
       job_id:market?.job_id||null,response_id:market?.response_id||null,model:market?.model||null,
+      user_confirmed_identity:market?.user_confirmed_identity||marketPayload?.user_confirmed_identity||null,
       condition_report:market?.condition_report||null,condition_overrides:market?.condition_overrides||{},
       search_sources:market?.search_sources||[],data_quality:market?.data_quality||{},risk_flags:market?.risk_flags||[],
       market_cache:market?.market_cache||null,input_signature:market?.input_signature||null
@@ -1770,7 +1873,8 @@ function setImageStatus(name){
       const label=document.createElement("span");label.textContent=image.name+" ";
       const button=document.createElement("button");button.type="button";button.textContent="Remover";
       button.setAttribute("aria-label","Remover "+image.name);
-      button.onclick=()=>{imageGeneration++;selectedImages.splice(index,1);selectedImageData=selectedImages[0]?.data||null;setImageStatus("")};
+      button.disabled=!!activeOperation;
+      button.onclick=()=>{if(activeOperation)return;cancelImagePreparation();imageGeneration++;selectedImages.splice(index,1);selectedImageData=selectedImages[0]?.data||null;setImageStatus("")};
       row.append(label,button);list.append(row);
     });
     q("attachmentStatus").classList.remove("hidden");
@@ -1785,11 +1889,12 @@ function setImageStatus(name){
   }
 }
 function resetSearchInput({announce=true,focus=true}={}){
+  if(activeOperation)return;
   const input=q("vehicleUrl");
   input.value="";
   q("vehicleMileage").value="";
   if(q("vehicleMargin"))q("vehicleMargin").value="";
-  imageGeneration++;selectedImages=[];
+  cancelImagePreparation();imageGeneration++;selectedImages=[];
   selectedImageData=null;
   selectedImageName="";
   q("vehiclePhoto").value="";
@@ -1843,95 +1948,70 @@ function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
   if(focus)setTimeout(()=>q("vehicleUrl").focus({preventScroll:true}),220);
   if(announce)toast("Pronto para uma nova pesquisa.");
 }
-function loadImageElement(file){
-  return new Promise((resolve,reject)=>{
-    const url=URL.createObjectURL(file),img=new Image();
-    img.onload=()=>{URL.revokeObjectURL(url);resolve(img)};
-    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("Não consegui abrir este formato de imagem neste navegador."))};
-    img.src=url;
-  });
-}
-async function decodeImage(file){
-  if(globalThis.createImageBitmap){
-    try{
-      const bitmap=await createImageBitmap(file,{imageOrientation:"from-image"});
-      return {source:bitmap,width:bitmap.width,height:bitmap.height,cleanup:()=>bitmap.close?.()};
-    }catch{}
+function setImagePreparationStatus(message){
+  let status=q("imagePreparationStatus");
+  if(!status&&message){
+    status=document.createElement("p");status.id="imagePreparationStatus";
+    status.className="stop-assessment-status";status.setAttribute("role","status");status.setAttribute("aria-live","polite");
+    q("attachmentStatus").before(status);
   }
-  const img=await loadImageElement(file);
-  return {
-    source:img,
-    width:img.naturalWidth||img.width,
-    height:img.naturalHeight||img.height,
-    cleanup:()=>{}
-  };
+  if(status){status.textContent=message||"";status.hidden=!message;}
 }
-function imageToJpegData(decoded,maxSide,quality){
-  const scale=Math.min(1,maxSide/Math.max(decoded.width,decoded.height));
-  const canvas=document.createElement("canvas");
-  canvas.width=Math.max(1,Math.round(decoded.width*scale));
-  canvas.height=Math.max(1,Math.round(decoded.height*scale));
-  const ctx=canvas.getContext("2d",{alpha:false});
-  if(!ctx)throw new Error("Não consegui preparar a fotografia.");
-  ctx.fillStyle="#fff";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(decoded.source,0,0,canvas.width,canvas.height);
-  return canvas.toDataURL("image/jpeg",quality);
+function cancelImagePreparation(){
+  imagePreparationController?.abort();imagePreparationController=null;preparingImages=false;
+  setImagePreparationStatus("");
 }
-async function prepareImage(file){
-  if(!file||!String(file.type||"").startsWith("image/"))throw new Error("Escolhe uma fotografia.");
-  if(file.size>100*1024*1024)throw new Error("A fotografia é excecionalmente grande. Usa uma imagem com menos de 100 MB.");
-  const decoded=await decodeImage(file);
-  try{
-    if(!decoded.width||!decoded.height)throw new Error("Não consegui determinar o tamanho da fotografia.");
-    const attempts=[
-      [1800,.82],
-      [1500,.78],
-      [1200,.72],
-      [1000,.68],
-      [800,.62]
-    ];
-    for(const [maxSide,quality] of attempts){
-      const data=imageToJpegData(decoded,maxSide,quality);
-      if(data.length<=550000)return data;
-    }
-    throw new Error("Não consegui reduzir a fotografia o suficiente.");
-  }finally{
-    decoded.cleanup();
-  }
+async function prepareImage(file,{signal}={}){
+  return prepareVehicleImage(file,{signal});
 }
 async function attachImageFiles(files){
+  if(activeOperation){toast("Aguarda a análise que está em curso ou toca em Parar avaliação.");return}
   if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
   const batch=Array.from(files||[]);
   if(!batch.length)return;
-  if(selectedImages.length+batch.length>MAX_IMAGES){toast("Podes anexar até 6 fotografias. Remove uma ou seleciona menos.");return}
+  if(selectedImages.length+batch.length>MAX_IMAGES){
+    const message="Podes anexar até 6 fotografias. Remove uma ou seleciona menos.";
+    setImagePreparationStatus(message);toast(message);q("vehiclePhoto").value="";return;
+  }
   preparingImages=true;
-  const generation=imageGeneration;
-  const prepared=[];
+  const generation=imageGeneration,controller=new AbortController();
+  imagePreparationController=controller;
+  const failures=[];
+  let added=0;
+  const isCurrent=()=>generation===imageGeneration&&imagePreparationController===controller&&!controller.signal.aborted;
   try{
-    for(const file of batch){
-      toast("A preparar fotografia "+(prepared.length+1)+" de "+batch.length+"…");
-      const data=await prepareImage(file);
-      if(generation!==imageGeneration)return;
-      prepared.push({data,name:file.name||"Fotografia"});
+    for(let index=0;index<batch.length;index++){
+      if(!isCurrent())return;
+      const file=batch[index],name=file.name||"Fotografia "+(index+1);
+      setImagePreparationStatus("A preparar fotografia "+(index+1)+" de "+batch.length+"… Se estiver no iCloud, aguarda o carregamento.");
+      try{
+        const data=await prepareImage(file,{signal:controller.signal});
+        if(!isCurrent())return;
+        selectedImages.push({data,name});added++;
+        selectedImageData=selectedImages[0]?.data||null;setImageStatus("");
+      }catch(error){
+        if(!isCurrent()||error.name==="AbortError")return;
+        failures.push(name+": "+error.message);
+      }
     }
-    selectedImages.push(...prepared);
-    selectedImageData=selectedImages[0]?.data||null;
-    setImageStatus("");
-    toast(selectedImages.length+" fotografias prontas para a IA.");
-  }catch(error){toast(error.message)}
-  finally{preparingImages=false;q("vehiclePhoto").value=""}
+    if(!isCurrent())return;
+    const ready=selectedImages.length+" fotografia"+(selectedImages.length===1?" pronta":"s prontas")+" para a IA.";
+    setImagePreparationStatus(failures.length?[added?ready:"",...failures].filter(Boolean).join(" "):"");
+    toast(failures.length?"Algumas fotografias não foram anexadas. Vê a indicação junto às fotografias.":ready);
+  }finally{
+    if(imagePreparationController===controller){preparingImages=false;imagePreparationController=null;q("vehiclePhoto").value="";}
+  }
 }
 function imageFromClipboard(event){
   const items=Array.from(event.clipboardData?.items||[]);
   for(const item of items){
-    if(item.kind==="file"&&String(item.type||"").startsWith("image/")){
+    if(item.kind==="file"){
       const file=item.getAsFile();
-      if(file)return file;
+      if(isVehicleImageFile(file))return file;
     }
   }
   const files=Array.from(event.clipboardData?.files||[]);
-  return files.find(file=>String(file.type||"").startsWith("image/"))||null;
+  return files.find(isVehicleImageFile)||null;
 }
 function appendDictation(text){
   const input=q("vehicleUrl"),current=input.value.trim();
@@ -2081,7 +2161,7 @@ q("vehicleUrl").addEventListener("input",ev=>{
   if(formatted&&ev.target.value!==formatted)ev.target.value=formatted;
 });
 q("vehicleUrl").addEventListener("paste",ev=>{
-  const files=Array.from(ev.clipboardData?.files||[]).filter(file=>String(file.type||"").startsWith("image/"));
+  const files=Array.from(ev.clipboardData?.files||[]).filter(isVehicleImageFile);
   if(!files.length){const file=imageFromClipboard(ev);if(file)files.push(file)}
   if(files.length){
     ev.preventDefault();
@@ -2106,7 +2186,8 @@ q("vehicleUrl").addEventListener("paste",ev=>{
   }catch{}
 });
 q("removeImage").addEventListener("click",()=>{
-  imageGeneration++;selectedImages=[];selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
+  if(activeOperation)return;
+  cancelImagePreparation();imageGeneration++;selectedImages=[];selectedImageData=null;selectedImageName="";q("vehiclePhoto").value="";setImageStatus("");
 });
 q("resetSearchBtn").addEventListener("click",resetSearchInput);
 q("newSearchBtn").addEventListener("click",resetAnalysisView);
@@ -2125,13 +2206,30 @@ q("micBtn").addEventListener("click",()=>startVoiceInput());
 
 async function loadMemories(){
   const owner=session.user.id;
-  const {data,error}=await db.from("cap_memory_rules").select("id,analysis_id,rule_type,statement,scope,effect,evidence_level,confidence,created_at,updated_at,valid_until").eq("active",true).eq("user_id",owner).order("updated_at",{ascending:false}).limit(200);
+  const {data,error}=await storageRequest(db.from("cap_memory_rules").select("id,analysis_id,rule_type,statement,scope,effect,evidence_level,confidence,created_at,updated_at,valid_until").eq("active",true).eq("user_id",owner).order("updated_at",{ascending:false}).limit(200),{signal:activeOperation?.controller?.signal});
   if(error)throw new Error("Não foi possível recuperar as tuas orientações guardadas.");
   if(session?.user?.id===owner){learningRulesCache=data||[];learningOwner=owner;}
   return data||[];
 }
 
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function storageRequest(query,{timeout=20000,signal}={}){
+  const controller=new AbortController();
+  let timer,abort;
+  const interrupted=new Promise((resolve,reject)=>{
+    abort=()=>{controller.abort();reject(Object.assign(new Error("Pedido cancelado."),{cancelled:true}));};
+    timer=setTimeout(()=>{
+      controller.abort();
+      reject(Object.assign(new Error("A ligação aos dados demorou demasiado. Confirma a ligação e tenta novamente."),{code:"storage_timeout"}));
+    },timeout);
+    if(signal?.aborted)abort();
+    else signal?.addEventListener("abort",abort,{once:true});
+  });
+  try{
+    const request=typeof query?.abortSignal==="function"?query.abortSignal(controller.signal):query;
+    return await Promise.race([interrupted,Promise.resolve(request)]);
+  }finally{clearTimeout(timer);signal?.removeEventListener("abort",abort);}
+}
 async function fetchJson(url,options={},timeout=25000){
   const controller=new AbortController();
   const abort=()=>controller.abort();
@@ -2140,7 +2238,14 @@ async function fetchJson(url,options={},timeout=25000){
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
     const response=await fetch(url,{...options,signal:controller.signal});
-    const data=await response.json().catch(()=>({}));
+    let data;
+    try{data=await response.json();}
+    catch(error){
+      if(controller.signal.aborted)throw error;
+      if(response.ok)throw Object.assign(new Error("O serviço devolveu uma resposta incompleta. A pesquisa guardada pode ser retomada."),{code:"invalid_service_response"});
+      data={error:"invalid_service_response",message:response.status===413?"As fotografias excederam o limite do envio. Remove uma fotografia e tenta novamente.":"O serviço está temporariamente indisponível. Tenta novamente."};
+    }
+    if(!data||typeof data!=="object"||Array.isArray(data))throw Object.assign(new Error("O serviço devolveu uma resposta inválida. Tenta novamente."),{code:"invalid_service_response"});
     return {response,data};
   }finally{clearTimeout(timer);options.signal?.removeEventListener("abort",abort)}
 }
@@ -2178,6 +2283,7 @@ function rememberResearchCheckpoint(operation){
   try{localStorage.setItem(researchCheckpointKey(),JSON.stringify({analysisId:operation.analysisId,jobId:operation.jobId||null,savedAt:Date.now()}));}catch{}
 }
 function clearResearchCheckpoint(operation){
+  if(!operation?.analysisId)return;
   try{
     const saved=JSON.parse(localStorage.getItem(researchCheckpointKey())||"null");
     if(saved?.analysisId===operation?.analysisId)localStorage.removeItem(researchCheckpointKey());
@@ -2220,6 +2326,17 @@ function showPendingResearch(operation,message){
   panel.classList.remove("hidden");q("pendingResearchText").textContent=message;
 }
 q("resumeResearchBtn")?.addEventListener("click",()=>resumePendingAnalysis(pendingResearch?.jobId,pendingResearch?.analysisId));
+function completedMarketResponse(data){
+  return !!data?.subject&&typeof data.subject==="object"&&!Array.isArray(data.subject)
+    &&(data.comparables===undefined||Array.isArray(data.comparables));
+}
+function pendingMarketResponse(data,status){
+  return ["starting","queued","in_progress"].includes(data?.status)
+    ||status===202&&typeof data?.job_id==="string"&&!!data.job_id.trim();
+}
+function invalidMarketResponse(){
+  return Object.assign(new Error("O serviço devolveu uma resposta incompleta. A pesquisa guardada pode ser retomada."),{code:"invalid_service_response"});
+}
 async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
   const startedAt=Date.now();let consecutiveNetworkFailures=0,firstPoll=true;
   while(true){
@@ -2232,23 +2349,28 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
         method:"GET",headers:{authorization:"Bearer "+session.access_token},signal:operation.controller?.signal
       },20000);
       firstPoll=false;
-      if(poll.response.ok)consecutiveNetworkFailures=0;
+      if(poll.response.ok){
+        const cancelled=poll.data.error==="market_job_cancelled"||poll.data.status==="cancelled";
+        if(!cancelled&&!pendingMarketResponse(poll.data,poll.response.status)&&!completedMarketResponse(poll.data))throw invalidMarketResponse();
+        consecutiveNetworkFailures=0;
+      }
     }catch(error){
       firstPoll=false;
       assertOperation(operation);
       consecutiveNetworkFailures++;
       if(consecutiveNetworkFailures<4)continue;
-      throw pendingResearchError("A ligação oscilou. Podes retomar a pesquisa guardada.");
+      throw pendingResearchError(error.code==="invalid_service_response"?"O serviço devolveu respostas incompletas. Podes retomar a pesquisa guardada.":"A ligação oscilou. Podes retomar a pesquisa guardada.");
     }
     assertOperation(operation);
     if(poll.data.error==="market_job_cancelled"||poll.data.status==="cancelled")throw Object.assign(new Error("Avaliação parada."),{cancelled:true});
-    if(poll.response.status===202||["starting","queued","in_progress"].includes(poll.data.status)){
+    if(poll.response.ok&&pendingMarketResponse(poll.data,poll.response.status)){
       showMarketProgress(poll.data);
       // Always collect a completed result after iOS resumes, even past the UI deadline.
       if(Date.now()-startedAt>=timeoutMs)throw pendingResearchError("A pesquisa ficou guardada. Podes recolher o resultado aqui ou no histórico.");
       continue;
     }
     if(!poll.response.ok){
+      if(poll.response.status===401)throw pendingResearchError("A sessão expirou. Entra novamente e retoma esta avaliação guardada.");
       const error=marketRequestError(poll.data);
       const terminal=error.billing||["market_job_failed","openai_market_failed","market_start_interrupted"].includes(poll.data.error);
       if(!terminal&&(poll.response.status>=500||[408,429].includes(poll.response.status))){
@@ -2273,21 +2395,23 @@ async function runMarketAnalysis(payload,operation){
         headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
         body:JSON.stringify(requestBody),signal:operation.controller?.signal
       },40000);
+      if(start.response.ok&&!completedMarketResponse(start.data)&&!(typeof start.data.job_id==="string"&&start.data.job_id.trim()))throw invalidMarketResponse();
       break;
     }catch(error){
       assertOperation(operation);
-      if(attempt===1)throw pendingResearchError("A ligação caiu ao iniciar. Vou procurar o pedido guardado ao retomar.");
+      if(attempt===1)throw pendingResearchError(error.code==="invalid_service_response"?"O serviço devolveu respostas incompletas. Podes procurar o pedido guardado ao retomar.":"A ligação caiu ao iniciar. Vou procurar o pedido guardado ao retomar.");
       await wait(700);
     }
   }
   assertOperation(operation);
   if(!start.response.ok){
+    if(start.response.status===401)throw pendingResearchError("A sessão expirou. Entra novamente para recuperar esta avaliação ou voltar a iniciar com os mesmos dados.");
     const error=marketRequestError(start.data);
     const terminal=error.billing||["market_job_failed","openai_market_failed","market_start_interrupted"].includes(start.data.error);
     if(!terminal&&(start.response.status>=500||[408,429].includes(start.response.status)))throw pendingResearchError(error.message+" Podes procurar o pedido guardado ao retomar.");
     throw error;
   }
-  if(start.data.subject)return start.data;
+  if(completedMarketResponse(start.data))return start.data;
   const jobId=start.data.job_id;
   if(!jobId)throw new Error("O radar iniciou sem identificador persistente.");
   operation.jobId=jobId;rememberResearchCheckpoint(operation);showMarketProgress(start.data);
@@ -2302,11 +2426,15 @@ async function resumePendingAnalysis(jobId=null,analysisId=null){
   let query=db.from("cap_jobs").select("id,analysis_id,status,context,created_at").eq("user_id",owner);
   if(jobId)query=query.eq("id",jobId);
   else if(analysisId)query=query.eq("analysis_id",analysisId);
-  const {data:jobs,error}=await query.order("created_at",{ascending:false}).limit(1);
+  let jobs,error;
+  try{({data:jobs,error}=await storageRequest(query.order("created_at",{ascending:false}).limit(1)));}
+  catch(failure){if(session?.user?.id===owner)toast(failure.message);return;}
   if(session?.user?.id!==owner||activeOperation)return;
   if(error||!jobs?.length){if(jobId||analysisId)toast("Não foi possível recuperar o pedido. Consulta o histórico ou inicia uma nova avaliação.");return;}
   const job=jobs[0];
-  const {data:analysis}=await db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle();
+  let analysis;
+  try{({data:analysis}=await storageRequest(db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle()));}
+  catch(failure){if(session?.user?.id===owner)toast(failure.message);return;}
   if(session?.user?.id!==owner||activeOperation)return;
   if(!analysis)return;
   clearSavedRevisionView();
@@ -2379,6 +2507,7 @@ q("analyzeForm").addEventListener("submit",async ev=>{
   clearSavedRevisionView();
   resetDealCosts();
   const operation=beginOperation("analysis");
+  const imagesForAnalysis=selectedImages.map(image=>image.data);
   const url=entry.url;
   q("auto1Connection").classList.add("hidden");
   q("result").classList.add("hidden");q("emptyState").classList.add("hidden");
@@ -2412,12 +2541,20 @@ q("analyzeForm").addEventListener("submit",async ev=>{
       if(reader?.status!=="ok"||!reader.page?.text_sample)throw new Error("Não consegui preparar o link AUTO1 para análise.");
     }else{
       progress("A ler a página pública…","A tentar obter os dados do anúncio.");
-      const resp=await fetch("/api/comparador-analyze",{
-        method:"POST",
-        headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
-        body:JSON.stringify({url:url.toString()}),signal:operation.controller.signal
-      });
-      reader=await resp.json();
+      try{
+        const {response,data}=await fetchJson("/api/comparador-analyze",{
+          method:"POST",
+          headers:{"content-type":"application/json","authorization":"Bearer "+session.access_token},
+          body:JSON.stringify({url:url.toString()}),signal:operation.controller.signal
+        },25000);
+        if([401,403].includes(response.status))throw Object.assign(new Error(data.message||"Entra novamente para avaliar a viatura."),{code:"invalid_auth"});
+        reader=response.ok?data:{status:"unavailable"};
+      }catch(error){
+        assertOperation(operation);
+        if(error.code==="invalid_auth")throw error;
+        // A blocked or slow listing must not discard the photos or prevent the URL fallback.
+        reader={status:"unavailable"};
+      }
       assertOperation(operation);
       if(reader.status!=="ok"){
         if(selectedImageData){
@@ -2457,7 +2594,6 @@ q("analyzeForm").addEventListener("submit",async ev=>{
     try{allRules=await loadMemories()}catch(error){memoryWarning=error.message}
     assertOperation(operation);
     progress("A pesquisar o mercado…","A normalizar a viatura e procurar concorrência profissional em Portugal.");
-    const imagesForAnalysis=selectedImages.map(image=>image.data);
     const marketPayload={
       url:url?.toString()||null,description:entry.description,registration:entry.registration||null,mode:entry.mode,mileage_input_km:mileageInput,
       page:reader.page||{},image_data_urls:imagesForAnalysis,dealer_memories:allRules.filter(rule=>rule.effect?.mode!=="supervised").slice(0,200),refinement_history:[]
@@ -2612,10 +2748,27 @@ async function sendTeachingMessage(raw,{voice=false}={}){
   if(!session||!currentVehicle||!currentAnalysisId){toast("Faz primeiro uma avaliação.");return;}
   if(voice)conversationUsesVoice=true;
   const confirmation=text.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[.!?,]/g,"").trim();
-  if(pendingTeachingFeedback&&/^(sim|sim confirmo|sim confirma|confirmo|confirmar|podes guardar|guarda|guarda sim|e isso|esta certo)$/.test(confirmation)){
-    await confirmTeachingFeedback(text);return;
+  if(awaitingVehicleDetails&&pendingVehicleIdentity&&!currentHistoryRevision){
+    const candidates=pendingVehicleIdentity.candidates;
+    if(/^(sim|sim confirmo|confirmo|e esse|e este|e isso|esta certo|correto)$/.test(confirmation)){
+      if(candidates.length===1){await confirmVehicleIdentity(candidates[0].vehicle);return;}
+      showRefineDialog("Qual é o carro?","Diz-me a marca e o modelo, ou escolhe a identificação correta nos botões.","question");return;
+    }
+    const normalize=value=>String(value).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    const answer=normalize(text).replace(/^(?:sim\s+)?(?:confirmo que\s+)?e\s+(?:(?:um|uma|o|a)\s+)?/,"");
+    const matches=candidates.filter(({vehicle})=>{
+      const label=identityLabel(vehicle);
+      return answer===normalize(label)||(vehicle.registration&&answer===normalize(label+" matrícula "+vehicle.registration));
+    });
+    // Only an exact identity reply may select a candidate. Extra details can
+    // correct its plate, version, year or mileage and must be read by the AI.
+    if(matches.length===1){await confirmVehicleIdentity(matches[0].vehicle);return;}
   }
   if(awaitingVehicleDetails&&!currentHistoryRevision){await refineEvaluation(text);return;}
+  if(pendingTeachingFeedback&&pendingTeachingFeedback.analysisId===currentAnalysisId&&pendingTeachingFeedback.owner===session?.user?.id
+    &&/^(sim|sim confirmo|sim confirma|confirmo|confirmar|podes guardar|guarda|guarda sim|e isso|esta certo)$/.test(confirmation)){
+    await confirmTeachingFeedback(text);return;
+  }
   const operation=beginOperation("conversation",currentAnalysisId);
   q("teachingInput").value=text;q("refineInput").value=text;
   q("teachingInput").disabled=true;q("refineInput").disabled=true;
@@ -2696,9 +2849,10 @@ q("teachingUndoBtn")?.addEventListener("click",async()=>{
 q("vehicleFollowupForm")?.addEventListener("submit",ev=>{
   ev.preventDefault();
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
   const text=q("vehicleFollowupInput")?.value.trim()||"";
-  const usedImages=Array.isArray(lastAnalysisContext?.marketPayload?.image_data_urls)?lastAnalysisContext.marketPayload.image_data_urls.length:0;
-  const hasNewPhotos=selectedImages.length>usedImages;
+  const usedImages=new Set(lastAnalysisContext?.marketPayload?.image_data_urls||[]);
+  const hasNewPhotos=selectedImages.some(image=>!usedImages.has(image.data));
   if(!text&&!hasNewPhotos){
     toast("Escreve os dados que souberes ou adiciona outra fotografia.");
     return;
@@ -2707,29 +2861,33 @@ q("vehicleFollowupForm")?.addEventListener("submit",ev=>{
   q("refineForm").requestSubmit();
 });
 
-async function refineEvaluation(text,{aiData=null,alreadyShown=false}={}){
+async function refineEvaluation(text,{aiData=null,alreadyShown=false,confirmedIdentity=null}={}){
   if(!text)return;
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  if(preparingImages){toast("Aguarda a preparação das fotografias.");return}
   if(!session||!lastAnalysisContext||!currentVehicle){toast("Faz primeiro uma análise.");return}
 
   const wasVehicleFollowup=awaitingVehicleDetails;
+  const wasIdentityQuestion=!!pendingVehicleIdentity;
   const operation=beginOperation("refine",currentAnalysisId);
+  clearIdentityQuestion();
   const button=q("refineBtn"),originalButtonText=button.textContent;
   q("refineInput").disabled=true;button.textContent="A analisar…";
   q("refineInlineStatus").textContent="A IA está a refazer a análise…";q("refineInlineStatus").classList.remove("hidden");
   showRefineDialog("A analisar…","","loading",false);
   if(!alreadyShown)appendRefineDialogMessage("user",text);
   appendRefineDialogMessage("assistant","A testar a tua indicação contra esta viatura e a concorrência profissional.");
-  if(!alreadyShown){addMsg("user",text);await storeMessage("user",text);}
-
   try{
+    if(!alreadyShown){addMsg("user",text);await storeMessage("user",text,[],operation);}
+    assertOperation(operation);
     const memories=relevantMemories(await loadMemories(),currentVehicle||{});
     assertOperation(operation);
     progress("A refinar com IA…","A testar a tua indicação sem a assumir como facto.");
     const history=[...(lastAnalysisContext.marketPayload?.refinement_history||[]),text].slice(-5);
     const payload={
       ...lastAnalysisContext.marketPayload,
-      mileage_input_km:null,
+      identity_confirmation_only:!!confirmedIdentity,
+      mileage_input_km:confirmedIdentity?(lastAnalysisContext.marketPayload?.mileage_input_km??null):null,
       refinement_history:history,
       previous_subject:currentVehicle||null,
       previous_condition_report:currentMarketData?.market?.condition_report||null,
@@ -2738,13 +2896,17 @@ async function refineEvaluation(text,{aiData=null,alreadyShown=false}={}){
       image_data_urls:selectedImages.map(image=>image.data),
       registration_data:lastAnalysisContext.marketPayload?.registration_data||null
     };
+    if(confirmedIdentity)payload.user_confirmed_identity=confirmedIdentity;
+    else if(wasIdentityQuestion)delete payload.user_confirmed_identity;
     const market=await runMarketAnalysis(payload,operation);
     market.condition_overrides=currentMarketData?.market?.condition_overrides||{};
     assertOperation(operation);
     appendRefineDialogMessage("assistant","Pesquisa atualizada. A recalcular comparáveis, margem e teto…");
 
-    const subject={...(currentVehicle||{})};
-    for(const [key,value] of Object.entries(market.subject||{})){
+    const identityChanged=confirmedIdentity||market.subject?.identity_source==="user_confirmed"
+      ||(globalThis.CommercialIdentity&&currentVehicle?.make&&market.subject?.make&&!globalThis.CommercialIdentity.sameModel(currentVehicle,market.subject));
+    const subject=identityChanged?{...(market.subject||{})}:{...(currentVehicle||{})};
+    if(!identityChanged)for(const [key,value] of Object.entries(market.subject||{})){
       if(value!==null&&value!==undefined&&value!=="")subject[key]=value;
     }
     // A null technical result must clear the range of the previous version.
@@ -2764,7 +2926,6 @@ async function refineEvaluation(text,{aiData=null,alreadyShown=false}={}){
       },operation.analysisId);
       q("refineInput").value="";
       if(q("vehicleFollowupInput"))q("vehicleFollowupInput").value="";
-      showRefineDialog("Preciso de confirmar a viatura",followupQuestion(subject,blocking),"loading");
       toast("Ainda preciso de confirmar a identidade da viatura.");
       return;
     }
@@ -2938,7 +3099,18 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
   finally{finishOperation(operation)}
 });
 
-db.auth.onAuthStateChange((_event,data)=>{if(session?.user?.id!==data?.user?.id){learningRulesCache=[];learningOwner=null;}session=data;if(!data){activeOperation=null;showAuth()}});
+db.auth.onAuthStateChange((_event,data)=>{
+  if(session?.user?.id!==data?.user?.id){
+    if(activeOperation){
+      if(activeOperation.isAssessment&&!activeOperation.resultReady)rememberResearchCheckpoint(activeOperation);
+      activeOperation.controller?.abort();activeOperation=null;setOperationBusy(false);
+    }
+    cancelImagePreparation();imageGeneration++;
+    learningRulesCache=[];learningOwner=null;
+  }
+  session=data;
+  if(!data)showAuth();
+});
 // BFCache restoration is a reopen; ordinary tab/phone backgrounding is not.
 window.addEventListener("pageshow",event=>{
   if(event.persisted&&!activeOperation){

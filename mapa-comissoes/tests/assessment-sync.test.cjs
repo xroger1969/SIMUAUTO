@@ -55,9 +55,10 @@ async function boot(preferences=null){
     signIn(){session={user:{id:'${owner}'},access_token:'test'};q('authGate').classList.add('hidden');q('app').classList.remove('hidden');},
     setMarket(handler){runMarketAnalysis=handler;pollMarketJob=handler;},
     setMemories(handler){loadMemories=handler;},
-    setPhotos(){selectedImages=[{name:'viatura.jpeg',data:'data:image/jpeg;base64,YQ=='}];selectedImageData=selectedImages[0].data;setImageStatus('');},
+    setPendingTeachingFeedback(value){pendingTeachingFeedback=value;},
+    setPhotos(data='data:image/jpeg;base64,YQ=='){selectedImages=[{name:'viatura.jpeg',data}];selectedImageData=selectedImages[0].data;setImageStatus('');},
     render:renderResult,needsInfo:renderNeedsVehicleInfo,readerOnly:renderReaderOnly,needsPhotos:renderAuto1NeedsPhotos,
-    openHistory:openSavedRevision,resume:resumePendingAnalysis,
+    openHistory:openSavedRevision,resume:resumePendingAnalysis,refine:refineEvaluation,
     mergeDeal,resetCosts:resetDealCosts,get deal(){return DEAL;},setDeal(value){DEAL=mergeDeal(value);syncDealForm();},loadPreferences:loadDealPreferences,
     reset(){resetAnalysisView({announce:false,focus:false,scroll:false});},
     get busy(){return activeOperation!==null;},get result(){return currentResult;}
@@ -352,4 +353,222 @@ test('queued photo failure stops polling and displays billing recovery without d
   assert.equal(q('pendingResearch').classList.contains('hidden'),true);
   assert.match(q('attachmentList').textContent,/viatura.jpeg/);
   h.reset();assert.equal(q('emptyState').classList.contains('hidden'),true);
+});
+
+test('a real identity conflict explains both vehicles near the form and remains visibly awaiting confirmation',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  const reason='A fotografia identifica um Countryman, mas a matrícula corresponde a um Clubman. Confirma a viatura.';
+  app.h.setMarket(async()=>({subject:{make:'MINI',model:'Countryman',registration:'AA-41-BB'},valuation_blocked:true,
+    risk_flags:[{code:'registration_unconfirmed',label:reason}],comparables:[]}));
+  app.submit('AA-41-BB');await until(()=>!app.h.busy);
+  assert.equal(app.q('analyzeBtn').dataset.state,'needs-info');
+  assert.equal(app.q('analyzeBtn').getAttribute('aria-busy'),'false');
+  assert.equal(app.q('vehicleFollowupText').textContent,reason);
+  assert.ok(app.q('emptyState').textContent.includes(reason));
+  assert.equal(app.q('emptyState').classList.contains('hidden'),false);
+  assert.doesNotMatch(app.q('marketSummary').textContent,/já foi iniciada/);
+  assert.equal(app.q('stopAssessmentBtn').hidden,true);
+  assert.equal(app.h.result,null);
+});
+
+test('photographs and reset controls cannot mutate the inputs while an assessment is running',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  app.h.setPhotos();const result=deferred();let payload;
+  app.h.setMarket(data=>{payload=data;return result.promise;});
+  app.submit(ford.registration);await until(()=>!!payload);
+  const remove=app.q('attachmentList').querySelector('button');
+  assert.equal(remove.disabled,true);assert.equal(app.q('removeImage').disabled,true);
+  assert.equal(app.q('clearAssessmentBtn').disabled,true);
+  remove.click();app.q('removeImage').click();app.q('clearAssessmentBtn').click();
+  assert.equal(payload.image_data_urls.length,1);
+  assert.match(app.q('attachmentList').textContent,/viatura.jpeg/);
+  assert.equal(app.q('vehicleUrl').value,ford.registration);
+  result.resolve(market(ford,23000));await until(()=>!app.h.busy);
+  assert.equal(app.q('removeImage').disabled,false);
+  assert.equal(app.q('attachmentList').querySelector('button').disabled,false);
+});
+
+test('a blocked or malformed listing reader still evaluates the supplied photograph',async t=>{
+  for(const malformed of [false,true]){
+    const app=await boot();t.after(()=>app.dom.window.close());app.h.setPhotos();let payload;
+    app.w.fetch=async url=>{
+      assert.equal(url,'/api/comparador-analyze');
+      if(!malformed)throw new TypeError('Load failed');
+      return {ok:true,status:200,json:async()=>{throw new SyntaxError('HTML');}};
+    };
+    app.h.setMarket(async data=>{payload=data;return market(ford,23000);});
+    app.submit('https://www.standvirtual.com/carros/anuncio/teste-ID1.html');await until(()=>!app.h.busy);
+    assert.ok(app.h.result);assert.equal(payload.image_data_urls.length,1);
+    assert.match(payload.page.description||'A página não pôde ser lida',/não pôde ser lida/);
+    assert.equal(payload.url,'https://www.standvirtual.com/carros/anuncio/teste-ID1.html');
+  }
+});
+
+test('an expired session at the listing reader stops instead of bypassing authentication via photos',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());app.h.setPhotos();let marketCalls=0;
+  app.w.fetch=async()=>({ok:false,status:401,json:async()=>({message:'A sessão expirou. Entra novamente.'})});
+  app.h.setMarket(async()=>{marketCalls++;return market(ford,23000);});
+  app.submit('https://www.standvirtual.com/carros/anuncio/teste-ID1.html');await until(()=>!app.h.busy);
+  assert.equal(marketCalls,0);assert.equal(app.h.result,null);
+  assert.match(app.q('emptyState').textContent,/sessão expirou/);
+  assert.match(app.q('attachmentList').textContent,/viatura.jpeg/);
+});
+
+test('replacing a photograph with the same total count is accepted as new identity evidence',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());app.h.setPhotos();let calls=0,refined;
+  app.h.setMarket(async payload=>{
+    calls++;
+    if(calls===1)return {subject:{registration:ford.registration},comparables:[],risk_flags:[]};
+    refined=payload;return market(ford,23000);
+  });
+  app.submit(ford.registration);await until(()=>!app.h.busy);
+  app.q('attachmentList').querySelector('button').click();
+  app.h.setPhotos('data:image/jpeg;base64,Yg==');
+  app.q('vehicleFollowupForm').dispatchEvent(new app.w.Event('submit',{bubbles:true,cancelable:true}));
+  await until(()=>!!app.h.result);
+  assert.equal(calls,2);assert.equal(refined.image_data_urls.length,1);
+  assert.equal(refined.image_data_urls[0],'data:image/jpeg;base64,Yg==');
+});
+
+test('transient malformed polling is retried against the same saved job and never yields an empty identification',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());app.h.setPhotos();let posts=0,polls=0;
+  const timer=app.w.setTimeout.bind(app.w);app.w.setTimeout=(fn,ms,...args)=>timer(fn,ms===2200?0:ms,...args);
+  app.w.fetch=async(url,options)=>{
+    if(options.method==='POST'){posts++;return {ok:true,status:202,json:async()=>({status:'queued',job_id:'job-existing'})};}
+    polls++;assert.match(url,/job_id=job-existing/);
+    if(polls===1)return {ok:true,status:200,json:async()=>{throw new SyntaxError('Truncated JSON');}};
+    return {ok:true,status:200,json:async()=>market(ford,23000)};
+  };
+  app.submit('');await until(()=>!app.h.busy);
+  assert.equal(posts,1);assert.equal(polls,2);
+  assert.equal(app.h.result.subject.model,'Puma');assert.equal(app.q('analyzeBtn').dataset.state,'complete');
+});
+
+test('session expiry during polling preserves a recoverable checkpoint and unlocks the form',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());app.h.setPhotos();let calls=0;
+  app.w.fetch=async()=>++calls===1?{ok:true,status:202,json:async()=>({job_id:'job-session',status:'queued'})}
+    :{ok:false,status:401,json:async()=>({error:'invalid_auth',message:'A sessão expirou.'})};
+  app.submit('');await until(()=>!app.h.busy);
+  assert.equal(app.q('pendingResearch').classList.contains('hidden'),false);
+  assert.match(app.q('pendingResearchText').textContent,/sessão expirou/);
+  const checkpoint=JSON.parse(app.w.localStorage.getItem('cap:research-checkpoint:'+owner));
+  assert.equal(checkpoint.jobId,'job-session');
+  assert.equal(app.q('vehicleUrl').disabled,false);assert.equal(app.q('analyzeBtn').disabled,false);
+});
+
+test('ambiguous identity opens a clear conversation and choosing a vehicle continues with explicit user provenance',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());let calls=0,confirmation;
+  const photo={make:'Renault',model:'Clio',trim:'1.5 dCi',fuel:'diesel',year:2015,registration:'88-QG-72'};
+  const plate={make:'Renault',model:'Captur',trim:null,fuel:'diesel',year:2015,registration:'88-QG-72'};
+  app.h.setMarket(async payload=>{
+    calls++;
+    if(calls===1)return {subject:photo,valuation_blocked:true,comparables:[],
+      identity_candidates:[{source:'photos',vehicle:photo},{source:'registration',vehicle:plate}],
+      risk_flags:[{code:'registration_unconfirmed',label:'A fotografia indica Clio e a consulta da matrícula indica Captur.'}]};
+    confirmation=payload.user_confirmed_identity;
+    assert.equal(payload.identity_confirmation_only,true);
+    return {...market({...plate,identity_source:'user_confirmed'},12000),risk_flags:[{code:'identity_user_confirmed',label:'Identidade confirmada pelo utilizador.'}]};
+  });
+  app.submit('88-QG-72');await until(()=>!app.h.busy);
+  assert.equal(app.q('refineDialog').classList.contains('hidden'),false);
+  assert.equal(app.q('refineDialogTitle').textContent,'Vamos confirmar a viatura');
+  assert.match(app.q('refineDialogMessages').textContent,/Qual é o carro/);
+  const choice=[...app.q('identityChoices').querySelectorAll('button')].find(button=>/Captur/.test(button.textContent));
+  assert.match(choice.textContent,/88-QG-72/);
+  choice.click();await until(()=>calls===2&&!app.h.busy);
+  assert.deepEqual(JSON.parse(JSON.stringify(confirmation)),{make:'Renault',model:'Captur',registration:'88-QG-72'});
+  assert.equal(app.h.result.subject.model,'Captur');
+  assert.equal(app.h.result.subject.trim,null,'a corrected identity must not inherit the wrong old trim');
+  assert.equal(app.q('identityChoices').hidden,true);
+  assert.equal(app.q('openIdentityDialogBtn').hidden,true);
+});
+
+test('a short yes in the identity conversation confirms the sole visible candidate and advances',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());let calls=0,confirmation;
+  const mini={make:'MINI',model:'Countryman',trim:'Cooper D',fuel:'diesel',year:2017,registration:'AA-41-BB'};
+  app.h.setMarket(async payload=>{
+    calls++;
+    if(calls===1)return {subject:mini,valuation_blocked:true,comparables:[],risk_flags:[{code:'registration_unconfirmed',label:'Confirma o modelo.'}]};
+    confirmation=payload.user_confirmed_identity;return market({...mini,identity_source:'user_confirmed'},18000);
+  });
+  app.h.setPendingTeachingFeedback({analysisId:'previous-assessment',owner,kind:'margin',value:3500});
+  app.q('teachingFeedback').hidden=false;
+  app.submit('AA-41-BB');await until(()=>!app.h.busy);
+  assert.match(app.q('refineDialogMessages').textContent,/É este o carro/);
+  assert.equal(app.q('teachingFeedback').hidden,true);
+  app.q('teachingInput').value='Sim';
+  app.q('teachingForm').dispatchEvent(new app.w.Event('submit',{bubbles:true,cancelable:true}));
+  await until(()=>calls===2&&!app.h.busy);
+  assert.equal(confirmation.model,'Countryman');assert.equal(confirmation.registration,'AA-41-BB');
+  assert.equal(app.h.result.subject.model,'Countryman');
+});
+
+test('written plate and trim corrections are re-identified instead of selecting the old candidate',async t=>{
+  for(const reply of ['É MINI Countryman, matrícula AB-12-CD','É MINI Countryman Cooper S','É MINI Countryman Cooper D com 135 000 km']){
+    const app=await boot();t.after(()=>app.dom.window.close());let calls=0,refinement;
+    const mini={make:'MINI',model:'Countryman',trim:'Cooper D',fuel:'diesel',year:2017,registration:'AA-41-BB'};
+    app.h.setMarket(async payload=>{
+      calls++;
+      if(calls===1)return {subject:mini,valuation_blocked:true,comparables:[],risk_flags:[{code:'registration_unconfirmed',label:'Confirma o modelo.'}]};
+      refinement=payload;return market(mini,18000);
+    });
+    app.submit('AA-41-BB');await until(()=>!app.h.busy);
+    app.q('teachingInput').value=reply;
+    app.q('teachingForm').dispatchEvent(new app.w.Event('submit',{bubbles:true,cancelable:true}));
+    await until(()=>calls===2&&!app.h.busy);
+    assert.equal(refinement.user_confirmed_identity,undefined,reply);
+    assert.equal(refinement.identity_confirmation_only,false);
+    assert.equal(refinement.refinement_history.at(-1),reply);
+  }
+});
+
+test('unknown identity asks only for make and model and lets the user close and reopen the conversation',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());
+  app.h.setMarket(async()=>({subject:{registration:'AA-41-BB'},comparables:[],risk_flags:[]}));
+  app.submit('AA-41-BB');await until(()=>!app.h.busy);
+  assert.match(app.q('refineDialogMessages').textContent,/Que carro é este\? Diz-me a marca e o modelo/);
+  assert.doesNotMatch(app.q('refineDialogMessages').textContent,/quilómetros|ano|combustível/);
+  assert.equal(app.q('teachingMicBtn').disabled,false);
+  app.q('refineDialogClose').click();assert.equal(app.q('refineDialog').classList.contains('hidden'),true);
+  app.q('openIdentityDialogBtn').click();assert.equal(app.q('refineDialog').classList.contains('hidden'),false);
+});
+
+test('later refinements re-read details and another-car replies clear the previous confirmation',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());const payloads=[];
+  const clio={make:'Renault',model:'Clio',fuel:'diesel',year:2015,mileage_km:120000,registration:ford.registration};
+  app.h.setMarket(async payload=>{
+    payloads.push(payload);
+    if(payloads.length===1)return {subject:ford,valuation_blocked:true,comparables:[],risk_flags:[{code:'registration_unconfirmed',label:'Confirma o modelo.'}]};
+    return market(payloads.length===4?clio:{...ford,mileage_km:42000,identity_source:'user_confirmed'},15000);
+  });
+  app.submit(ford.registration);await until(()=>!app.h.busy);
+  app.q('identityChoices').querySelector('button').click();await until(()=>payloads.length===2&&!app.h.busy);
+  assert.equal(payloads[1].identity_confirmation_only,true);
+  await app.h.refine('Os quilómetros corretos são 42 000.');
+  assert.equal(payloads[2].identity_confirmation_only,false);
+  assert.equal(payloads[2].user_confirmed_identity.model,'Puma');
+  assert.equal(app.h.result.subject.mileage_km,42000);
+
+  app.h.needsInfo(ford,{valuation_blocked:true,identity_candidates:[{source:'user_confirmed',vehicle:ford}]},{},'Matrícula',[{key:'make_model',label:'marca e modelo'}]);
+  [...app.q('identityChoices').querySelectorAll('button')].find(button=>button.textContent==='É outro carro').click();
+  app.q('teachingInput').value='É um Renault Clio';
+  app.q('teachingForm').dispatchEvent(new app.w.Event('submit',{bubbles:true,cancelable:true}));
+  await until(()=>payloads.length===4&&!app.h.busy);
+  assert.equal(payloads[3].identity_confirmation_only,false);
+  assert.equal(Object.hasOwn(payloads[3],'user_confirmed_identity'),false);
+  assert.equal(app.h.result.subject.model,'Clio');
+});
+
+test('different plate candidates are shown explicitly and an ambiguous yes never selects either one',async t=>{
+  const app=await boot();t.after(()=>app.dom.window.close());let calls=0;
+  const car={make:'MINI',model:'Countryman',trim:'Cooper D',fuel:'diesel',year:2017};
+  app.h.setMarket(async()=>{calls++;return {subject:{...car,registration:'AA-41-BB'},valuation_blocked:true,comparables:[],
+    identity_candidates:[{source:'photos',vehicle:{...car,registration:'AA-41-BB'}},{source:'registration',vehicle:{...car,registration:'AB-12-CD'}}],
+    risk_flags:[{code:'registration_unconfirmed',label:'Duas matrículas diferentes.'}]};});
+  app.submit('AA-41-BB');await until(()=>!app.h.busy);
+  assert.match(app.q('refineDialogMessages').textContent,/AA-41-BB/);assert.match(app.q('refineDialogMessages').textContent,/AB-12-CD/);
+  app.q('teachingInput').value='Sim';app.q('teachingForm').dispatchEvent(new app.w.Event('submit',{bubbles:true,cancelable:true}));
+  await new Promise(resolve=>setTimeout(resolve,5));
+  assert.equal(calls,1);assert.equal(app.h.result,null);
+  assert.match(app.q('refineDialogMessages').textContent,/escolhe a identificação correta/);
 });
