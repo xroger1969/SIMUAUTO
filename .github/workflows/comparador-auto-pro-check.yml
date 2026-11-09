@@ -17,6 +17,7 @@ on:
       - "mapa-comissoes/lib/model-config.js"
       - "mapa-comissoes/lib/provider-error.js"
       - "mapa-comissoes/lib/market-worker.js"
+      - "mapa-comissoes/lib/electric-specs.js"
       - "mapa-comissoes/package*.json"
       - "mapa-comissoes/vercel.json"
       - "mapa-comissoes/tests/**"
@@ -34,6 +35,7 @@ on:
       - "mapa-comissoes/lib/model-config.js"
       - "mapa-comissoes/lib/provider-error.js"
       - "mapa-comissoes/lib/market-worker.js"
+      - "mapa-comissoes/lib/electric-specs.js"
       - "mapa-comissoes/package*.json"
       - "mapa-comissoes/vercel.json"
       - "mapa-comissoes/tests/**"
@@ -52,6 +54,8 @@ jobs:
         run: |
           node --check mapa-comissoes/api/comparador-analyze.js
           node --check mapa-comissoes/api/comparador-market.js
+          node --check mapa-comissoes/api/comparador-electric.js
+          node --check mapa-comissoes/lib/electric-specs.js
           node --check mapa-comissoes/api/comparador-ai.js
           node --check mapa-comissoes/api/comparador-transcribe.js
           node --check mapa-comissoes/lib/access.js

@@ -35,7 +35,7 @@ test('zero accepted market references never render a positive tier or fixed-mark
 });
 
 test('completed research without a price is partial and never turns the assessment button green',()=>{
-  const ctx=harness({activeOperation:null,currentHistoryRevision:null,setOperationBusy(){}});
+  const ctx=harness({activeOperation:null,currentHistoryRevision:null,setOperationBusy(){},syncElectricSpecsControls(){},researchElectricSpecs(){}});
   const button=ctx.q('analyzeBtn');button.dataset={};button.setAttribute=(k,v)=>button[k]=v;
   vm.runInContext(source('function hasMarketReference','function assessmentConfidenceLabel'),ctx);
   vm.runInContext(source('function setAnalysisButtonState','function markAnalysisInputChanged'),ctx);

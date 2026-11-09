@@ -1,5 +1,5 @@
 const crypto=require("node:crypto");
-const {rangeSchema,normalizeRange,confirmedRange}=require("../comparador-auto-pro/electric-range.js");
+const {rangeSchema,normalizeRange,confirmedRange,confirmedSpecs}=require("../comparador-auto-pro/electric-range.js");
 const {lookupRegistration,normalizeRegistration,displayRegistration,hasRegistrationIdentity,registrationMatches}=require("../lib/registration");
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
@@ -462,6 +462,9 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
   parsed.condition_report=normalizeConditionReport(parsed.condition_report,sources,observed);
   // Only fresh, sourced technical research can enrich the fixed vehicle identity.
   parsed.subject.ev_range=parsed.valuation_blocked?null:normalizeRange(parsed.ev_range,parsed.subject,sources,observed);
+  // Dedicated technical research is written by comparador-electric. Never
+  // inherit a browser's verification flags through previous_subject.
+  delete parsed.subject.ev_specs;
   delete parsed.ev_range;
 
   parsed.comparables=parsed.comparables.flatMap(c=>{
@@ -623,6 +626,7 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
   subject.mileage_source=currentSubject?.mileage_source||null;
   // Never trust an ev_range supplied by the browser; reuse only the server snapshot.
   subject.ev_range=confirmedRange({...subject,ev_range:base.subject?.ev_range});
+  subject.ev_specs=confirmedSpecs({...subject,ev_specs:cached.context?.electric_specs});
   return estimateMileage({
     ...base,
     subject,
@@ -644,6 +648,7 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
 
 function reuseInputCache(cached,signature){
   const base=JSON.parse(JSON.stringify(cached.result||{}));
+  if(base.subject)base.subject.ev_specs=confirmedSpecs({...base.subject,ev_specs:cached.context?.electric_specs});
   const snapshotAt=cached.snapshot_at||base?.market_cache?.snapshot_at||cached.updated_at||nowIso();
   // Reapply current eligibility rules to stored evidence. A normalization fix
   // can recover adverts that the previous engine excluded, including their km.
@@ -788,12 +793,7 @@ const instructions=[
   "Em subject.ad_summary resume fielmente a informação da VIATURA ANALISADA que está no anúncio/página/fotografias. Não uses comparáveis para preencher este resumo e não inventes dados ausentes.",
   "Em subject.ad_highlights regista até 16 detalhes adicionais realmente encontrados no anúncio (estado/histórico, garantia, vendedor/localização, equipamento relevante, observações comerciais). Não repitas marca/modelo/preço/km só para encher.",
   "Preenche color, doors, seats, engine_cc, range_km, warranty_months, seller_name e location apenas quando houver evidência no anúncio analisado. Caso contrário usa null.",
-  "AUTONOMIA ELÉTRICA: na fase de mercado, para um veículo 100% elétrico (BEV) ou híbrido plug-in (PHEV), consulta documentação oficial do fabricante ou homologação para identificar a autonomia WLTP COMBINADA da configuração analisada, mesmo quando não consta do anúncio. Devolve-a no campo de topo ev_range. Na fase de identificação devolve ev_range=null; não pesquises a autonomia nessa fase.",
-  "Para PHEV, combined_km refere-se exclusivamente à autonomia elétrica WLTP combinada (EAER), nunca à autonomia total com combustível. battery_evidence inclui o excerto da fonte com a capacidade em kWh; battery_basis distingue usable (útil), gross (bruta) ou unknown. Não adivinhes a base.",
-  "Pesquisa também autonomia elétrica real estimada da MESMA versão/ano/bateria em ensaios técnicos consultados. ev_range.real_range inclui vehicle com a configuração ensaiada, version_match=exact apenas se corresponder à viatura analisada, min_km e max_km, source_url, conditions (temperatura, percurso/velocidade e outros pressupostos documentados), evidence com ambos os limites explicitamente em km. Um único valor usa min=max. Sem ensaio ou estimativa documentada usa null; nunca apliques uma percentagem arbitrária ao WLTP. Para PHEV exclui testes que misturem distância elétrica e gasolina. Não se trata de medição da bateria deste exemplar usado.",
-  "ev_range é uma referência de homologação, não a autonomia atual da bateria usada. Confirma ano/geração, versão, bateria, potência, tração e jantes/equipamento quando afetem a homologação. Se não houver uma única configuração aplicável, usa null; não atribuas o máximo de uma gama ao carro. Nunca converter WLTP urbano, NEDC, EPA, autonomia do painel ou estimativa de uso real em WLTP combinado.",
-  "Em ev_range.vehicle identifica a versão analisada a que a documentação se aplica: conserva os nomes comerciais e o ano do contexto se forem efetivamente compatíveis; bateria/potência da referência devem corresponder à mesma configuração. version_match=exact só com correspondência demonstrada. source_variant descreve sucintamente bateria/versão/jantes relevantes. source_type=manufacturer ou homologation só para documentação oficial da marca ou entidade de homologação, não anúncios ou bases comerciais.",
-  "ev_range.source_url deve ser uma página ou documento que acabaste de consultar na pesquisa web. evidence é um excerto curto com WLTP e o valor combinado em km. Não uses conhecimento de memória nem inventes URLs. Se a fonte reportar só uma gama ou não permitir distinguir a versão, ev_range=null. Conserva range_km apenas como autonomia indicada no anúncio, sem a promover a WLTP.",
+  "BATERIA E AUTONOMIA: uma pesquisa técnica independente, depois da avaliação, verifica capacidade, WLTP e autonomia real com fontes próprias. Nesta fase concentra a pesquisa nos comparáveis e custos e devolve ev_range=null. Mantém battery_kwh e range_km apenas quando constam das fontes da viatura analisada; não inventes a bateria nem a autonomia e não infiras o SOH.",
 
   "Se o contexto indicar text_truncated=true, reconhece que a leitura textual foi parcial; nunca afirmes que leste o anúncio completo.",
   "Pesquisa obrigatoriamente a web antes de devolver comparáveis.",

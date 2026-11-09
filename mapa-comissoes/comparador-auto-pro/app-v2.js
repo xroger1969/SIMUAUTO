@@ -90,6 +90,9 @@ let DEAL=JSON.parse(JSON.stringify(DEFAULT_DEAL));
 let activeOperation=null;
 let operationSequence=0;
 let currentMarketData=null;
+let electricSpecsRequest=null;
+let electricSpecsStatus="";
+const electricSpecsAttempts=new Set();
 let learningRulesCache=[];
 let learningOwner=null;
 function evaluatePurchase(input,custom){
@@ -172,6 +175,7 @@ const HISTORY_PAGE_SIZE=40;
 
 function setAuthMessage(message){q("authMessage").textContent=message||""}
 function showAuth(){
+  cancelElectricSpecsResearch({clearAttempts:true});
   currentResult=null;publishAssessment(null);
   setAnalysisButtonState("idle");
   q("result").classList.add("hidden");
@@ -227,6 +231,7 @@ function calculationKindLabel(kind){
     analysis:"Avaliação",
     resume:"Análise retomada",
     refinement:"Refinamento",
+    electric_specs:"Bateria e autonomia",
     market_refresh:"Mercado atualizado",
     auction_location:"Localização confirmada",
     assumptions:"Premissas recalculadas",
@@ -350,6 +355,7 @@ function clearSavedRevisionView(){
 }
 function showSavedRevisionView(row,record){
   currentHistoryRevision={id:row.id,analysisId:row.analysis_id,savedAt:record.savedAt};
+  cancelElectricSpecsResearch();
   const notice=q("historySnapshotNotice");
   if(notice){
     const when=record.savedAt?historyDate.format(new Date(record.savedAt)):"data indisponível";
@@ -711,26 +717,103 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
 function renderElectricRange(vehicle={}){
   const panel=q("electricRangePanel"),api=globalThis.ElectricRange;
   if(!panel||!api)return;
-  const electric=api.isElectric(vehicle),range=api.confirmedRange(vehicle);
+  const electric=api.isElectric(vehicle),range=api.confirmedRange(vehicle),specs=api.confirmedSpecs?.(vehicle)||null;
+  const wltp=specs?.wltp||range;
+  const battery=specs?.battery||(range?.reference_battery_kwh?{capacity_kwh:range.reference_battery_kwh,basis:range.battery_basis,source_url:range.source_url,source_title:range.source_title}:null);
+  const real=specs?.real_range||range?.real_range;
+  const number=value=>new Intl.NumberFormat("pt-PT",{maximumFractionDigits:1}).format(value);
   panel.classList.toggle("hidden",!electric);
-  q("electricRangeValue").textContent=range?range.combined_km+" km":"Por confirmar";
-  q("electricRangeVariant").textContent=range
-    ?range.source_variant||[vehicle.trim,range.reference_battery_kwh?range.reference_battery_kwh+" kWh":null].filter(Boolean).join(" · ")
-    :"Versão e bateria por confirmar na fonte.";
-  const battery=range?.reference_battery_kwh;
-  q("electricBatteryValue").textContent=battery?"Bateria: "+battery+" kWh"+(range.battery_basis==="usable"?" úteis":range.battery_basis==="gross"?" brutos":" · tipo de capacidade por confirmar"):"Capacidade da bateria: por confirmar";
-  const real=range?.real_range,realSource=q("electricRealRangeSource");
+  q("electricRangeValue").textContent=wltp?wltp.combined_km+" km":"Por confirmar";
+  q("electricRangeVariant").textContent=specs&&(wltp||battery||real)
+    ?[vehicle.trim,vehicle.year,"Referência do modelo"].filter(Boolean).join(" · ")
+    :range?range.source_variant||[vehicle.trim,range.reference_battery_kwh?number(range.reference_battery_kwh)+" kWh":null].filter(Boolean).join(" · ")
+      :"A confirmar nas fontes da versão e do ano da viatura.";
+  q("electricBatteryValue").textContent=battery?"Bateria: "+number(battery.capacity_kwh)+" kWh"+(battery.basis==="usable"?" úteis":battery.basis==="gross"?" brutos":" · tipo de capacidade por confirmar"):"Capacidade da bateria: por confirmar";
   q("electricRealRangeValue").textContent=real?"Autonomia real estimada: "+real.min_km+(real.max_km!==real.min_km?"–"+real.max_km:"")+" km · "+real.conditions+". Referência de uso, não medição deste exemplar.":"Autonomia real estimada: por confirmar";
-  realSource.hidden=!real;
-  if(real)realSource.href=api.safeUrl(real.source_url);else realSource.removeAttribute("href");
-  const source=q("electricRangeSource");
-  source.hidden=!range;
-  if(range){
-    source.href=api.safeUrl(range.source_url);source.title=range.source_title||"Consultar a fonte WLTP";
-  }else{
-    source.removeAttribute("href");source.removeAttribute("title");
+  for(const [id,field] of [["electricRangeSource",wltp],["electricBatterySource",battery],["electricRealRangeSource",real]]){
+    const source=q(id);if(!source)continue;
+    const url=field&&api.safeUrl(field.source_url);
+    source.hidden=!url;
+    if(url){source.href=url;source.title=field.source_title||"Consultar a fonte";}
+    else{source.removeAttribute("href");source.removeAttribute("title");}
+  }
+  const clarification=q("electricSpecsClarification");
+  if(clarification){clarification.textContent=specs?.clarification||"";clarification.hidden=!clarification.textContent;}
+}
+
+function electricSpecsKey(vehicle=currentVehicle,analysisId=currentAnalysisId){
+  return [session?.user?.id||"",analysisId||"",JSON.stringify(globalThis.ElectricRange.rangeIdentity(vehicle||{}))].join("|");
+}
+function canResearchElectricSpecs(){
+  return !!session?.user?.id&&!!currentAnalysisId&&!!currentResult&&!!currentMarketData?.market
+    &&!currentHistoryRevision&&!currentMarketData.market.valuation_blocked
+    &&globalThis.ElectricRange?.isElectric(currentVehicle);
+}
+function syncElectricSpecsControls(){
+  const button=q("electricSpecsResearchBtn"),status=q("electricSpecsStatus");
+  const available=canResearchElectricSpecs(),busy=!!electricSpecsRequest;
+  if(button){button.hidden=!available;button.disabled=!available||!!activeOperation||busy;button.setAttribute("aria-busy",String(busy));}
+  if(status){status.textContent=available?electricSpecsStatus:"";status.hidden=!status.textContent;}
+}
+function cancelElectricSpecsResearch({clearAttempts=false}={}){
+  if(electricSpecsRequest){
+    electricSpecsRequest.controller.abort();
+    electricSpecsAttempts.delete(electricSpecsRequest.key);
+    electricSpecsRequest=null;
+  }
+  if(clearAttempts)electricSpecsAttempts.clear();
+  electricSpecsStatus="";
+  syncElectricSpecsControls();
+}
+function currentElectricSpecsRequest(request){
+  return electricSpecsRequest===request&&!request.controller.signal.aborted
+    &&session?.user?.id===request.owner&&currentAnalysisId===request.analysisId
+    &&currentResult===request.result&&currentMarketData===request.context
+    &&!activeOperation&&!currentHistoryRevision&&operationSequence===request.sequence
+    &&electricSpecsKey()===request.key;
+}
+async function researchElectricSpecs({force=false}={}){
+  const api=globalThis.ElectricRange;
+  if(!canResearchElectricSpecs()||activeOperation||electricSpecsRequest){syncElectricSpecsControls();return;}
+  const key=electricSpecsKey();
+  if(!force&&(electricSpecsAttempts.has(key)||!api.needsSpecsResearch?.(currentVehicle))){syncElectricSpecsControls();return;}
+  const request={key,analysisId:currentAnalysisId,owner:session.user.id,result:currentResult,context:currentMarketData,
+    sequence:operationSequence,controller:new AbortController()};
+  electricSpecsRequest=request;electricSpecsAttempts.add(key);
+  if(electricSpecsAttempts.size>100)electricSpecsAttempts.delete(electricSpecsAttempts.values().next().value);
+  electricSpecsStatus="A pesquisar dados técnicos…";syncElectricSpecsControls();
+  try{
+    const {response,data}=await fetchJson("/api/comparador-electric",{
+      method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+session.access_token},
+      body:JSON.stringify({vehicle:api.rangeIdentity(currentVehicle),job_id:request.context.market.job_id||null,...(force?{force:true}:{})}),
+      signal:request.controller.signal
+    },115000);
+    if(!currentElectricSpecsRequest(request))return;
+    if(!response.ok||data.ok!==true)throw new Error("electric_specs_unavailable");
+    const specs=api.confirmedSpecs({...currentVehicle,ev_specs:data.ev_specs});
+    if(!specs)throw new Error("invalid_electric_specs");
+    // Enrich the technical card without recalculating or replacing purchase prices.
+    request.result.subject={...request.result.subject,ev_specs:specs};
+    currentVehicle=request.result.subject;
+    request.context.market.subject={...request.context.market.subject,ev_specs:specs};
+    renderElectricRange(currentVehicle);
+    electricSpecsStatus=specs.status==="confirmed"?"Dados técnicos confirmados nas fontes."
+      :specs.status==="partial"?"Pesquisa concluída. Os dados confirmados estão apresentados."
+        :"Não foi possível confirmar esta versão nas fontes. Podes voltar a pesquisar.";
+    syncElectricSpecsControls();
+    const saved=await persistCompletedAnalysis(request.analysisId,request.result,request.context.market,request.context.reader,
+      request.context.entry,request.context.marketPayload,"electric_specs");
+    if(currentElectricSpecsRequest(request)&&!saved)electricSpecsStatus+=" A gravação no histórico está pendente.";
+  }catch(error){
+    if(currentElectricSpecsRequest(request))electricSpecsStatus="Não foi possível concluir a pesquisa técnica. Podes tentar novamente.";
+  }finally{
+    if(electricSpecsRequest===request){
+      if(!currentElectricSpecsRequest(request))electricSpecsStatus="";
+      electricSpecsRequest=null;syncElectricSpecsControls();
+    }
   }
 }
+q("electricSpecsResearchBtn")?.addEventListener("click",()=>{void researchElectricSpecs({force:true});});
 
 const VALUATION_REQUIRED_FIELDS=[
   {key:"make_model",label:"marca e modelo",present:v=>confirmedText(v?.make)&&confirmedText(v?.model)},
@@ -1184,6 +1267,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   if(activeOperation?.isAssessment){activeOperation.resultReady=true;activeOperation.resultState=resultState;}
   else if(!activeOperation)setAnalysisButtonState(resultState);
   syncStopControls();
+  syncElectricSpecsControls();
 }
 
 function conditionCostContext(market={}){
@@ -1614,6 +1698,7 @@ function stopActiveAssessment(){
 function beginOperation(kind,analysisId=null){
   if(currentHistoryRevision&&!["history","learning","learning-undo","conversation"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
+  cancelElectricSpecsResearch();
   if(preparingImages){cancelImagePreparation();imageGeneration++;}
   const isAssessment=["analysis","resume","refine","market-refresh","auction-location","condition-costs","recalculate"].includes(kind);
   const cancelable=["analysis","resume","refine","market-refresh"].includes(kind);
@@ -1621,7 +1706,7 @@ function beginOperation(kind,analysisId=null){
   if(q("stopAssessmentStatus"))q("stopAssessmentStatus").hidden=true;
   q("emptyState").classList.add("hidden");
   if(q("apiBillingLink"))q("apiBillingLink").hidden=true;
-  activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);
+  activeOperation=op;q("pendingResearch")?.classList.add("hidden");setOperationBusy(true);syncElectricSpecsControls();
   if(isAssessment)setAnalysisButtonState("running");
   return op;
 }
@@ -1634,6 +1719,8 @@ function finishOperation(op){
     activeOperation=null;setOperationBusy(false);
     if(op.isAssessment)setAnalysisButtonState(op.failed?"error":op.resultReady?(op.resultState||"partial"):"idle");
     if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;
+    syncElectricSpecsControls();
+    if(op.isAssessment&&op.resultReady&&!op.failed&&!op.cancelled)void researchElectricSpecs();
   }
 }
 function mergeDeal(settings){
@@ -1711,7 +1798,8 @@ function makeSnapshot(result,market,reader,entry,marketPayload,calculationKind="
       user_confirmed_identity:market?.user_confirmed_identity||marketPayload?.user_confirmed_identity||null,
       condition_report:market?.condition_report||null,condition_overrides:market?.condition_overrides||{},
       search_sources:market?.search_sources||[],data_quality:market?.data_quality||{},risk_flags:market?.risk_flags||[],
-      market_cache:market?.market_cache||null,input_signature:market?.input_signature||null
+      market_cache:market?.market_cache||null,input_signature:market?.input_signature||null,
+      electric_specs:result?.subject?.ev_specs||null
     },
     reader,
     source:{url:entry?.sourceUrl||marketPayload?.url||null,domain:entry?.sourceDomain||null,mode:entry?.mode||null},
@@ -1908,6 +1996,7 @@ function resetSearchInput({announce=true,focus=true}={}){
 }
 function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}
+  cancelElectricSpecsResearch({clearAttempts:true});
 
   clearSavedRevisionView();
   resetDealCosts();
@@ -3101,6 +3190,7 @@ q("assumptionsForm")?.addEventListener("submit",async ev=>{
 
 db.auth.onAuthStateChange((_event,data)=>{
   if(session?.user?.id!==data?.user?.id){
+    cancelElectricSpecsResearch({clearAttempts:true});
     if(activeOperation){
       if(activeOperation.isAssessment&&!activeOperation.resultReady)rememberResearchCheckpoint(activeOperation);
       activeOperation.controller?.abort();activeOperation=null;setOperationBusy(false);
