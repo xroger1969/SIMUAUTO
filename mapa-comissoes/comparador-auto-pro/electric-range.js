@@ -78,6 +78,29 @@
     if(!range.identity||!sameIdentity(vehicle,range.identity))return null;
     return range;
   }
+  // Technical research is independent of the valuation and of the legacy
+  // all-or-nothing WLTP object. A sourced battery remains useful on its own.
+  function confirmedSpecs(vehicle={}){
+    const specs=vehicle.ev_specs;
+    if(!isElectric(vehicle)||!specs||specs.research_version!==1||!specs.identity||!sameIdentity(vehicle,specs.identity))return null;
+    if(!["confirmed","partial","not_found"].includes(specs.status)||!Number.isFinite(Date.parse(specs.checked_at||"")))return null;
+    const source=field=>field&&safeUrl(field.source_url)&&typeof field.evidence==="string"&&field.evidence.trim().length>0;
+    const battery=source(specs.battery)&&positive(specs.battery.capacity_kwh)&&Number(specs.battery.capacity_kwh)<=500
+      &&["usable","gross","unknown"].includes(specs.battery.basis)?specs.battery:null;
+    const wltp=source(specs.wltp)&&Number.isInteger(specs.wltp.combined_km)&&specs.wltp.combined_km>=10&&specs.wltp.combined_km<=1500?specs.wltp:null;
+    const real=specs.real_range;
+    const realRange=source(real)&&Number.isInteger(real.min_km)&&Number.isInteger(real.max_km)&&real.min_km>=5&&real.max_km>=real.min_km&&real.max_km<=1500
+      &&typeof real.conditions==="string"&&real.conditions.trim()?real:null;
+    if(specs.status!=="not_found"&&!battery&&!wltp&&!realRange)return null;
+    return {...specs,battery,wltp,real_range:realRange};
+  }
+  function needsSpecsResearch(vehicle={},now=Date.now()){
+    if(!isElectric(vehicle))return false;
+    const specs=confirmedSpecs(vehicle);
+    if(!specs)return true;
+    const age=now-Date.parse(specs.checked_at),ttl=specs.status==="not_found"?3600000:30*86400000;
+    return age< -300000||age>=ttl;
+  }
   const nullableString={type:["string","null"]},nullableNumber={type:["number","null"]};
   const vehicleProperties={make:nullableString,model:nullableString,trim:nullableString,generation:nullableString,
     year:{type:["integer","null"]},fuel:nullableString,battery_kwh:nullableNumber,power_cv:nullableNumber,drivetrain:nullableString};
@@ -89,5 +112,5 @@
     source_url:nullableString,source_title:nullableString,source_variant:nullableString,
     source_type:{type:"string",enum:["manufacturer","homologation","other","unknown"]},evidence:{type:"string"}};
   const rangeSchema={anyOf:[{type:"null"},{type:"object",additionalProperties:false,required:Object.keys(properties),properties}]};
-  return {rangeSchema,normalizeRange,confirmedRange,isElectric,rangeIdentity,safeUrl};
+  return {rangeSchema,normalizeRange,confirmedRange,confirmedSpecs,needsSpecsResearch,isElectric,rangeIdentity,safeUrl};
 });

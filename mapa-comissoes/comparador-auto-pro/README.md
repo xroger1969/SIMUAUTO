@@ -75,6 +75,35 @@ Na pesquisa seguinte, o servidor identifica primeiro a viatura e só depois sele
 
 ## Integrações
 
+### Bateria e autonomia — pesquisa técnica independente (09/11/2026)
+
+Depois de concluir e guardar uma avaliação BEV/PHEV, o cartão procura os dados
+técnicos em `/api/comparador-electric`, sem esperar pela Spottd nem refazer os
+preços. O endpoint usa a identidade do job concluído, autenticação administrativa
+e os mesmos limites de pesquisa. Só envia marca, modelo, versão, ano, potência,
+bateria já conhecida, geração, combustível e tração ao modelo configurado.
+
+- A pesquisa web é obrigatória quando não existe uma referência verificada em
+  cache. Cada campo conserva a sua fonte: capacidade útil/bruta, WLTP combinado
+  e ensaio/estimativa de autonomia real. Falta de WLTP não apaga a capacidade.
+- Uma referência oficial revista para o Dacia Spring Essential Electric 45
+  evita repetir chamadas pagas para o caso documentado. Outras configurações
+  seguem a pesquisa dedicada; versões diferentes não herdam a ficha.
+- `ev_specs` complementa a ficha, sem alterar `battery_kwh`, preços, SOH ou
+  comparáveis. A estimativa real refere-se ao modelo e às condições indicadas,
+  não ao estado desta bateria usada. Dúvidas de versão são apresentadas no cartão.
+- Cache técnica por identidade durante 30 dias; resultados sem confirmação
+  durante uma hora, com repetição manual. A cache mantém a data original dos
+  anúncios. Dados de verificação recebidos do browser não são promovidos a fontes.
+- Há cancelamento local e validação da análise/identidade antes de aplicar uma
+  resposta atrasada. Uma falha técnica deixa a avaliação disponível. Um resultado
+  técnico cria uma nova revisão `electric_specs`; abrir o histórico não inicia
+  pesquisas nem modifica a revisão consultada.
+
+As regressões cobrem pesquisas parciais, fontes e versões incompatíveis, PHEV,
+falhas de rede, isolamento entre utilizadores, respostas tardias e preservação
+dos preços. A consulta web usa a API já configurada, sem outra subscrição.
+
 Supabase, GitHub e Vercel fazem parte do fluxo técnico ativo. Resend e OneSignal permanecem deliberadamente fora do caminho crítico do Comparador: não são necessários para calcular uma compra e só deverão ser ligados quando existir um caso concreto de notificação.
 
 ## Verificação

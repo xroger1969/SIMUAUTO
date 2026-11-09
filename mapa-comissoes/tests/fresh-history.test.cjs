@@ -19,7 +19,7 @@ function harness(extra={}){
  historyDate:new Intl.DateTimeFormat('pt-PT',{dateStyle:'short',timeStyle:'short'}),
  fmt:value=>value==null?'—':String(value),session:{user:{id:'user-one'}},activeOperation:null,
  currentHistoryRevision:null,historyControlStates:[],currentMarketData:null,currentAnalysisId:null,currentResult:null,lastAnalysisContext:null,
- syncDealForm(){ctx.preferenceSyncs++;},preferenceSyncs:0,toast(message){ctx.lastToast=message;},
+ syncDealForm(){ctx.preferenceSyncs++;},preferenceSyncs:0,toast(message){ctx.lastToast=message;},cancelElectricSpecsResearch(){},
  beginOperation(kind){ctx.activeOperation={kind};return ctx.activeOperation;},
  assertOperation(op){if(ctx.activeOperation!==op)throw Error('stale');},
  finishOperation(op){if(ctx.activeOperation===op)ctx.activeOperation=null;},
@@ -174,6 +174,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261105-reliability-v1/);
+ assert.match(html,/app-v2\.js\?v=20261109-electric-specs-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });

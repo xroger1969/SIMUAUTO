@@ -36,7 +36,7 @@
   <link rel="stylesheet" href="./styles.css?v=20261022-optional-mileage-v1">
   <link rel="stylesheet" href="./light-panels.css?v=20261023-supervised-v1">
   <link rel="stylesheet" href="./tax-simulator.css?v=20261023-progressive-v1">
-  <link rel="stylesheet" href="./form-layout.css?v=20261024-wltp-v1">
+  <link rel="stylesheet" href="./form-layout.css?v=20261109-electric-specs-v1">
   <link rel="stylesheet" href="./teaching-chat.css?v=20261105-identity-dialogue-v1">
   <link rel="stylesheet" href="./cockpit.css?v=20261105-reliability-v1">
 </head>
@@ -239,16 +239,22 @@
         </div>
       </div>
 
-      <section class="ev-range-panel hidden" id="electricRangePanel" aria-label="Autonomia elétrica WLTP">
+      <section class="ev-range-panel hidden" id="electricRangePanel" aria-label="Bateria e autonomia elétrica">
         <div>
           <span>Autonomia WLTP combinada</span>
           <strong id="electricRangeValue">Por confirmar</strong>
+          <a id="electricRangeSource" target="_blank" rel="noopener noreferrer" hidden>Fonte WLTP ↗</a>
           <small id="electricRangeVariant"></small>
           <small id="electricBatteryValue"></small>
+          <a id="electricBatterySource" target="_blank" rel="noopener noreferrer" hidden>Fonte da bateria ↗</a>
           <small id="electricRealRangeValue"></small>
           <a id="electricRealRangeSource" target="_blank" rel="noopener noreferrer" hidden>Fonte da estimativa ↗</a>
+          <small id="electricSpecsClarification" hidden></small>
+          <div class="ev-research-actions">
+            <button class="btn ghost" type="button" id="electricSpecsResearchBtn" hidden>Pesquisar bateria e autonomia</button>
+            <small id="electricSpecsStatus" role="status" aria-live="polite" hidden></small>
+          </div>
         </div>
-        <a id="electricRangeSource" href="#" target="_blank" rel="noopener noreferrer" hidden>Fonte ↗</a>
       </section>
 
       <details class="vehicle-readout" id="vehicleReadout">
@@ -541,8 +547,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
   <script src="./commercial-identity.js?v=20261105-reliability-v1"></script>
-  <script src="./electric-range.js?v=20261104-costs-range-v1"></script>
-  <script type="module" src="./app-v2.js?v=20261105-reliability-v1"></script>
+  <script src="./electric-range.js?v=20261109-electric-specs-v1"></script>
+  <script type="module" src="./app-v2.js?v=20261109-electric-specs-v1"></script>
   <script type="module" src="./tax-simulator-ui.js?v=20261104-costs-range-v1"></script>
   <script type="module" src="./cockpit.js?v=20261026-reset-v1"></script>
   <!-- detailed-readout-deploy-retry -->
