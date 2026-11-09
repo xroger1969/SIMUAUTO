@@ -1,5 +1,5 @@
 const crypto=require("node:crypto");
-const {rangeSchema,normalizeRange,confirmedRange,confirmedSpecs}=require("../comparador-auto-pro/electric-range.js");
+const {rangeSchema,normalizeRange,confirmedRange,confirmedSpecs,rangeIdentity,isElectric}=require("../comparador-auto-pro/electric-range.js");
 const {lookupRegistration,normalizeRegistration,displayRegistration,hasRegistrationIdentity,registrationMatches}=require("../lib/registration");
 const {structuredResult}=require("../lib/structured-result");
 const {authenticate,takeQuota,rest,endpoint,appError}=require("../lib/access");
@@ -274,6 +274,44 @@ function hasUsefulMarket(result={},currentSubject=null){
 function cacheAllowed(context={}){
   return context.force_market_refresh!==true && !(Array.isArray(context.refinement_history)&&context.refinement_history.length);
 }
+function fixedRefreshSubject(context={}){
+  if(context.force_market_refresh!==true)return null;
+  const original=context.previous_subject;
+  if(!original||typeof original!=="object"||Array.isArray(original)||!marketReady(original)){
+    throw appError("Confirma primeiro a ficha da viatura para reavaliar com os mesmos dados.",422,"refresh_identity_incomplete");
+  }
+  const subject=normalizeVehicleIdentity({...original});
+  const confirmation=context.user_confirmed_identity;
+  const normalizedConfirmation=confirmation?normalizeVehicleIdentity({...subject,...confirmation}):null;
+  if(confirmation&&(!registrationCompatible(subject,confirmation)
+    ||(confirmation.trim&&normalizeIdentity(normalizedConfirmation.trim)!==normalizeIdentity(subject.trim))
+    ||(confirmation.registration&&normalizeRegistration(subject.registration)&&normalizeRegistration(confirmation.registration)!==normalizeRegistration(subject.registration)))){
+    throw appError("A confirmação anterior não coincide com a ficha atual. Confirma a identidade antes de reavaliar.",409,"refresh_identity_conflict");
+  }
+  // Saved verification flags sent by the browser are not technical evidence.
+  // Restore only server-owned research below, never restart identification.
+  delete subject.ev_specs;delete subject.ev_range;
+  return subject;
+}
+async function preservedRefreshResearch(token,subject){
+  const preserved={ev_specs:null,ev_range:null};
+  if(!isElectric(subject))return preserved;
+  const keys=[
+    "context->electric_specs->>cache_key=eq."+encodeURIComponent(sha256(JSON.stringify(rangeIdentity(subject)))),
+    "context->>market_key=eq."+encodeURIComponent(marketCacheKey(subject))
+  ];
+  for(const key of keys){
+    try{
+      const rows=await rest(token,"cap_jobs?select=context,result&status=eq.completed&"+key+"&order=updated_at.desc&limit=5");
+      for(const row of Array.isArray(rows)?rows:[]){
+        preserved.ev_specs=preserved.ev_specs||confirmedSpecs({...subject,ev_specs:row.context?.electric_specs});
+        preserved.ev_range=preserved.ev_range||confirmedRange({...subject,ev_range:row.result?.subject?.ev_range});
+      }
+      if(preserved.ev_specs||preserved.ev_range)break;
+    }catch{ /* A technical cache outage cannot block a fresh market valuation. */ }
+  }
+  return preserved;
+}
 function mergeCurrentSubject(cached={},current={}){
   const merged={...cached};
   for(const [key,value] of Object.entries(current||{})){
@@ -362,7 +400,7 @@ function estimateMileage(result){
   return result;
 }
 
-async function finalizeMarketResponse(data,registrationData=null,token=null,userConfirmation=null){
+async function finalizeMarketResponse(data,registrationData=null,token=null,userConfirmation=null,{preserveIdentity=false,verifiedRange=null,electricSpecs=null}={}){
   const parsed=structuredResult(data);
   if(!parsed.subject||!Array.isArray(parsed.comparables))throw appError("Resposta de mercado sem ficha válida.",502,"invalid_market_result");
 
@@ -370,7 +408,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
   const confirmation=confirmedIdentity(userConfirmation);
   const submittedPlate=normalizeRegistration(metadata.cap_registration);
   const observedPlate=normalizeRegistration(parsed.subject?.registration);
-  let registration=registrationData||registrationFromMetadata(metadata);
+  let registration=preserveIdentity?null:registrationData||registrationFromMetadata(metadata);
   const observedCandidate=identityCandidate("photos",parsed.subject);
   let registrationCandidate=identityCandidate("registration",registration);
   let registrationConflictWarning="";
@@ -384,7 +422,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
     parsed.subject.registration=displayRegistration(submittedPlate);
   }
 
-  if(confirmation){
+  if(confirmation&&!preserveIdentity){
     parsed.subject=applyConfirmedIdentity(parsed.subject,confirmation);
     // This explicit user choice may reject the supplier's identity. Do not
     // restore it on the next poll or make another paid lookup for that dispute.
@@ -392,7 +430,7 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
   }
 
   const plateToValidate=normalizeRegistration(parsed.subject?.registration)||submittedPlate;
-  if(!registration&&!confirmation&&plateToValidate&&!registrationConflictWarning&&!registrationLookupWarning){
+  if(!preserveIdentity&&!registration&&!confirmation&&plateToValidate&&!registrationConflictWarning&&!registrationLookupWarning){
     try{
       const lookedUp=token?await lookupRegistrationCached(token,plateToValidate):await lookupRegistration(plateToValidate);
       registrationCandidate=identityCandidate("registration",lookedUp);
@@ -411,8 +449,8 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
   }
 
   const originalYear=Number(parsed.subject?.year);
-  parsed.subject=normalizeVehicleIdentity(mergeRegistration(parsed.subject,registration));
-  if(confirmation)parsed.subject=applyConfirmedIdentity(parsed.subject,confirmation);
+  parsed.subject=normalizeVehicleIdentity(preserveIdentity?parsed.subject:mergeRegistration(parsed.subject,registration));
+  if(confirmation&&!preserveIdentity)parsed.subject=applyConfirmedIdentity(parsed.subject,confirmation);
   if(parsed.subject.power_cv_observed&&parsed.subject.power_cv_source==="spottd"){
     parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
     const note="Potência usada na comparação: "+parsed.subject.power_cv+" cv (Spottd, mesma versão). A leitura das fotografias indica "+parsed.subject.power_cv_observed+" cv; ambas as leituras foram conservadas.";
@@ -465,6 +503,10 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
   // Dedicated technical research is written by comparador-electric. Never
   // inherit a browser's verification flags through previous_subject.
   delete parsed.subject.ev_specs;
+  if(preserveIdentity&&!parsed.valuation_blocked){
+    parsed.subject.ev_range=parsed.subject.ev_range||confirmedRange({...parsed.subject,ev_range:verifiedRange});
+    parsed.subject.ev_specs=confirmedSpecs({...parsed.subject,ev_specs:electricSpecs});
+  }
   delete parsed.ev_range;
 
   parsed.comparables=parsed.comparables.flatMap(c=>{
@@ -1046,7 +1088,11 @@ async function pollMarketJob(token,jobId,res){
         ?{...data,metadata,output_text:JSON.stringify({...parsed,subject:job.context.previous_subject,
           condition_report:mergeConditionReports(job.context.previous_condition_report,parsed.condition_report),
           auction_context:job.context.previous_auction_context||parsed.auction_context})}:{...data,metadata};
-      result=applyMileageInput(await finalizeMarketResponse(resultData,registrationEvidence,token,confirmation),job.context);
+      result=applyMileageInput(await finalizeMarketResponse(resultData,registrationEvidence,token,confirmation,{
+        preserveIdentity:job.context?.force_market_refresh===true&&job.context?.stage==="market",
+        verifiedRange:job.context?.previous_subject?.ev_range,
+        electricSpecs:job.context?.electric_specs
+      }),job.context);
       if(previousChoice&&result.identity_candidates){
         for(const candidate of result.identity_candidates)if(candidate.source==="registration"){
           candidate.source_label="Confirmado anteriormente por ti";candidate.unverified=true;
@@ -1159,10 +1205,15 @@ module.exports=endpoint(async function handler(req,res){
   let registrationData=null;
   let registrationLookupWarning="";
   const confirmation=confirmedIdentity(req.body?.user_confirmed_identity);
-  const suppliedPlate=normalizeRegistration(confirmation?.registration||registration||req.body?.registration_data?.registration);
+  let suppliedPlate=normalizeRegistration(confirmation?.registration||registration||req.body?.registration_data?.registration);
   // Claim the request before any paid lookup. Duplicate submissions and a stop
   // requested during startup must observe the same durable job immediately.
   let context={...boundedContext(req.body,null),stage:"identify"};
+  const forcedBase=fixedRefreshSubject(context);
+  if(forcedBase){
+    suppliedPlate=normalizeRegistration(forcedBase.registration);
+    context={...context,previous_subject:forcedBase,registration_input:displayRegistration(suppliedPlate)||null};
+  }
   const claim=await rest(token,"rpc/cap_claim_job",{method:"POST",body:{p_analysis:analysisId,p_request:requestKey,p_context:context}});
   const job=claim?.job;
   if(!job?.id)throw appError("Não foi possível criar a pesquisa.",503,"job_create_failed");
@@ -1199,7 +1250,7 @@ module.exports=endpoint(async function handler(req,res){
   let startedResponse=null,startedContext=null;
   try{
     await takeQuota(token,"market");
-    if(suppliedPlate){
+    if(suppliedPlate&&!forcedBase){
       try{
         registrationData=confirmation?await cachedRegistration(token,suppliedPlate):await lookupRegistrationCached(token,suppliedPlate);
         if(confirmation&&registrationData&&!registrationCompatible(confirmation,registrationData))registrationData=null;
@@ -1215,6 +1266,20 @@ module.exports=endpoint(async function handler(req,res){
     // was in flight, before starting a new AI response.
     context={...context,pending_started_at:nowIso()};
     await updateJob(token,job.id,{context});
+    if(forcedBase){
+      const research=await preservedRefreshResearch(token,forcedBase);
+      const subject={...forcedBase,ev_range:research.ev_range};
+      const marketContext={...context,stage:"market",previous_subject:subject,registration_data:null,
+        electric_specs:research.ev_specs,market_key:marketCacheKey(subject,context)};
+      // Observe a stop requested while the optional technical cache was read.
+      await updateJob(token,job.id,{context:marketContext});
+      const data=await startResponse(marketContext,[],metadata,false);
+      startedResponse=data;startedContext=marketContext;
+      await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
+      continueOwnedJob(token,job.id,requestStartedAt);
+      return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:null,
+        direct_market:true,forced_refresh:true,...(confirmation?{user_confirmed_identity:confirmation}:{})});
+    }
     const confirmedBase=confirmation?applyMileageInput({subject:mergeRegistration(applyConfirmedIdentity(context.previous_subject||{},confirmation),registrationData)},context).subject:null;
     if(confirmedBase&&req.body?.identity_confirmation_only===true&&marketReady(confirmedBase)&&!imageDataUrls.length){
       const marketContext={...context,stage:"market",previous_subject:confirmedBase,registration_data:registrationData,market_key:marketCacheKey(confirmedBase,context)};
@@ -1224,19 +1289,6 @@ module.exports=endpoint(async function handler(req,res){
       continueOwnedJob(token,job.id,requestStartedAt);
       return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,user_confirmed_identity:confirmation});
     }
-    const forcedBase=!confirmation&&context.force_market_refresh&&context.previous_subject&&typeof context.previous_subject==="object"
-      ?mergeRegistration({...context.previous_subject},registrationData)
-      :null;
-    if(forcedBase&&marketReady(forcedBase)){
-      const key=marketCacheKey(forcedBase,context);
-      const marketContext={...context,stage:"market",previous_subject:forcedBase,registration_data:registrationData,market_key:key};
-      const data=await startResponse(marketContext,[],metadata,false);
-      startedResponse=data;startedContext=marketContext;
-      await updateJob(token,job.id,{response_id:data.id,status:data.status||"queued",context:marketContext});
-      continueOwnedJob(token,job.id,requestStartedAt);
-      return res.status(202).json({ok:true,status:data.status||"queued",job_id:job.id,registration_data:registrationData,direct_market:true,forced_refresh:true});
-    }
-
     const registrationSubject=registrationData?applyMileageInput({subject:mergeRegistration({registration:suppliedPlate,mileage_km:null,mileage_estimated:false},registrationData)},context).subject:null;
     const registrationOnly=!!registrationSubject&&marketReady(registrationSubject)&&!confirmation&&!context.previous_subject&&!context.refinement_history.length
       &&!imageDataUrls.length&&mode==="manual"&&!!suppliedPlate&&normalizeRegistration(description)===suppliedPlate;
@@ -1282,5 +1334,5 @@ module.exports=endpoint(async function handler(req,res){
   }
 });
 
-module.exports._test={confirmedIdentity,applyConfirmedIdentity,jobProgress,pollMarketJob,cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
+module.exports._test={fixedRefreshSubject,preservedRefreshResearch,confirmedIdentity,applyConfirmedIdentity,jobProgress,pollMarketJob,cancelMarketJob,cancelProviderResponse,updateJob,marketSelection,hasUsefulMarket,identityCacheFields,marketSearchPlan,recordMarketAttempt,transitionExpired,launchMarketTransition,findFreshMarketCache,boundedResponseMetadata,lookupRegistrationCached,registrationCompatible,mergeRegistration,missingIdentity,marketReady,marketCacheKey,cacheAllowed,reuseMarketCache,findFreshInputCache,reuseInputCache,inputSignature,finalizeMarketResponse,startResponse,estimateMileage,mileageInput,applyMileageInput,boundedContext,searchSources,plateOnlyIdentityText};
 

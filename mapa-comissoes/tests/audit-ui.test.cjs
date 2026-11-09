@@ -12,7 +12,7 @@ function harness(extra={}){
   const q=id=>{
     if(!elements.has(id)){
       const classes=new Set();
-      elements.set(id,{textContent:'',innerHTML:'',children:[],classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),toggle:(x,value)=>value?classes.add(x):classes.delete(x),contains:x=>classes.has(x)},appendChild(x){this.children.push(x)},append(...xs){this.children.push(...xs)},addEventListener(){}});
+      elements.set(id,{textContent:'',innerHTML:'',children:[],classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),toggle:(x,value)=>value?classes.add(x):classes.delete(x),contains:x=>classes.has(x)},appendChild(x){this.children.push(x)},append(...xs){this.children.push(...xs)},addEventListener(){},setAttribute(key,value){this[key]=value;}});
     }
     return elements.get(id);
   };
@@ -35,7 +35,7 @@ test('zero accepted market references never render a positive tier or fixed-mark
 });
 
 test('completed research without a price is partial and never turns the assessment button green',()=>{
-  const ctx=harness({activeOperation:null,currentHistoryRevision:null,setOperationBusy(){},syncElectricSpecsControls(){},researchElectricSpecs(){}});
+  const ctx=harness({activeOperation:null,currentResult:null,currentVehicle:null,currentAnalysisId:null,currentHistoryRevision:null,setOperationBusy(){},syncElectricSpecsControls(){},researchElectricSpecs(){}});
   const button=ctx.q('analyzeBtn');button.dataset={};button.setAttribute=(k,v)=>button[k]=v;
   vm.runInContext(source('function hasMarketReference','function assessmentConfidenceLabel'),ctx);
   vm.runInContext(source('function setAnalysisButtonState','function markAnalysisInputChanged'),ctx);

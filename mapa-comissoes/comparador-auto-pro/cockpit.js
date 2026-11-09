@@ -4,8 +4,8 @@ const form=byId('analyzeForm');
 const entry=byId('vehicleUrl');
 const buttons=[...document.querySelectorAll('.mode-button')];
 const modes={plate:['Matrícula da viatura','AA — 00 — AA'],link:['Link do anúncio','Cola o link do anúncio'],photos:['Fotografias da viatura','Detalhes adicionais (opcional)'],voice:['Descrição da viatura','Fala ou escreve os detalhes']};
-function setMode(mode,{focus=false}={}){
- if(!modes[mode]||entry.disabled)return;
+function setMode(mode,{focus=false,restoring=false}={}){
+ if(!modes[mode]||entry.disabled&&!restoring)return;
  form.dataset.inputMode=mode;
  buttons.forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.mode===mode)));
  byId('vehicleInputLabel').textContent=modes[mode][0];
@@ -25,6 +25,10 @@ function syncOptions(){
  byId('marginPreview').textContent=margin?Number(margin).toLocaleString('pt-PT')+' €':'Auto (3 500 €)';
 }
 form.addEventListener('input',syncOptions);
+window.addEventListener('autopro:input-restored',event=>{
+ setMode(event.detail?.mode||'voice',{restoring:true});
+ syncOptions();
+});
 entry.addEventListener('input',()=>{
  if(/^https?:\/\//i.test(entry.value.trim()))setMode('link');
  else if(form.dataset.inputMode==='plate'&&entry.value.length>14)setMode('voice');
