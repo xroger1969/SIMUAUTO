@@ -190,6 +190,9 @@ button:disabled{cursor:wait;opacity:.55}
 @media(min-width:371px) and (max-width:420px){#app .cockpit-tile{gap:6px;padding:13px 10px!important}.cockpit-tile>svg:first-child{width:25px}.cockpit-tile small{font-size:10.5px}}
 
 /* Persistent restart and dismissible notices, including private auction links. */
+#analyzeForm #reevaluateBtn{display:block;width:100%;min-height:54px;margin-top:12px;padding:14px 18px;border:1px solid #ff6b24;border-radius:10px;background:#ff6b24;color:#101216;font-size:18px;line-height:1.35;font-weight:800;white-space:normal}
+#analyzeForm #reevaluateBtn[hidden]{display:none!important}
+#analyzeForm #reevaluateBtn:disabled{opacity:.65;cursor:wait}
 #analyzeForm #clearAssessmentBtn{display:block;width:100%;min-height:48px;margin-top:12px;border:1px solid #ff6b24;color:#ff8a50;background:#15181e;font-size:16px;font-weight:700}
 #emptyState{position:relative;min-height:0;padding:24px;background:#15181e;border:1px solid #353943;border-radius:16px;color:#e8eaf0}
 #emptyState h2{color:#fff;font-size:24px;margin:16px 0}

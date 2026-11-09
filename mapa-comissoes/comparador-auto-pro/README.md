@@ -41,6 +41,17 @@ A percentagem é um **índice heurístico de confiança da evidência**, não um
 
 As tabelas `cap_*` usam RLS por utilizador. As pesquisas usam `cap_jobs` com chave idempotente e podem ser retomadas. As revisões são guardadas em `cap_revisions` e os anúncios que sustentam cada cálculo em `cap_comparables`.
 
+**Reavaliar com os mesmos dados** aparece depois de uma avaliação e ao abrir uma
+revisão no histórico. Inicia uma pesquisa nova de mercado, preservando a ficha,
+quilómetros, preço, margem escolhida, custos, reserva, estado e contexto de
+importação da avaliação aberta. As fotografias já interpretadas não precisam de
+ser reenviadas e os identificadores `photo:` não são tratados como matrículas.
+O resultado cria uma revisão «Reavaliação»; a revisão anterior continua intacta.
+Erros e cancelamentos mantêm o resultado anterior no ecrã. O checkpoint da
+reavaliação guarda também as premissas para retomar no mesmo navegador.
+A pesquisa forçada não consulta novamente a matrícula nem reutiliza preços em
+cache. Os dados técnicos elétricos em falta voltam a ser pesquisados separadamente.
+
 As premissas de margem e custos são editáveis em `cap_preferences` e podem recalcular a análise sem confundir preço de venda com margem económica.
 
 ## Segurança

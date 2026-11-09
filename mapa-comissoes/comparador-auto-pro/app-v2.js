@@ -233,6 +233,7 @@ function calculationKindLabel(kind){
     refinement:"Refinamento",
     electric_specs:"Bateria e autonomia",
     market_refresh:"Mercado atualizado",
+    reevaluation:"Reavaliação",
     auction_location:"Localização confirmada",
     assumptions:"Premissas recalculadas",
     condition_costs:"Custos de preparação corrigidos"
@@ -359,7 +360,7 @@ function showSavedRevisionView(row,record){
   const notice=q("historySnapshotNotice");
   if(notice){
     const when=record.savedAt?historyDate.format(new Date(record.savedAt)):"data indisponível";
-    notice.textContent="Avaliação guardada · "+when+". Valores originais, sem nova pesquisa. Usa Nova avaliação para atualizar.";
+    notice.textContent="Avaliação guardada · "+when+". Valores originais, sem nova pesquisa. Usa Reavaliar com os mesmos dados para atualizar e guardar uma nova avaliação.";
     notice.classList.remove("hidden");
   }
   // Expose the saved assumptions without changing the user's current preferences.
@@ -406,8 +407,7 @@ async function openSavedRevision(revisionId){
     currentAnalysisId=row.analysis_id;
     currentMarketData=record.context;
     lastAnalysisContext=null;
-    q("vehicleUrl").value=record.result.subject.registration||record.context.entry.sourceUrl||"";
-    if(record.result.subject.mileage_km!=null&&!record.result.subject.mileage_estimated)q("vehicleMileage").value=record.result.subject.mileage_km;
+    restoreAssessmentInput(record.result,record.context.entry);
     renderResult(record.result,record.sourceHost,record.context.market.risk_flags);
     showSavedRevisionView(row,record);
     closeHistory();
@@ -1268,6 +1268,7 @@ function renderResult(result,sourceHost,riskFlags=[]){
   else if(!activeOperation)setAnalysisButtonState(resultState);
   syncStopControls();
   syncElectricSpecsControls();
+  syncReevaluationControl();
 }
 
 function conditionCostContext(market={}){
@@ -1633,6 +1634,15 @@ function setAnalysisButtonState(state){
   button.dataset.state=state;
   button.textContent=state==="running"?"A avaliar…":state==="complete"?"Avaliação concluída":state==="partial"?"Pesquisa sem cotação":state==="needs-info"?"Aguarda confirmação abaixo":state==="stopped"?"Avaliação parada":state==="error"?"Tentar avaliar novamente":"Analisar viatura";
   button.setAttribute("aria-busy",String(state==="running"));
+  syncReevaluationControl();
+}
+function syncReevaluationControl(){
+  const button=q("reevaluateBtn");if(!button)return;
+  button.hidden=!(session&&currentResult&&currentVehicle&&currentMarketData&&currentAnalysisId);
+  button.disabled=!!activeOperation;
+  const running=activeOperation?.kind==="reevaluate";
+  button.textContent=running?"A reavaliar com os mesmos dados…":"Reavaliar com os mesmos dados";
+  button.setAttribute("aria-busy",String(running));
 }
 function markAnalysisInputChanged(){
   if(!activeOperation)setAnalysisButtonState("idle");
@@ -1647,6 +1657,7 @@ function setOperationBusy(busy){
   const chatButton=q("chatForm")?.querySelector("button[type=submit]");
   if(chatButton)chatButton.disabled=!!busy;
   syncStopControls();
+  syncReevaluationControl();
 }
 function syncStopControls(){
   const visible=!!activeOperation?.cancelable&&!activeOperation.resultReady;
@@ -1685,6 +1696,7 @@ function stopActiveAssessment(){
   q("refineInput").disabled=false;q("refineBtn").textContent="Enviar";
   q("refineInlineStatus").classList.add("hidden");
   setAnalysisButtonState("stopped");
+  if(currentHistoryRevision)for(const [element] of historyControlStates)element.disabled=true;
   if(!currentResult){
     q("emptyState").classList.remove("hidden");
     q("emptyState").querySelector("h2").textContent="Avaliação parada";
@@ -1696,12 +1708,12 @@ function stopActiveAssessment(){
   void notifyResearchStop(op);
 }
 function beginOperation(kind,analysisId=null){
-  if(currentHistoryRevision&&!["history","learning","learning-undo","conversation"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Inicia uma nova avaliação.");
+  if(currentHistoryRevision&&!["history","reevaluate","learning","learning-undo","conversation"].includes(kind))throw new Error("Esta avaliação guardada está em modo de consulta. Usa Reavaliar com os mesmos dados para a atualizar.");
   if(activeOperation)throw new Error("Já existe uma análise em curso.");
   cancelElectricSpecsResearch();
   if(preparingImages){cancelImagePreparation();imageGeneration++;}
-  const isAssessment=["analysis","resume","refine","market-refresh","auction-location","condition-costs","recalculate"].includes(kind);
-  const cancelable=["analysis","resume","refine","market-refresh"].includes(kind);
+  const isAssessment=["analysis","resume","reevaluate","refine","market-refresh","auction-location","condition-costs","recalculate"].includes(kind);
+  const cancelable=["analysis","resume","reevaluate","refine","market-refresh"].includes(kind);
   const op={id:++operationSequence,kind,analysisId,owner:session?.user?.id,token:session?.access_token,requestKey:crypto.randomUUID(),jobId:null,isAssessment,resultReady:false,cancelable,cancelled:false,controller:new AbortController()};
   if(q("stopAssessmentStatus"))q("stopAssessmentStatus").hidden=true;
   q("emptyState").classList.add("hidden");
@@ -2032,6 +2044,7 @@ function resetAnalysisView({announce=true,focus=true,scroll=true}={}){
   q("refineDialogState").className="refine-dialog-state";
   q("refineDialogMessages").innerHTML='<div class="refine-dialog-message assistant" id="refineDialogText">A cruzar a tua indicação com a viatura e o mercado.</div>';
   lastRefineFocus=null;
+  syncReevaluationControl();
 
   if(scroll)q("analyzeForm").scrollIntoView({behavior:"smooth",block:"center"});
   if(focus)setTimeout(()=>q("vehicleUrl").focus({preventScroll:true}),220);
@@ -2369,7 +2382,8 @@ function showAssessmentFailure(error,operation){
 function researchCheckpointKey(){return "cap:research-checkpoint:"+(session?.user?.id||"")}
 function rememberResearchCheckpoint(operation){
   if(!operation?.analysisId)return;
-  try{localStorage.setItem(researchCheckpointKey(),JSON.stringify({analysisId:operation.analysisId,jobId:operation.jobId||null,savedAt:Date.now()}));}catch{}
+  try{localStorage.setItem(researchCheckpointKey(),JSON.stringify({analysisId:operation.analysisId,jobId:operation.jobId||null,savedAt:Date.now(),
+    ...(operation.reevaluation?{reevaluation:operation.reevaluation,requestKey:operation.requestKey}:{})}));}catch{}
 }
 function clearResearchCheckpoint(operation){
   if(!operation?.analysisId)return;
@@ -2434,7 +2448,7 @@ async function pollMarketJob(jobId,operation,timeoutMs=8*60*1000){
     assertOperation(operation);
     let poll;
     try{
-      poll=await fetchJson("/api/comparador-market?job_id="+encodeURIComponent(jobId)+(firstPoll&&operation.kind==="resume"?"&resume=1":""),{
+      poll=await fetchJson("/api/comparador-market?job_id="+encodeURIComponent(jobId)+(firstPoll&&(operation.kind==="resume"||operation.resuming)?"&resume=1":""),{
         method:"GET",headers:{authorization:"Bearer "+session.access_token},signal:operation.controller?.signal
       },20000);
       firstPoll=false;
@@ -2512,7 +2526,7 @@ async function runMarketAnalysis(payload,operation){
 async function resumePendingAnalysis(jobId=null,analysisId=null){
   if(!session||activeOperation||(!jobId&&!analysisId))return;
   const owner=session.user.id;
-  let query=db.from("cap_jobs").select("id,analysis_id,status,context,created_at").eq("user_id",owner);
+  let query=db.from("cap_jobs").select("id,analysis_id,request_key,status,context,created_at").eq("user_id",owner);
   if(jobId)query=query.eq("id",jobId);
   else if(analysisId)query=query.eq("analysis_id",analysisId);
   let jobs,error;
@@ -2521,6 +2535,13 @@ async function resumePendingAnalysis(jobId=null,analysisId=null){
   if(session?.user?.id!==owner||activeOperation)return;
   if(error||!jobs?.length){if(jobId||analysisId)toast("Não foi possível recuperar o pedido. Consulta o histórico ou inicia uma nova avaliação.");return;}
   const job=jobs[0];
+  let checkpoint;
+  try{checkpoint=JSON.parse(localStorage.getItem(researchCheckpointKey())||"null");}catch{}
+  if(job.context?.force_market_refresh&&checkpoint?.analysisId===job.analysis_id
+    &&(checkpoint.jobId===job.id||!checkpoint.jobId&&checkpoint.requestKey===job.request_key)
+    &&checkpoint.reevaluation?.analysisId===job.analysis_id){
+    return reevaluateCurrentAssessment({resumeJobId:job.id,context:checkpoint.reevaluation});
+  }
   let analysis;
   try{({data:analysis}=await storageRequest(db.from("cap_analyses").select("source_url,source_domain,reader,vehicle").eq("id",job.analysis_id).maybeSingle()));}
   catch(failure){if(session?.user?.id===owner)toast(failure.message);return;}
@@ -3111,6 +3132,121 @@ async function applyAuctionLocationAnswer(vehicleLocation){
 }
 q("auctionLocationPtBtn")?.addEventListener("click",()=>applyAuctionLocationAnswer("PT"));
 q("auctionLocationForeignBtn")?.addEventListener("click",()=>applyAuctionLocationAnswer("foreign"));
+
+function assessmentDescription(subject={}){
+  return [subject.make,subject.model,subject.trim,subject.year,
+    subject.first_registration?"1.ª matrícula "+subject.first_registration:null,
+    subject.mileage_km!=null?subject.mileage_km+" km"+(subject.mileage_estimated?" (estimados)":""):null,
+    subject.fuel,subject.power_cv?subject.power_cv+" cv":null,
+    subject.price>0?subject.price+" EUR":null].filter(Boolean).join(" · ").slice(0,1500);
+}
+function assessmentSourceUrl(entry={}){
+  try{const url=new URL(entry.sourceUrl);return ["http:","https:"].includes(url.protocol)?url.href:null;}catch{return null;}
+}
+function restoreAssessmentInput(result,entry={}){
+  const subject=result.subject||{};
+  const plate=String(subject.registration||"").trim();
+  const validPlate=plate&&!/^photo:/i.test(plate)&&plate.length<=16;
+  const url=assessmentSourceUrl(entry);
+  q("vehicleUrl").value=validPlate?plate:url||assessmentDescription(subject);
+  q("vehicleMileage").value=subject.mileage_km!=null&&!subject.mileage_estimated?String(subject.mileage_km):"";
+  q("vehicleMargin").value=result.purchase?.marginMode==="manual"?String(result.purchase.targetMargin):"";
+  window.dispatchEvent(new CustomEvent("autopro:input-restored",{detail:{mode:validPlate?"plate":url?"link":"voice"}}));
+}
+function reevaluationContext(){
+  // Capture the evaluated inputs, not another vehicle's form values or preferences.
+  const snapshot=currentHistoryRevision?currentMarketData.savedSnapshot:null;
+  const previous=snapshot?.result||currentResult;
+  const market=currentMarketData.market||{};
+  const settings=snapshot?(snapshot.deal||{}):DEAL;
+  const deal=mergeDeal({...settings,margin_policy_version:1,
+    costs:settings.costs||previous.parameters?.costs,
+    reconditioning:settings.reconditioning||previous.parameters?.reconditioning_settings,
+    minimum_margin:previous.purchase.minimumMargin??settings.minimum_margin,
+    risk_reserve:previous.purchase.riskReserve??settings.risk_reserve});
+  const targetMargin=previous.purchase.marginMode==="manual"
+    ?previous.purchase.targetMargin:previous.purchase.marginMode?null:previous.purchase.targetMargin??deal.target_margin;
+  const acquisition=previous.parameters?.acquisition||previous.purchase.acquisition||{};
+  const savedSource=previous.parameters?.source_context;
+  const sourceContext=savedSource&&Object.keys(savedSource).length?savedSource:{
+    is_auction:acquisition.isAuction??null,vehicle_location:acquisition.vehicleLocation||"unknown"};
+  const subject=previous.subject;
+  const conditionReport=market.condition_report||previous.condition_report||null;
+  const conditionOverrides=market.condition_overrides||previous.parameters?.reconditioning_settings?.overrides||{};
+  const auctionContext=market.auction_context||sourceContext;
+  const entry=currentMarketData.entry||{};
+  const payload={mode:"manual",url:null,description:assessmentDescription(subject),registration:subject.registration||null,
+    previous_subject:subject,previous_condition_report:conditionReport,previous_auction_context:auctionContext,
+    user_confirmed_identity:market.user_confirmed_identity||currentMarketData.marketPayload?.user_confirmed_identity||null,
+    registration_data:market.registration_data||currentMarketData.marketPayload?.registration_data||null,
+    dealer_memories:currentMarketData.allRules||[],image_data_urls:[],refinement_history:[],force_market_refresh:true};
+  return JSON.parse(JSON.stringify({analysisId:currentAnalysisId,subject,deal,targetMargin,sourceContext,conditionReport,conditionOverrides,
+    auctionContext,entry,reader:currentMarketData.reader||{},sourceHost:currentMarketData.sourceHost||"manual",payload,
+    tax:previous.tax||{mode:subject.vat_deductible===true?"deductible":"gross",vatRate:.23},
+    currentPrice:previous.purchase.currentPrice??subject.price??null}));
+}
+async function reevaluateCurrentAssessment({resumeJobId=null,context=null}={}){
+  if(activeOperation){toast("Aguarda a análise que está em curso.");return;}
+  if(!session||!context&&(!currentResult||!currentMarketData||!currentVehicle||!currentAnalysisId)){
+    toast("Abre ou conclui uma avaliação primeiro.");return;
+  }
+  const saved=context||reevaluationContext();
+  const operation=beginOperation("reevaluate",saved.analysisId);
+  cancelElectricSpecsResearch({clearAttempts:true});
+  if(resumeJobId&&saved.requestKey)operation.requestKey=saved.requestKey;
+  saved.requestKey=operation.requestKey;
+  operation.reevaluation=saved;
+  if(resumeJobId){operation.jobId=resumeJobId;operation.resuming=true;rememberResearchCheckpoint(operation);}
+  try{
+    progress(resumeJobId?"A retomar a reavaliação…":"A reavaliar com os mesmos dados…",
+      "Vou atualizar a pesquisa de mercado e manter a ficha, os quilómetros, a margem e os custos desta avaliação.");
+    const market=resumeJobId?await pollMarketJob(resumeJobId,operation):await runMarketAnalysis(saved.payload,operation);
+    assertOperation(operation);
+    const subject={...saved.subject};
+    market.subject=subject;
+    market.condition_report=saved.conditionReport;
+    market.condition_overrides=saved.conditionOverrides;
+    market.auction_context=saved.auctionContext;
+    const allRules=await loadMemories().catch(()=>[]);
+    assertOperation(operation);
+    const memories=relevantMemories(allRules,subject);
+    const sourceUrl=assessmentSourceUrl(saved.entry);
+    const result=evaluateBasePurchase({
+      subject,analysis_id:saved.analysisId,comparables:Array.isArray(market.comparables)?market.comparables:[],
+      source_url:sourceUrl,current_purchase_price:saved.currentPrice,
+      tax:{mode:saved.tax.mode,vat_rate:saved.tax.vatRate??saved.tax.vat_rate??.23},
+      source_context:saved.sourceContext,condition_report:saved.conditionReport,
+      reconditioning_settings:{...saved.deal.reconditioning,overrides:saved.conditionOverrides},
+      costs:saved.deal.costs,risk_reserve:saved.deal.risk_reserve,
+      risk_flags:market.risk_flags||[],target_margin:saved.targetMargin,minimum_margin:saved.deal.minimum_margin,
+      learning_rules:learningOwner===session?.user?.id?learningRulesCache:[]
+    });
+    result.market.comment=market.market_comment||"";
+    result.market.dealer_memories=memories;
+    for(const rule of memories)result.warnings.push("Orientação considerada: "+rule.statement);
+    // The old result and saved revision remain intact until the new calculation succeeds.
+    DEAL=saved.deal;
+    clearSavedRevisionView();
+    currentAnalysisId=saved.analysisId;
+    const nextPayload={...saved.payload,url:sourceUrl,force_market_refresh:false,previous_subject:subject,
+      registration_data:market.registration_data||saved.payload.registration_data||null};
+    currentMarketData={market,reader:saved.reader,entry:saved.entry,sourceHost:saved.sourceHost,marketPayload:nextPayload,allRules};
+    lastAnalysisContext=currentMarketData;
+    setOperationBusy(true);
+    restoreAssessmentInput(result,saved.entry);
+    renderResult(result,saved.sourceHost,market.risk_flags||[]);
+    q("pendingResearch")?.classList.add("hidden");pendingResearch=null;
+    const persisted=await persistCompletedAnalysis(saved.analysisId,result,market,saved.reader,saved.entry,nextPayload,"reevaluation");
+    toast(persisted?"Reavaliação concluída. A avaliação anterior continua no histórico.":"Reavaliação concluída. O histórico continua por guardar.");
+  }catch(error){
+    if(operation.cancelled||activeOperation!==operation)return;
+    if(error.recoverable)showPendingResearch(operation,error.message);
+    else showAssessmentFailure(error,operation);
+  }finally{
+    if(activeOperation===operation){stopProgress();finishOperation(operation);}
+  }
+}
+q("reevaluateBtn")?.addEventListener("click",()=>reevaluateCurrentAssessment());
 
 async function refreshMarketSnapshot(){
   if(activeOperation){toast("Aguarda a análise que está em curso.");return}

@@ -15,7 +15,8 @@ function element(){
 function harness(extra={}){
  const elements=new Map();
  const q=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
- const ctx={q,console,Date,Number,String,Object,Math,Array,JSON,Intl,Set,AbortController,setTimeout,clearTimeout,
+ const ctx={q,console,Date,Number,String,Object,Math,Array,JSON,Intl,Set,URL,AbortController,setTimeout,clearTimeout,
+ window:{dispatchEvent(){}},CustomEvent:class{constructor(type,options){this.type=type;this.detail=options?.detail;}},syncReevaluationControl(){},
  historyDate:new Intl.DateTimeFormat('pt-PT',{dateStyle:'short',timeStyle:'short'}),
  fmt:value=>value==null?'—':String(value),session:{user:{id:'user-one'}},activeOperation:null,
  currentHistoryRevision:null,historyControlStates:[],currentMarketData:null,currentAnalysisId:null,currentResult:null,lastAnalysisContext:null,
@@ -29,6 +30,7 @@ function harness(extra={}){
  vm.createContext(ctx);
  vm.runInContext(source('async function storageRequest','async function fetchJson'),ctx);
  vm.runInContext(source('function publishAssessment','publishAssessment(null);'),ctx);
+ vm.runInContext(source('function assessmentDescription','function reevaluationContext'),ctx);
  vm.runInContext(source('// Reading a revision never','function openHistory'),ctx);
  return ctx;
 }
@@ -174,6 +176,6 @@ test('a clean reset clears all current assessment state without deleting history
  assert.equal(ctx.session.user.id,'user-one');assert.equal(ctx.lastToast,undefined);
 });
 test('the real entry page requests the fixed script and includes the historical snapshot notice',()=>{
- assert.match(html,/app-v2\.js\?v=20261109-electric-specs-v1/);
+ assert.match(html,/app-v2\.js\?v=20261109-reevaluate-v1/);
  assert.match(html,/id="historySnapshotNotice" role="status"/);
 });
