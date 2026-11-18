@@ -1,8 +1,14 @@
 # Modelo de IA do Comparador Auto Pro
 
-Política revista em 2026-11-01: `gpt-6-astra`, conforme a [documentação oficial](https://developers.openai.com/api/docs/models/gpt-6-astra).
+Política de custos revista em 2026-11-18: `gpt-6.1-terra`, conforme a [documentação oficial](https://developers.openai.com/api/docs/models/gpt-6.1-terra).
 
-Conversa, identificação por fotografias e pesquisa de mercado usam a mesma configuração em `lib/model-config.js`. O valor explícito de `OPENAI_MODEL` prevalece; sem valor, o servidor usa Astra. A API Responses mantém raciocínio `medium`, saídas estruturadas e pesquisa web nas etapas de mercado. Não existe substituição automática por modelos mais baratos. A transcrição mantém o modelo de áudio especializado.
+Conversa, identificação por fotografias e pesquisa de mercado usam a mesma configuração em `lib/model-config.js`. O valor explícito de `OPENAI_MODEL` prevalece; sem valor, o servidor usa Terra. A API Responses mantém raciocínio `medium`, saídas estruturadas e pesquisa web nas etapas de mercado. Não existe substituição automática por modelos mais baratos. A transcrição mantém o modelo de áudio especializado.
+
+## Controlo de custos
+
+A mudança de `gpt-6-astra` para `gpt-6.1-terra` reduz o preço nominal dos tokens de entrada e saída em 80% nas tabelas Standard de novembro de 2026. Não significa que a fatura total reduza exatamente 80%: pesquisas web, transcrição, imagens e repetições dependem do consumo real. A integração Spottd não é alterada.
+
+A avaliação de mercado tem etapas de identificação, pesquisa e eventual recuperação, com até 10 chamadas de pesquisa web por resposta; a pesquisa de bateria tem até 5. O histórico reutiliza pesquisa válida quando as premissas e cache permitirem, sem esconder a origem da informação. Para diagnosticar custos reais, correlacionar `model`, `usage`, chamadas de ferramentas e número de respostas por avaliação na faturação da OpenAI.
 
 ## Diagnóstico
 
