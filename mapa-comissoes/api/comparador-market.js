@@ -319,6 +319,18 @@ function mergeCurrentSubject(cached={},current={}){
   }
   return merged;
 }
+function knownOrigin(value){
+  return value==="national"||value==="imported";
+}
+async function fillCachedOrigin(token,subject){
+  if(!subject||knownOrigin(subject.origin)||!normalizeRegistration(subject.registration))return;
+  const registration=await cachedRegistration(token,subject.registration);
+  if(knownOrigin(registration?.origin)&&registrationCompatible(subject,registration)){
+    subject.origin=registration.origin;
+    subject.origin_source=registration.origin_source||registration.provider;
+    return registration;
+  }
+}
 function mergeRegistration(subject,registration){
   if(!registration)return subject;
   const commercial=normalizeVehicleIdentity(registration);
@@ -330,7 +342,12 @@ function mergeRegistration(subject,registration){
   for(const key of ["trim","year","first_registration","fuel","body_type","engine_cc","power_cv","transmission","doors","seats","color"]){
     if((result[key]===null||result[key]===undefined||result[key]==="")&&commercial[key]!==null&&commercial[key]!==undefined&&commercial[key]!=="")result[key]=commercial[key];
   }
-  if((!result.origin||result.origin==="unknown")&&registration.origin)result.origin=registration.origin;
+  if(knownOrigin(registration.origin)&&(registration.provider==="spottd"||!knownOrigin(result.origin))){
+    result.origin=registration.origin;
+    result.origin_source=registration.origin_source||registration.provider;
+  }else if(!knownOrigin(result.origin)){
+    result.origin="unknown";
+  }
   if(registration.provider==="spottd"){
     // A PHEV report may expose combustion-engine power only. Use the verified
     // provider value for the same explicit BMW derivative, retaining both readings.
@@ -451,6 +468,9 @@ async function finalizeMarketResponse(data,registrationData=null,token=null,user
   const originalYear=Number(parsed.subject?.year);
   parsed.subject=normalizeVehicleIdentity(preserveIdentity?parsed.subject:mergeRegistration(parsed.subject,registration));
   if(confirmation&&!preserveIdentity)parsed.subject=applyConfirmedIdentity(parsed.subject,confirmation);
+  if(knownOrigin(parsed.subject.origin)&&Array.isArray(parsed.data_quality?.uncertain_fields)){
+    parsed.data_quality.uncertain_fields=parsed.data_quality.uncertain_fields.filter(field=>field!=="origin"&&field!=="origem");
+  }
   if(parsed.subject.power_cv_observed&&parsed.subject.power_cv_source==="spottd"){
     parsed.data_quality=parsed.data_quality||{completeness_pct:0,uncertain_fields:[],notes:""};
     const note="Potência usada na comparação: "+parsed.subject.power_cv+" cv (Spottd, mesma versão). A leitura das fotografias indica "+parsed.subject.power_cv_observed+" cv; ambas as leituras foram conservadas.";
@@ -662,6 +682,8 @@ function reuseMarketCache(cached,currentSubject,registrationData,key,currentEvid
   const base=JSON.parse(JSON.stringify(cached.result||{}));
   const snapshotAt=cached.snapshot_at||base?.market_cache?.snapshot_at||cached.updated_at||nowIso();
   const subject=mergeCurrentSubject(base.subject||{},currentSubject||{});
+  subject.origin=currentSubject?.origin||"unknown";
+  subject.origin_source=currentSubject?.origin_source||null;
   // A cache fornece anúncios, nunca os quilómetros de outra avaliação.
   subject.mileage_km=currentSubject?.mileage_estimated?null:(currentSubject?.mileage_km??null);
   subject.mileage_estimated=false;subject.mileage_estimate=null;
@@ -822,7 +844,7 @@ const marketSchema={
 const instructions=[
   "És o radar de mercado do Comparador Auto Pro para comerciantes profissionais de automóveis usados em Portugal.",
   "Identifica primeiro a viatura analisada. Nunca inventes versão, quilómetros, preço, potência, bateria, IVA ou origem.",
-  "Se registration_data existir, usa-a para identificação, mas nunca apagues nem substituas preço, quilómetros ou versão confirmados por outra fonte independente. Se provider=spottd, year é o ano de fabrico (year_built) e registration_date_pt é apenas a data de matrícula portuguesa, NÃO o ano de fabrico nem a primeira matrícula mundial. Nunca derives year de registration_date_pt.",
+  "Se registration_data existir, usa-a para identificação, mas nunca apagues nem substituas preço, quilómetros ou versão confirmados por outra fonte independente. Se provider=spottd, year é o ano de fabrico (year_built) e registration_date_pt é apenas a data de matrícula portuguesa, NÃO o ano de fabrico nem a primeira matrícula mundial. Nunca derives year ou origin de registration_date_pt. Para a origem, usa a indicação expressa na ficha da mesma viatura, incluindo numa fotografia do relatório. Mantém unknown se as fontes não indicarem se é nacional ou importada.",
   "Se registration_input existir mas registration_data não existir, mantém essa matrícula como dado fornecido pelo utilizador. Não deduzas marca/modelo pelos caracteres da matrícula. Usa fotografias, anúncio e pesquisa para identificar a viatura.",
   "Uma indisponibilidade do fornecedor externo de matrícula não é, por si só, um conflito de identidade e não deve bloquear a avaliação. Só um conflito real entre matrícula, fotografias/anúncio e marca/modelo deve bloquear.",
   "Se previous_subject existir, preserva campos previamente confirmados quando não houver evidência nova e melhor.",
@@ -1232,6 +1254,13 @@ module.exports=endpoint(async function handler(req,res){
     const cached=await findFreshInputCache(token,context.input_signature,job.id);
     if(cached){
       const reused=reuseInputCache(cached,context.input_signature);
+      const originRecord=await fillCachedOrigin(token,reused.subject);
+      if(originRecord){
+        reused.registration_data=originRecord;
+        if(Array.isArray(reused.data_quality?.uncertain_fields)){
+          reused.data_quality.uncertain_fields=reused.data_quality.uncertain_fields.filter(field=>field!=="origin"&&field!=="origem");
+        }
+      }
       reused.job_id=job.id;
       await updateJob(token,job.id,{
         status:"completed",result:reused,error_message:null,
@@ -1267,6 +1296,7 @@ module.exports=endpoint(async function handler(req,res){
     context={...context,pending_started_at:nowIso()};
     await updateJob(token,job.id,{context});
     if(forcedBase){
+      await fillCachedOrigin(token,forcedBase);
       const research=await preservedRefreshResearch(token,forcedBase);
       const subject={...forcedBase,ev_range:research.ev_range};
       const marketContext={...context,stage:"market",previous_subject:subject,registration_data:null,

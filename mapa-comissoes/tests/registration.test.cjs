@@ -74,6 +74,22 @@ test('Spottd partial data does not invent trim, power, CO2 or origin',()=>{
   assert.throws(()=>parseSpottdData({data:{make:'BMW',model:'320d',license_plate:'11-AA-11'}},'14-ID-91'));
 });
 
+test('Spottd keeps explicit national/imported evidence and never derives origin from technical or PT registration fields',()=>{
+  const {parseSpottdData}=require('../lib/registration');
+  const data={make:'BMW',model:'X1 sDrive 18d',year_built:2016,registration_date:'2016-07',license_plate:'00-AA-11'};
+  for(const [fields,expected] of [
+    [{origin:' Nacional '},'national'],[{origin:'imported'},'imported'],
+    [{is_imported:false},'national'],[{imported:'0'},'national'],[{imported:1},'imported'],
+    [{origin:'Nacional',is_imported:true},'unknown'],[{imported:null},'unknown'],
+    [{origin:'Portugal',country_of_manufacture:'DE'},'unknown'],[{},'unknown']
+  ]){
+    const result=parseSpottdData({data:{...data,...fields}},data.license_plate);
+    assert.equal(result.origin,expected);
+    assert.equal(result.origin_source,expected==='unknown'?null:'spottd_api');
+    assert.equal(result.first_registration,null);
+  }
+});
+
 test('Spottd imported Mercedes: 2020 manufacture and July 2024 Portugal plate are independent',()=>{
   const {parseSpottdData}=require('../lib/registration');
   const r=parseSpottdData({data:{

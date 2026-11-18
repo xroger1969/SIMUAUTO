@@ -165,6 +165,20 @@ test('a legacy revision without saved deal or margin mode preserves its recorded
   }finally{a.close();}
 });
 
+test('a verified origin fills an old unknown in the new snapshot, vehicle details and share summary',async()=>{
+  const a=await boot();try{
+    a.savedRow.snapshot.result.subject.origin='unknown';
+    await a.h.openHistory('revision-original');
+    a.setHttp(async()=>({status:200,data:market({...vehicle,origin:'national',origin_source:'spottd_app'})}));
+    a.click();await until(()=>a.requests.length>0&&!a.h.busy);
+    assert.equal(a.saves[0].snapshot.result.subject.origin,'national');
+    assert.equal(a.savedRow.snapshot.result.subject.origin,'unknown');
+    assert.match(a.q('vehicleFacts').textContent,/OrigemNacional/);
+    assert.match(a.q('vehicleFacts').textContent,/Ficha na aplicação Spottd/);
+    assert.match(a.w.eval('valuationShareData().meta'),/Nacional/);
+  }finally{a.close();}
+});
+
 test('a real source link stays in the new snapshot while reevaluation uses the extracted identity without rereading the advert',async()=>{
   const url='https://www.standvirtual.com/carros/anuncio/dacia-spring-test';
   const a=await boot({sourceUrl:url,sourceDomain:'standvirtual.com'});try{

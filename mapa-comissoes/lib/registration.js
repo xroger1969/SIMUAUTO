@@ -148,6 +148,21 @@ function parseMyCarPlateData(payload,requestedPlate){
   };
 }
 
+function spottdOrigin(data){
+  const readings=new Set();
+  for(const value of [data.origin,data.origem,data.registration_origin]){
+    const label=field(value).toLowerCase();
+    if(['nacional','national'].includes(label))readings.add('national');
+    if(['importado','importada','imported'].includes(label))readings.add('imported');
+  }
+  for(const value of [data.imported,data.is_imported,data.isImported,data.importado]){
+    const flag=String(value??'').trim().toLowerCase();
+    if(['1','true','sim','yes'].includes(flag))readings.add('imported');
+    if(['0','false','não','nao','no'].includes(flag))readings.add('national');
+  }
+  return readings.size===1?[...readings][0]:'unknown';
+}
+
 /**
  * Spottd devolve potência em kW (não em CV).
  * Dados desconhecidos permanecem null para evitar inventar equipamentos ou versões.
@@ -167,6 +182,7 @@ function parseSpottdData(payload,requestedPlate){
   const co2=data.co2===null||data.co2===undefined||field(data.co2)===''?null:numberField(data.co2);
   const built=intField(data.year_built);
   const rawTrim=field(data.version);
+  const origin=spottdOrigin(data);
   return {
     registration:displayRegistration(returned||requested)||null,
     make,model,
@@ -191,7 +207,8 @@ function parseSpottdData(payload,requestedPlate){
     weight_kg:Number.isInteger(weight)&&weight>0?weight:null,
     color:field(data.colour)||field(data.color)||null,
     co2_g_km:Number.isFinite(co2)&&co2>=0?co2:null,
-    origin:'unknown',
+    origin,
+    origin_source:origin==='unknown'?null:'spottd_api',
     provider:'spottd'
   };
 }
