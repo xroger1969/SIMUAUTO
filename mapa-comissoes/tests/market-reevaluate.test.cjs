@@ -16,7 +16,7 @@ const specs=()=>({research_version:1,identity:rangeIdentity(electric),checked_at
   battery:{capacity_kwh:26.8,basis:"usable",source_url:"https://e-brochure.dacia.pt/spring/mobile/m_spring_extreme_bbg_pt_novembre_2023.pdf",evidence:"Capacidade utilizável: 26,8 kWh"},
   wltp:null,real_range:null,clarification:null});
 
-function harness({vehicle=car,technicalRows=[],cacheFailure=false}={}){
+function harness({vehicle=car,technicalRows=[],registrationRows=[],cacheFailure=false}={}){
   let job=null;
   const stats={lookups:0,registrationCacheReads:0,marketCacheReads:0,technicalCacheReads:0,starts:[],quotas:0};
   const comparable={...vehicle,registration:null,url:comparatorUrl,price:13990,mileage_km:145000,
@@ -33,7 +33,7 @@ function harness({vehicle=car,technicalRows=[],cacheFailure=false}={}){
         created_at:new Date().toISOString(),updated_at:new Date().toISOString(),context:structuredClone(options.body.p_context)};
       return {claimed:true,job:structuredClone(job)};
     }
-    if(query.startsWith("cap_registration_cache")){stats.registrationCacheReads++;return [];}
+    if(query.startsWith("cap_registration_cache")){stats.registrationCacheReads++;return structuredClone(registrationRows);}
     const url=new URL("https://db.example/"+query),params=url.searchParams;
     if(url.pathname!=="/cap_jobs")throw Error(query);
     if(params.get("status")==="eq.completed"){
@@ -86,6 +86,19 @@ test("collection preserves the same identity, mileage, price and provenance even
     assert.equal(result.data.subject[key],car[key],key);
   }
   assert.equal(result.data.comparables.length,1);assert.equal(result.data.market_cache.hit,false);
+});
+test("a saved unknown origin accepts only evidence for the same plate and model, without a supplier call",async()=>{
+  const vehicle={...car,origin:"unknown"};
+  const record={...vehicle,provider:"spottd",origin:"national",origin_source:"spottd_app"};
+  for(const [row,expected] of [[record,"national"],[{...record,registration:"11-AA-11"},"unknown"],[{...record,model:"Clio"},"unknown"]]){
+    const h=harness({vehicle,registrationRows:[{data:row}]});
+    await h.start();const result=await h.poll();
+    assert.equal(result.data.subject.origin,expected);
+    if(expected==="national")assert.equal(result.data.subject.origin_source,"spottd_app");
+    assert.equal(h.stats.registrationCacheReads,1);
+    assert.equal(h.stats.lookups,0);
+    assert.equal(result.data.subject.mileage_km,vehicle.mileage_km);
+  }
 });
 test("a user-confirmed identity uses the same forced path and retains its provenance without reidentification",async()=>{
   const vehicle={...car,identity_source:"user_confirmed"},h=harness({vehicle});

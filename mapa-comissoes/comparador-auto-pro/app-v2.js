@@ -235,6 +235,7 @@ function calculationKindLabel(kind){
     market_refresh:"Mercado atualizado",
     reevaluation:"Reavaliação",
     auction_location:"Localização confirmada",
+    registration_origin:"Origem confirmada",
     assumptions:"Premissas recalculadas",
     condition_costs:"Custos de preparação corrigidos"
   })[kind]||"Cálculo";
@@ -335,7 +336,7 @@ function savedRevisionSnapshot(row){
   }
   const research=object(snapshot.research)?snapshot.research:{};
   const source=object(snapshot.source)?snapshot.source:{};
-  const sourceHost=String(source.domain||"manual");
+  const sourceHost=String(source.url?.startsWith("plate:")&&result.subject.registration_provider||source.domain||"manual");
   const entry={sourceUrl:source.url||null,sourceDomain:sourceHost,mode:source.mode||"manual",registration:result.subject.registration||null};
   const market={...research,subject:result.subject,comparables:result.comparables,
     condition_report:research.condition_report||result.condition_report||null,
@@ -449,6 +450,7 @@ function sourceName(host){
   if(host==="photo")return "Fotografia IA";
   if(host==="manual")return "Descrição manual";
   if(host==="mycarplate")return "MyCarPlate";
+  if(host==="spottd")return "Spottd";
   if(host==="Matrícula")return "Matrícula";
   return host.replace(/^www\./,"");
 }
@@ -688,6 +690,8 @@ function renderVehicleReadout(vehicle,context=currentMarketData){
     ["Lugares",v.seats],
     ["IVA dedutível",v.vat_deductible===true?"Sim":v.vat_deductible===false?"Não":null],
     ["Origem",originLabel(v.origin)],
+    ...(v.origin_source==="spottd_api"||v.origin_source==="spottd_app"?
+      [["Fonte da origem",v.origin_source==="spottd_api"?"API Spottd":"Ficha na aplicação Spottd"]]:[]),
     ["Garantia",v.warranty_months!=null?v.warranty_months+" meses":null],
     ["Vendedor",v.seller_name],
     ["Localização",v.location]
@@ -3203,6 +3207,10 @@ async function reevaluateCurrentAssessment({resumeJobId=null,context=null}={}){
     const market=resumeJobId?await pollMarketJob(resumeJobId,operation):await runMarketAnalysis(saved.payload,operation);
     assertOperation(operation);
     const subject={...saved.subject};
+    if(!["national","imported"].includes(subject.origin)&&["national","imported"].includes(market.subject?.origin)){
+      subject.origin=market.subject.origin;
+      subject.origin_source=market.subject.origin_source;
+    }
     market.subject=subject;
     market.condition_report=saved.conditionReport;
     market.condition_overrides=saved.conditionOverrides;
