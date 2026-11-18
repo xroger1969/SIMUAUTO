@@ -1,7 +1,7 @@
-// Reviewed against https://developers.openai.com/api/docs/models/gpt-6-astra
-// on 2026-11-01. A catalog entry alone does not prove an inference succeeded.
-const RECOMMENDED_MODEL="gpt-6-astra";
-const POLICY_REVIEWED_AT="2026-11-01";
+// Reviewed against https://developers.openai.com/api/docs/models/gpt-6.1-terra
+// on 2026-11-18. A catalog entry alone does not prove an inference succeeded.
+const RECOMMENDED_MODEL="gpt-6.1-terra";
+const POLICY_REVIEWED_AT="2026-11-18";
 const CACHE_MS=15*60*1000;
 let cache=null;
 let pending=null;
